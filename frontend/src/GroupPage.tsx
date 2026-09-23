@@ -8,6 +8,7 @@ import ExtensionSetup from './ExtensionSetup'
 import JobCost from './JobCost'
 import JobDetailPanel from './JobDetailPanel'
 import JobTable from './JobTable'
+import NewsPanel from './NewsPanel'
 
 export type LogEntry = { when: string; command: string; lines: string[]; job: JobSummary }
 
@@ -208,6 +209,8 @@ export default function GroupPage({ group, log, onLog }: Props) {
               adjusting={tune.isPending}
             />
           )}
+
+          {group.id === 'news' && <NewsPanel />}
 
           <div className="tasks">
             <h2>Standard tasks</h2>

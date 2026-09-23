@@ -127,3 +127,26 @@ export const execute = (group: string, planId: string, selected: string[]) =>
   call<{ results: string[]; job: JobSummary }>(`/api/groups/${group}/execute`, { plan_id: planId, selected })
 export const getJobs = (group?: string) => call<JobList>(group ? `/api/jobs?group=${group}` : '/api/jobs')
 export const getJob = (id: string) => call<JobDetail>(`/api/jobs/${id}`)
+
+export type NewsArticle = { link: string; title: string; source: string; published: string | null; from_teaser: boolean; reason: string }
+export type NewsStory = { id: string; title: string; summary: string; articles: NewsArticle[] }
+export type NewsDigestHead = {
+  id: number; made_at: string; covers_from: string; trigger: string; job_id: string
+  article_count: number; story_count: number; source_count: number; problems: string[]
+}
+export type NewsDigest = NewsDigestHead & { subjects: { subject: string; stories: NewsStory[] }[] }
+export type NewsSource = { id: number; site: string; name: string; feed: string; kind: string; last_checked: string; last_result: string }
+export type NewsOverview = {
+  sources: NewsSource[]; subjects: string[]; suggestions: { name: string; examples: string[] }[]
+  digests: NewsDigestHead[]; cap_usd: number; running: boolean
+}
+export const getNewsOverview = () => call<NewsOverview>('/api/news/overview')
+export const getNewsDigest = (id: number) => call<NewsDigest>(`/api/news/digests/${id}`)
+export const answerSuggestion = (name: string, accept: boolean) =>
+  call<{ ok: boolean }>(`/api/news/suggestions/${encodeURIComponent(name)}`, { accept })
+export const saveSubjects = (names: string[]) => call<{ subjects: string[] }>('/api/news/subjects', { names })
+export const setNewsCap = (usd: number) => call<{ cap_usd: number }>('/api/news/cap', { usd })
+export const makeNewsDigest = () => call<{ started: boolean }>('/api/news/make', {})
+export async function removeNewsSource(id: number): Promise<void> {
+  await fetch(`/api/news/sources/${id}`, { method: 'DELETE' })
+}
