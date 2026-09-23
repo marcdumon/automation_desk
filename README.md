@@ -31,7 +31,7 @@ and numbers every date on the page, and the model only points at those numbers.
 
 ## Jobs and costs
 
-Every preview and every apply is a **job**, recorded in `data/jobs.jsonl` (gitignored). A job records:
+Every command is a **job** (its preview and, when confirmed, its apply), stored in the SQLite file `data/automation.db` (gitignored). A job records:
 - every model call: purpose, the model asked for, the model and provider that answered, tokens in and out, the exact
   cost reported by OpenRouter, time taken, generation id, and the full prompt and reply (failed and retried calls included)
 - every Google API call: method, parameters, time taken, error

@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from llm_automation import jobs
+from llm_automation import ledger as ledger_store
 from llm_automation.groups.base import Context
 
 TZ = ZoneInfo('Europe/Brussels')
@@ -88,9 +88,9 @@ def _respx_active() -> bool:
 
 @pytest.fixture(autouse=True)
 def ledger(tmp_path, monkeypatch: pytest.MonkeyPatch):
-    """Keep every test's jobs out of the real data/jobs.jsonl."""
-    path = tmp_path / 'jobs.jsonl'
-    monkeypatch.setattr(jobs, 'LEDGER', path)
+    """Keep every test's jobs out of the real ledger."""
+    path = tmp_path / 'automation.db'
+    monkeypatch.setattr(ledger_store, 'DB', path)
     return path
 
 
