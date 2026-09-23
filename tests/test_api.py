@@ -122,7 +122,10 @@ def test_news_endpoints(client: TestClient) -> None:
     assert client.post('/api/news/cap', json={'usd': 11}).status_code == 422
     assert client.post('/api/news/cap', json={'usd': 0.5}).json() == {'cap_usd': 0.5}
     assert client.post('/api/news/subjects', json={'names': ['AI', 'Tech']}).json() == {'subjects': ['AI', 'Tech']}
+    assert client.post('/api/news/blocked', json={'names': ['Sports']}).json() == {'blocked': ['Sports']}
+    assert client.get('/api/news/overview').json()['blocked'] == ['Sports']
     assert client.get('/api/news/digests/99').status_code == 404
+    assert client.delete('/api/news/stories/9-9').status_code == 404
     source_id = overview['sources'][0]['id']
     assert client.delete(f'/api/news/sources/{source_id}').json() == {'ok': True}
     assert client.get('/api/news/overview').json()['sources'] == []

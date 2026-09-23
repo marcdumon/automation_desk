@@ -9,7 +9,7 @@ from automation_desk import jobs, ledger
 from automation_desk.groups.news import store
 from automation_desk.groups.news.collect import collect
 from automation_desk.groups.news.merge import merge_stories
-from automation_desk.groups.news.store import DigestRecord
+from automation_desk.groups.news.store import DigestRecord, LeftOut
 from automation_desk.groups.news.summarise import summarise
 
 GROUP = 'news'
@@ -53,7 +53,11 @@ def _make(trigger: str, allow_browser: bool, now: datetime) -> int:
         today = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat(timespec='seconds')
         budget = max(0.0, store.cap() - ledger.cost_since(GROUP, today))
         # CLAUDE> model calls use their own client with its long timeout; `http` (30 s) is for page reads only
-        items, summary_problems = summarise(found.articles, store.subjects(), budget)
+        blocked = store.blocked()
+        summarised, summary_problems = summarise(found.articles, store.subjects(), budget, blocked=blocked)
+        items = [i for i in summarised if i.subject not in blocked]
+        left_out = [LeftOut(i.article.link, i.article.source_id, i.article.title, i.subject)
+                    for i in summarised if i.subject in blocked]
         stories, merge_problems = merge_stories(items)
         suggestions: dict[str, list[str]] = {}
         for i in items:
@@ -61,8 +65,8 @@ def _make(trigger: str, allow_browser: bool, now: datetime) -> int:
                 suggestions.setdefault(i.suggestion, []).append(i.article.title)
         record = DigestRecord(made_at=now, covers_from=since, trigger=trigger, job_id=job.id,
                               problems=[*found.problems, *summary_problems, *merge_problems], stories=stories,
-                              suggestions=suggestions)
+                              suggestions=suggestions, left_out=left_out)
         digest_id = store.save_digest(record)
-        job.message = f'{len(found.articles)} article(s), {len(stories)} stor(y/ies)'
+        job.message = f'{len(found.articles)} article(s), {len(stories)} stor(y/ies), {len(left_out)} left out (blocked topics)'
         job.preview = {'summary': job.message, 'columns': [], 'rows': [], 'notes': record.problems, 'read_only': True}
     return digest_id

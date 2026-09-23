@@ -100,3 +100,17 @@ def test_suggested_subjects_are_asked_in_english() -> None:
     """Summaries stay in the article's language; subject names are always English ('Health', never 'Santé')."""
     assert 'suggest: <name in English>' in module.SYSTEM
     assert 'in English' in ArticleSummary.model_fields['subject'].description
+
+
+def test_blocked_topics_are_offered_as_subjects_and_matched_in_any_case(monkeypatch: pytest.MonkeyPatch) -> None:
+    prompts = []
+
+    def reply(system: str, user: str, *a: object, **k: object) -> BatchSummary:
+        """Sport as a blocked topic, as a suggestion of it, and a subject in another case."""
+        prompts.append(user)
+        return answer((1, 'Doelpunt.', 'Sports'), (2, 'Wielrennen.', 'suggest: sports'), (3, 'Over AI.', 'ai'))
+
+    monkeypatch.setattr(module, 'ask', reply)
+    items, _problems = summarise([article(1), article(2), article(3)], ['AI'], 1.0, blocked=['Sports'])
+    assert [(i.subject, i.suggestion) for i in items] == [('Sports', ''), ('Sports', ''), ('AI', '')]
+    assert '- Sports' in prompts[0]

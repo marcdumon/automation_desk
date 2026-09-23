@@ -51,6 +51,13 @@ async function read(url, guiTab) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
+  // CLAUDE> a link from the digest: open it behind the Automation desk tab, which keeps the focus
+  if (message?.type === 'open' && sender.tab) {
+    if (/^https?:\/\//.test(message.url)) {
+      chrome.tabs.create({ url: message.url, active: false, windowId: sender.tab.windowId, openerTabId: sender.tab.id })
+    }
+    return false
+  }
   if (message?.type !== 'read' || !sender.tab) return false
   read(message.url, sender.tab).then(reply, error => reply({ error: String(error.message || error) }))
   return true

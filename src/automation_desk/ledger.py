@@ -57,6 +57,11 @@ CREATE TABLE IF NOT EXISTS news_sources (
     added TEXT NOT NULL, last_checked TEXT, last_result TEXT
 );
 CREATE TABLE IF NOT EXISTS news_subjects (name TEXT PRIMARY KEY, position INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS news_blocked (name TEXT PRIMARY KEY, position INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS news_left_out (
+    link TEXT PRIMARY KEY, digest_id INTEGER NOT NULL REFERENCES news_digests (id) ON DELETE CASCADE, source_id INTEGER,
+    title TEXT, topic TEXT
+);
 CREATE TABLE IF NOT EXISTS news_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS news_digests (
     id INTEGER PRIMARY KEY AUTOINCREMENT, made_at TEXT NOT NULL, covers_from TEXT NOT NULL, trigger TEXT NOT NULL,
