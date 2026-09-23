@@ -162,6 +162,7 @@ export async function deleteNewsDigest(id: number): Promise<void> {
 }
 export const deleteNewsSubject = (digestId: number, subject: string) =>
   call<{ deleted: number }>(`/api/news/digests/${digestId}/delete-subject`, { subject })
+export const saveNewsSites = (sites: string[]) => call<{ problems: string[]; sources: NewsSource[] }>('/api/news/sources', { sites })
 export async function removeNewsSource(id: number): Promise<void> {
   await fetch(`/api/news/sources/${id}`, { method: 'DELETE' })
 }

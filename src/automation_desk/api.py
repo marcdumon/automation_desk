@@ -31,6 +31,7 @@ from automation_desk.groups.base import Context, Preview, TaskGroup, UserError
 from automation_desk.groups.calendar.client import timezone
 from automation_desk.groups.news import digest as news_digest
 from automation_desk.groups.news import store as news
+from automation_desk.groups.news.tasks.sites import save_site_list
 from automation_desk.interpret import fill_args, route
 from automation_desk.llm import LLMError
 from automation_desk.plans import Plan, PlanStore
@@ -415,6 +416,18 @@ def news_delete_story(story_id: str) -> dict:
     if not news.delete_story(story_id):
         raise HTTPException(404, f'No story {story_id}')
     return {'ok': True}
+
+
+class SiteList(BaseModel):
+    """The followed sites, one address per entry."""
+
+    sites: list[str]
+
+
+@app.post('/api/news/sources')
+def news_sources(site_list: SiteList) -> dict:
+    """Make the followed sites exactly this list; new ones get their feed looked up."""
+    return {'problems': save_site_list(site_list.sites), 'sources': [s.__dict__ for s in news.sources()]}
 
 
 @app.delete('/api/news/sources/{source_id}')

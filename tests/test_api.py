@@ -134,3 +134,11 @@ def test_news_endpoints(client: TestClient) -> None:
     source_id = overview['sources'][0]['id']
     assert client.delete(f'/api/news/sources/{source_id}').json() == {'ok': True}
     assert client.get('/api/news/overview').json()['sources'] == []
+
+
+def test_news_site_list_endpoint(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from automation_desk.groups.news.tasks import sites
+
+    monkeypatch.setattr(sites, 'find_feed', lambda site, http: ('HLN', 'https://www.hln.be/rss.xml', 'feed'))
+    answer = client.post('/api/news/sources', json={'sites': ['hln.be']}).json()
+    assert answer['problems'] == [] and [s['name'] for s in answer['sources']] == ['HLN']
