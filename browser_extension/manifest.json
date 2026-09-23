@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Automation desk reader",
   "version": "1.0",
-  "description": "Lets the local Automation desk (llm_automation) read agenda pages through this browser.",
+  "description": "Lets the local Automation desk (automation_desk) read agenda pages through this browser.",
   "permissions": ["tabs", "scripting"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },

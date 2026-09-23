@@ -2,7 +2,7 @@
 
 import threading
 
-from llm_automation import jobs, ledger
+from automation_desk import jobs, ledger
 
 
 def call(cost: float, model: str = 'm', stage: str = 'preview') -> jobs.LLMCall:

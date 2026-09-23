@@ -5,17 +5,17 @@ from datetime import date, time
 
 import pytest
 
-from llm_automation.groups.base import UserError
-from llm_automation.groups.calendar.organisers import Organiser
-from llm_automation.groups.calendar.tasks import add_events_from_web as module
-from llm_automation.groups.calendar.tasks.add_events_from_web import (
+from automation_desk.groups.base import UserError
+from automation_desk.groups.calendar.organisers import Organiser
+from automation_desk.groups.calendar.tasks import add_events_from_web as module
+from automation_desk.groups.calendar.tasks.add_events_from_web import (
     AddEventsArgs,
     AddEventsFromWeb,
     event_body,
     page_tag,
     source_key,
 )
-from llm_automation.groups.calendar.web_page import WebEvent
+from automation_desk.groups.calendar.web_page import WebEvent
 
 from .conftest import FakeGoogle
 
@@ -136,7 +136,7 @@ def test_event_bodies() -> None:
     timed = event_body(named('Friday concert'), 'Europe/Brussels', 'k', 't')
     assert timed['start'] == {'dateTime': '2026-09-25T20:30:00', 'timeZone': 'Europe/Brussels'}
     assert timed['end'] == {'dateTime': '2026-09-25T22:30:00', 'timeZone': 'Europe/Brussels'}
-    assert timed['extendedProperties'] == {'private': {'llm_automation_page': 't', 'llm_automation_key': 'k'}}
+    assert timed['extendedProperties'] == {'private': {'automation_desk_page': 't', 'automation_desk_key': 'k'}}
     expo = event_body(named('Long expo'), 'Europe/Brussels', 'k', 't')
     assert (expo['start'], expo['end']) == ({'date': '2026-09-25'}, {'date': '2026-12-02'})
     assert event_body(named('Saturday talk'), 'Europe/Brussels', 'k', 't')['end']['dateTime'] == '2026-09-26T15:30:00'
@@ -156,7 +156,7 @@ def test_earlier_import_with_wrong_link_and_no_info_is_updated_not_duplicated(ma
 
 
 def test_organiser_titles_places_and_adjusting_it(make_ctx, pages: dict, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    from llm_automation.groups.calendar import organisers
+    from automation_desk.groups.calendar import organisers
     monkeypatch.setattr(organisers, 'STORE', tmp_path / 'organisers.json')
     monkeypatch.setattr(module, 'organiser_for', lambda url, html, http=None: Organiser('venue.be', 'Venue', ''))
     ctx = make_ctx(calendar_api([]), SENTENCE)
@@ -172,7 +172,7 @@ def test_organiser_titles_places_and_adjusting_it(make_ctx, pages: dict, monkeyp
 
 def test_renaming_the_organiser_updates_instead_of_duplicating(
         make_ctx, pages: dict, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    from llm_automation.groups.calendar import organisers
+    from automation_desk.groups.calendar import organisers
     monkeypatch.setattr(organisers, 'STORE', tmp_path / 'organisers.json')
     monkeypatch.setattr(module, 'organiser_for', lambda url, html, http=None: Organiser('venue.be', 'Venue', ''))
     earlier = imported(named('Long expo'), event_id='ev-7')

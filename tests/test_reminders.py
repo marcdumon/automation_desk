@@ -2,8 +2,8 @@
 
 import pytest
 
-from llm_automation import reminders
-from llm_automation.config import config
+from automation_desk import reminders
+from automation_desk.config import config
 
 
 @pytest.fixture(autouse=True)

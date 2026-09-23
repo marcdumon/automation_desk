@@ -7,10 +7,10 @@ import httpx
 import pytest
 from bs4 import BeautifulSoup
 
-from llm_automation import jobs
-from llm_automation.capture import Captured
-from llm_automation.groups.calendar import web_page
-from llm_automation.groups.calendar.web_page import (
+from automation_desk import jobs
+from automation_desk.capture import Captured
+from automation_desk.groups.calendar import web_page
+from automation_desk.groups.calendar.web_page import (
     Extraction,
     FoundEvent,
     ics_events,

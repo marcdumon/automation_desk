@@ -4,7 +4,7 @@ from datetime import date, time
 
 import pytest
 
-from llm_automation.dates import DateExprError, resolve_day, resolve_range, resolve_time, weekday_index
+from automation_desk.dates import DateExprError, resolve_day, resolve_range, resolve_time, weekday_index
 
 TUESDAY = date(2026, 9, 22)
 THURSDAY = date(2026, 9, 24)

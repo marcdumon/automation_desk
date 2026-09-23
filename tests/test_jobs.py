@@ -2,7 +2,7 @@
 
 import pytest
 
-from llm_automation import jobs
+from automation_desk import jobs
 
 
 class _Req:

@@ -2,13 +2,13 @@
 
 import pytest
 
-from llm_automation.groups.base import UserError
-from llm_automation.groups.tasks.select import SelectionArgs
-from llm_automation.groups.tasks.tasks.add_task import AddTask, AddTaskArgs
-from llm_automation.groups.tasks.tasks.change_dates import ChangeDates, ChangeDatesArgs
-from llm_automation.groups.tasks.tasks.complete_tasks import CompleteTasks
-from llm_automation.groups.tasks.tasks.delete_tasks import DeleteTasks
-from llm_automation.groups.tasks.tasks.move_tasks import MoveTasks, MoveTasksArgs
+from automation_desk.groups.base import UserError
+from automation_desk.groups.tasks.select import SelectionArgs
+from automation_desk.groups.tasks.tasks.add_task import AddTask, AddTaskArgs
+from automation_desk.groups.tasks.tasks.change_dates import ChangeDates, ChangeDatesArgs
+from automation_desk.groups.tasks.tasks.complete_tasks import CompleteTasks
+from automation_desk.groups.tasks.tasks.delete_tasks import DeleteTasks
+from automation_desk.groups.tasks.tasks.move_tasks import MoveTasks, MoveTasksArgs
 
 from .conftest import FakeGoogle
 

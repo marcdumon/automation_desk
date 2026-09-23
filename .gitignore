@@ -6,7 +6,7 @@ __pycache__/
 CLAUDE.md
 frontend/node_modules/
 frontend/dist/
-src/llm_automation/static/
+src/automation_desk/static/
 secrets/
 data/
 .ruff_cache/
