@@ -341,7 +341,7 @@ def extension_setup() -> dict:
 def news_overview() -> dict:
     """Everything the News panel shows besides a digest's stories."""
     return {'sources': [s.__dict__ for s in news.sources()], 'subjects': news.subjects(), 'suggestions': news.open_suggestions(),
-            'digests': news.digests(), 'cap_usd': news.cap(), 'running': news_digest.running(),
+            'blocked': news.blocked(), 'digests': news.digests(), 'cap_usd': news.cap(), 'running': news_digest.running(),
             'failure': news_digest.failure()}
 
 
@@ -378,6 +378,21 @@ def news_subjects(order: SubjectOrder) -> dict:
     """Rename, reorder or remove subjects from the panel."""
     news.set_subjects(order.names)
     return {'subjects': news.subjects()}
+
+
+@app.post('/api/news/blocked')
+def news_blocked(order: SubjectOrder) -> dict:
+    """Change the blocked topics from the panel."""
+    news.set_blocked(order.names)
+    return {'blocked': news.blocked()}
+
+
+@app.delete('/api/news/stories/{story_id}')
+def news_delete_story(story_id: str) -> dict:
+    """Take a story out of its digest; its articles never come back."""
+    if not news.delete_story(story_id):
+        raise HTTPException(404, f'No story {story_id}')
+    return {'ok': True}
 
 
 @app.delete('/api/news/sources/{source_id}')

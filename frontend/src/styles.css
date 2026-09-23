@@ -294,12 +294,22 @@ pre.params { max-height: none; margin: 0; padding: 6px; }
 .digest h2 { font-size: 20px; margin: 0 0 4px; }
 .digest-subject h3 { margin: 24px 0 8px; font-size: 16px; border-bottom: 1px solid var(--rule); padding-bottom: 4px; }
 .story { padding: 10px 0; border-bottom: 1px solid var(--rule); max-width: 80ch; }
+.story-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.story-delete { font-size: 13px; color: var(--muted); flex: none; }
+.story-delete:hover { color: var(--error); }
+.open-hint { font-size: 13px; }
 .story-title { font-weight: 600; color: var(--ink); text-decoration: none; }
 .story-title:hover { text-decoration: underline; }
 .story-summary { margin: 4px 0; }
 .story-sources { margin: 0; font-size: 13px; color: var(--muted); }
 .story-sources a { color: var(--accent); }
-.news-settings { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.news-settings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.news-settings-box, .news-history { border: 1px solid var(--rule); border-radius: 8px; padding: 10px 14px; }
+.news-settings-box summary, .news-history summary { cursor: pointer; font-weight: 600; }
+.news-settings-box[open] .news-settings { margin-top: 12px; }
+.left-out { font-size: 14px; }
+.left-out summary { cursor: pointer; color: var(--muted); }
+.left-out ul { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 2px; }
 .news-settings ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
 .news-settings li .link { margin-left: 8px; }
 .news-settings textarea { width: 100%; padding: 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); }

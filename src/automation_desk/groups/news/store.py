@@ -46,6 +46,16 @@ class StoryRecord:
 
 
 @dataclass(frozen=True)
+class LeftOut:
+    """An article on a blocked topic: not in the digest, only listed as left out."""
+
+    link: str
+    source_id: int
+    title: str
+    topic: str
+
+
+@dataclass(frozen=True)
 class DigestRecord:
     """A finished digest, ready to store."""
 
@@ -56,6 +66,7 @@ class DigestRecord:
     problems: list[str]
     stories: list[StoryRecord]
     suggestions: dict[str, list[str]] = field(default_factory=dict)
+    left_out: list[LeftOut] = field(default_factory=list)
 
 
 def _now() -> str:
@@ -95,28 +106,52 @@ def set_source_result(source_id: int, result: str, ok: bool = True) -> None:
             db.execute('UPDATE news_sources SET last_result = ? WHERE id = ?', (result, source_id))
 
 
+def _names(table: str) -> list[str]:
+    """The names in a name list table, in order."""
+    with connect() as db:
+        return [r[0] for r in db.execute(f'SELECT name FROM {table} ORDER BY position')]
+
+
+def _set_names(table: str, names: list[str]) -> None:
+    """Replace a name list with `names`, in that order; blanks and repeats (in any case) are dropped."""
+    clean: dict[str, str] = {}
+    for name in (' '.join(n.split()) for n in names):
+        if name:
+            clean.setdefault(name.casefold(), name)
+    with connect(write=True) as db:
+        db.execute(f'DELETE FROM {table}')
+        db.executemany(f'INSERT INTO {table} (name, position) VALUES (?, ?)', [(n, i) for i, n in enumerate(clean.values())])
+
+
 def subjects() -> list[str]:
     """The user's subjects, in order."""
-    with connect() as db:
-        return [r[0] for r in db.execute('SELECT name FROM news_subjects ORDER BY position')]
+    return _names('news_subjects')
 
 
 def set_subjects(names: list[str]) -> None:
-    """Replace the subject list with `names`, in that order; blanks and repeats are dropped."""
-    clean = list(dict.fromkeys(' '.join(n.split()) for n in names if n.strip()))
-    with connect(write=True) as db:
-        db.execute('DELETE FROM news_subjects')
-        db.executemany('INSERT INTO news_subjects (name, position) VALUES (?, ?)', [(n, i) for i, n in enumerate(clean)])
+    """Replace the subject list with `names`, in that order."""
+    _set_names('news_subjects', names)
+
+
+def blocked() -> list[str]:
+    """The topics the user never wants in a digest, in order."""
+    return _names('news_blocked')
+
+
+def set_blocked(names: list[str]) -> None:
+    """Replace the blocked topics with `names`, in that order."""
+    _set_names('news_blocked', names)
 
 
 def known_links(links: list[str]) -> set[str]:
-    """Which of these links were already in a digest or recorded as seen."""
+    """Which of these links were already in a digest, left out of one, or recorded as seen."""
     if not links:
         return set()
     marks = ', '.join('?' * len(links))
     with connect() as db:
         rows = db.execute(f'SELECT link FROM news_articles WHERE link IN ({marks}) '
-                          f'UNION SELECT link FROM news_seen WHERE link IN ({marks})', [*links, *links])
+                          f'UNION SELECT link FROM news_seen WHERE link IN ({marks}) '
+                          f'UNION SELECT link FROM news_left_out WHERE link IN ({marks})', [*links, *links, *links])
         return {r[0] for r in rows}
 
 
@@ -147,6 +182,8 @@ def save_digest(record: DigestRecord) -> int:
                 'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 [(a.link, a.source_id, story_id, a.title, a.published.isoformat(timespec='seconds') if a.published else None,
                   a.teaser, int(a.from_teaser), a.reason) for a in story.articles])
+        db.executemany('INSERT OR REPLACE INTO news_left_out (link, digest_id, source_id, title, topic) VALUES (?, ?, ?, ?, ?)',
+                       [(a.link, digest_id, a.source_id, a.title, a.topic) for a in record.left_out])
         for name, examples in record.suggestions.items():
             db.execute("INSERT INTO news_suggestions (name, examples, digest_id, status) VALUES (?, ?, ?, 'open') "
                        "ON CONFLICT (name) DO UPDATE SET examples = excluded.examples, digest_id = excluded.digest_id "
@@ -171,6 +208,9 @@ def digest(digest_id: int) -> dict | None:
         articles = db.execute(
             'SELECT a.*, s.name AS source FROM news_articles a JOIN news_stories t ON t.id = a.story_id '
             'LEFT JOIN news_sources s ON s.id = a.source_id WHERE t.digest_id = ? ORDER BY a.published', (digest_id,)).fetchall()
+        left_out = db.execute('SELECT o.link, o.title, s.name AS source, o.topic FROM news_left_out o '
+                              'LEFT JOIN news_sources s ON s.id = o.source_id WHERE o.digest_id = ? ORDER BY o.topic, o.title',
+                              (digest_id,)).fetchall()
     order = subjects()
     grouped: dict[str, list[dict]] = {}
     for story in stories:
@@ -182,7 +222,25 @@ def digest(digest_id: int) -> dict | None:
                                           key=lambda a: a['title'] != story['title'])]})
     ranked = sorted(grouped, key=lambda s: (s == 'Other', order.index(s) if s in order else len(order), s))
     return {**dict(head), 'problems': json.loads(head['problems'] or '[]'), 'cost_usd': _job_cost(head['job_id']),
-            'subjects': [{'subject': s, 'stories': grouped[s]} for s in ranked]}
+            'subjects': [{'subject': s, 'stories': grouped[s]} for s in ranked],
+            'left_out': [{'link': o['link'], 'title': o['title'], 'source': o['source'] or '', 'topic': o['topic']} for o in left_out]}
+
+
+def delete_story(story_id: str) -> bool:
+    """Remove a story from its digest; its articles stay seen so they never return. False when there is no such story."""
+    with connect(write=True) as db:
+        story = db.execute('SELECT digest_id FROM news_stories WHERE id = ?', (story_id,)).fetchone()
+        if story is None:
+            return False
+        db.execute('INSERT OR IGNORE INTO news_seen (link, source_id, seen) '
+                   'SELECT link, source_id, ? FROM news_articles WHERE story_id = ?', (_now(), story_id))
+        db.execute('DELETE FROM news_articles WHERE story_id = ?', (story_id,))
+        db.execute('DELETE FROM news_stories WHERE id = ?', (story_id,))
+        joined = 'FROM news_articles a JOIN news_stories t ON t.id = a.story_id WHERE t.digest_id = :d'
+        db.execute(f'UPDATE news_digests SET story_count = (SELECT COUNT(*) FROM news_stories WHERE digest_id = :d), '
+                   f'article_count = (SELECT COUNT(*) {joined}), source_count = (SELECT COUNT(DISTINCT a.source_id) {joined}) '
+                   'WHERE id = :d', {'d': story['digest_id']})
+    return True
 
 
 def latest_made_at() -> datetime | None:
@@ -199,10 +257,12 @@ def _job_cost(job_id: str | None) -> float:
 
 
 def open_suggestions() -> list[dict]:
-    """Subjects the model proposed that the user has not accepted or rejected yet."""
+    """Subjects the model proposed that the user has not accepted or rejected yet, never a blocked topic."""
     with connect() as db:
         rows = db.execute("SELECT * FROM news_suggestions WHERE status = 'open' ORDER BY name").fetchall()
-    return [{'name': r['name'], 'examples': json.loads(r['examples'] or '[]'), 'digest_id': r['digest_id']} for r in rows]
+    hidden = {name.casefold() for name in blocked()}
+    return [{'name': r['name'], 'examples': json.loads(r['examples'] or '[]'), 'digest_id': r['digest_id']}
+            for r in rows if r['name'].casefold() not in hidden]
 
 
 def set_suggestion(name: str, status: str) -> None:

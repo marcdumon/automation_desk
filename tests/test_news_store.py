@@ -4,7 +4,7 @@ from datetime import datetime
 
 from automation_desk import ledger
 from automation_desk.groups.news import store
-from automation_desk.groups.news.store import ArticleRecord, DigestRecord, StoryRecord
+from automation_desk.groups.news.store import ArticleRecord, DigestRecord, LeftOut, StoryRecord
 
 from .conftest import TZ
 
@@ -61,3 +61,34 @@ def test_a_story_links_its_lead_article_first_and_shows_its_cost() -> None:
     assert stored['subjects'][0]['stories'][0]['articles'][0]['link'] == 'https://a.be/x', 'the title links to its own article'
     assert stored['cost_usd'] == 0.0125
     assert len(store.open_suggestions()[0]['examples']) == 8, 'all headlines, so the page can count them'
+
+
+def test_blocked_topics_and_left_out_articles() -> None:
+    source = store.add_source('https://a.be', 'A', 'https://a.be/feed', 'feed')
+    store.set_blocked(['Sports', ' TV  programmes ', 'sports', ''])
+    assert store.blocked() == ['Sports', 'TV programmes']
+    made = datetime(2026, 9, 24, 7, 0, tzinfo=TZ)
+    record = DigestRecord(made_at=made, covers_from=made.replace(day=23), trigger='scheduled', job_id='j', problems=[], stories=[],
+                          suggestions={'Sports': ['Doelpunt'], 'Housing': ['Huur']},
+                          left_out=[LeftOut('https://a.be/goal', source, 'Doelpunt in de 90ste minuut', 'Sports')])
+    digest_id = store.save_digest(record)
+    assert store.digest(digest_id)['left_out'] == [
+        {'link': 'https://a.be/goal', 'title': 'Doelpunt in de 90ste minuut', 'source': 'A', 'topic': 'Sports'}]
+    assert store.known_links(['https://a.be/goal']) == {'https://a.be/goal'}, 'a left-out article never comes back'
+    assert [s['name'] for s in store.open_suggestions()] == ['Housing'], 'a blocked topic is never suggested'
+
+
+def test_deleting_a_story_keeps_its_articles_seen() -> None:
+    source = store.add_source('https://a.be', 'A', 'https://a.be/feed', 'feed')
+    made = datetime(2026, 9, 24, 7, 0, tzinfo=TZ)
+    art = lambda link: ArticleRecord(link, source, 'T', made, 't', False, '')  # noqa: E731
+    record = DigestRecord(made_at=made, covers_from=made.replace(day=23), trigger='button', job_id='j', problems=[], stories=[
+        StoryRecord('AI', 'Weg', 'S.', [art('https://a.be/1'), art('https://a.be/2')]), StoryRecord('AI', 'Blijft', 'S.', [art('https://a.be/3')])])
+    digest_id = store.save_digest(record)
+    story_id = store.digest(digest_id)['subjects'][0]['stories'][0]['id']
+    assert store.delete_story(story_id) is True
+    stored = store.digest(digest_id)
+    assert [s['title'] for g in stored['subjects'] for s in g['stories']] == ['Blijft']
+    assert (stored['story_count'], stored['article_count']) == (1, 1)
+    assert store.known_links(['https://a.be/1', 'https://a.be/2']) == {'https://a.be/1', 'https://a.be/2'}, 'never back in a digest'
+    assert store.delete_story('nope') is False

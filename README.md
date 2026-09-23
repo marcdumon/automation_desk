@@ -19,6 +19,7 @@ with a tick box per item, and changes nothing until you press Apply.
 | Gmail | Trash mail | `trash all mail from Zalando older than a month` |
 | Gmail | Draft an email (never sends) | `draft a mail to Anna: ik ben morgen 10 minuten te laat` |
 | News | Add or remove news sites / subjects; Make a digest now | `add sites lemonde.fr, standaard.be and simonwillison.net` |
+| News | Block or unblock topics (left out of the digest) | `block topics sports, showbiz, culture and tv programs` |
 
 ## What the language model may and may not do
 
@@ -67,6 +68,10 @@ each new article (at most ~500 words), and has the model write a 2–4 line summ
 your subjects (or suggest a new one) and mark articles about the same story. The News page shows the digest grouped by
 subject; earlier digests are kept. A daily cost cap (default $0.30) switches the rest of a day's articles to their feed
 teaser. Article text is not stored.
+
+Blocked topics (e.g. Sports, Showbiz) are offered to the model like subjects; articles filed under one are left out
+of the digest and only listed, folded away, under "left out", so a wrongly filed article can still be found.
+Subject and topic names are always English; summaries stay in the article's language.
 
 ## Run it
 

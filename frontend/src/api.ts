@@ -134,19 +134,27 @@ export type NewsDigestHead = {
   id: number; made_at: string; covers_from: string; trigger: string; job_id: string
   article_count: number; story_count: number; source_count: number; problems: string[]
 }
-export type NewsDigest = NewsDigestHead & { cost_usd: number; subjects: { subject: string; stories: NewsStory[] }[] }
+export type NewsLeftOut = { link: string; title: string; source: string; topic: string }
+export type NewsDigest = NewsDigestHead & {
+  cost_usd: number; subjects: { subject: string; stories: NewsStory[] }[]; left_out: NewsLeftOut[]
+}
 export type NewsSource = { id: number; site: string; name: string; feed: string; kind: string; last_checked: string; last_result: string }
 export type NewsOverview = {
   sources: NewsSource[]; subjects: string[]; suggestions: { name: string; examples: string[] }[]
-  digests: NewsDigestHead[]; cap_usd: number; running: boolean; failure: string
+  blocked: string[]; digests: NewsDigestHead[]; cap_usd: number; running: boolean; failure: string
 }
 export const getNewsOverview = () => call<NewsOverview>('/api/news/overview')
 export const getNewsDigest = (id: number) => call<NewsDigest>(`/api/news/digests/${id}`)
 export const answerSuggestion = (name: string, accept: boolean) =>
   call<{ ok: boolean }>(`/api/news/suggestions/${encodeURIComponent(name)}`, { accept })
 export const saveSubjects = (names: string[]) => call<{ subjects: string[] }>('/api/news/subjects', { names })
+export const saveBlocked = (names: string[]) => call<{ blocked: string[] }>('/api/news/blocked', { names })
 export const setNewsCap = (usd: number) => call<{ cap_usd: number }>('/api/news/cap', { usd })
 export const makeNewsDigest = () => call<{ started: boolean }>('/api/news/make', {})
+export async function deleteNewsStory(id: string): Promise<void> {
+  const response = await fetch(`/api/news/stories/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  if (!response.ok) throw new Error(`The story could not be deleted (${response.status}). Reload the page.`)
+}
 export async function removeNewsSource(id: number): Promise<void> {
   await fetch(`/api/news/sources/${id}`, { method: 'DELETE' })
 }

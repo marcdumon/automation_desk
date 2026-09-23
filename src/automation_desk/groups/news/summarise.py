@@ -71,15 +71,19 @@ def _teaser(article: Article, batch: int, reason: str) -> Summarised:
 
 
 def _prompt(batch: list[Article], subjects: list[str]) -> str:
-    """The numbered articles and the subject list."""
+    """The numbered articles and the subject list (the user's subjects and blocked topics alike)."""
     listed = '\n'.join(f'- {s}' for s in subjects) or '- (none yet)'
     body = '\n\n'.join(f'Article {n}\nTitle: {a.title}\nSite: {a.source_name}\n{a.text}' for n, a in enumerate(batch, 1))
     return f'Subjects:\n{listed}\n- {OTHER}\n\nAnswer all {len(batch)} articles, numbered 1 to {len(batch)}.\n\n{body}'
 
 
 def _checked(batch: list[Article], reply: BatchSummary, subjects: list[str], index: int) -> list[Summarised]:
-    """The model's answers kept only where they fit the batch; missing articles get their teaser."""
+    """The model's answers kept only where they fit the batch; missing articles get their teaser.
+
+    Subjects match in any case ('ai' is the user's 'AI'); a suggestion that is one of the subjects is that subject.
+    """
     answers = {a.number: a for a in reply.articles if 1 <= a.number <= len(batch)}
+    known = {s.casefold(): s for s in subjects}
     items = []
     for n, article in enumerate(batch, 1):
         answer = answers.get(n)
@@ -88,17 +92,25 @@ def _checked(batch: list[Article], reply: BatchSummary, subjects: list[str], ind
             continue
         subject, suggestion = answer.subject.strip(), ''
         if subject.casefold().startswith('suggest:'):
-            subject, suggestion = OTHER, subject.split(':', 1)[1].strip()
-        elif subject not in subjects and subject != OTHER:
+            subject = subject.split(':', 1)[1].strip()
+        if subject.casefold() in known:
+            subject = known[subject.casefold()]
+        elif subject.casefold() == OTHER.casefold():
+            subject = OTHER
+        else:
             subject, suggestion = OTHER, subject
         items.append(Summarised(article, answer.summary.strip(), subject, suggestion, bool(article.teaser_reason),
                                 article.teaser_reason, index))
     return items
 
 
-def summarise(articles: list[Article], subjects: list[str], budget_usd: float,
-              http: httpx.Client | None = None) -> tuple[list[Summarised], list[str]]:
-    """Summaries of all articles, in batches; articles past the budget, or of failed batches, keep their teaser."""
+def summarise(articles: list[Article], subjects: list[str], budget_usd: float, http: httpx.Client | None = None,
+              blocked: list[str] | None = None) -> tuple[list[Summarised], list[str]]:
+    """Summaries of all articles, in batches; articles past the budget, or of failed batches, keep their teaser.
+
+    Blocked topics are offered to the model as subjects like any other; the digest leaves their articles out.
+    """
+    subjects = [*subjects, *(blocked or [])]
     items: list[Summarised] = []
     size, spent, capped, failed, failure = batch_size(), 0.0, 0, 0, ''
     for index, start in enumerate(range(0, len(articles), size)):

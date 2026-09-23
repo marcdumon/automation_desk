@@ -6,6 +6,7 @@ import pytest
 from automation_desk.groups.base import UserError
 from automation_desk.groups.news import store
 from automation_desk.groups.news.tasks import make, sites
+from automation_desk.groups.news.tasks.blocked import BlockedArgs, ManageBlocked
 from automation_desk.groups.news.tasks.sites import ManageSites, SitesArgs
 from automation_desk.groups.news.tasks.subjects import ManageSubjects, SubjectsArgs
 
@@ -55,3 +56,15 @@ def test_make_now_runs_a_digest(make_ctx, monkeypatch: pytest.MonkeyPatch) -> No
     _preview, payload = make.MakeDigest().resolve(make.MakeArgs(status='ok', message=''), ctx)
     assert make.MakeDigest().execute(payload, {'digest'}, ctx) == ['Digest made: open it on the News page.']
     assert ran == [('button', True)]
+
+
+def test_block_and_unblock_topics(make_ctx) -> None:
+    ctx = make_ctx(FakeGoogle({}), '')
+    _preview, payload = ManageBlocked().resolve(BlockedArgs(status='ok', message='', add=['sports', 'Showbiz', 'TV programs'],
+                                                            remove=[]), ctx)
+    ManageBlocked().execute(payload, {'blocked'}, ctx)
+    assert store.blocked() == ['sports', 'Showbiz', 'TV programs']
+    preview, payload = ManageBlocked().resolve(BlockedArgs(status='ok', message='', add=[], remove=['SHOWBIZ']), ctx)
+    assert preview.rows[0].cells == {'Before': 'sports, Showbiz, TV programs', 'After': 'sports, TV programs'}
+    ManageBlocked().execute(payload, {'blocked'}, ctx)
+    assert store.blocked() == ['sports', 'TV programs']

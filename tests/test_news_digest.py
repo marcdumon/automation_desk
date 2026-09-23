@@ -28,7 +28,7 @@ def parts(monkeypatch: pytest.MonkeyPatch) -> dict:
         seen.update(allow_browser=allow_browser)
         return Collected([art], ['B could not be read: 500'])
 
-    def summarise(articles: list, subjects: list, budget: float, http: object = None) -> tuple:
+    def summarise(articles: list, subjects: list, budget: float, http: object = None, blocked: list | None = None) -> tuple:
         """One summary with a suggestion."""
         seen.update(budget=budget, summarise_http=http)
         return [Summarised(art, 'Samenvatting.', 'Other', 'Housing', False, '', 0)], []
@@ -102,3 +102,30 @@ def test_a_failed_digest_is_reported_until_one_succeeds(parts: dict, monkeypatch
     monkeypatch.setattr(module, 'collect', good)
     module.make_digest('button', allow_browser=True, now=NOW)
     assert module.failure() == ''
+
+
+def test_articles_on_a_blocked_topic_are_left_out(parts: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    sport = Article('https://k.be/2', 1, 'Krant', 'Doelpunt', NOW, 'Teaser', 'Tekst')
+    news = Article('https://k.be/3', 1, 'Krant', 'Akkoord', NOW, 'Teaser', 'Tekst')
+    store.add_source('https://k.be', 'Krant', 'https://k.be/rss', 'feed')
+    store.set_blocked(['Sports'])
+    given = {}
+    monkeypatch.setattr(module, 'collect', lambda now, http, allow_browser: Collected([sport, news], []))
+
+    def summarise(articles: list, subjects: list, budget: float, http: object = None, blocked: list | None = None) -> tuple:
+        """The model files the goal under the blocked topic."""
+        given['blocked'] = blocked
+        return [Summarised(sport, 'Doelpunt.', 'Sports', '', False, '', 0),
+                Summarised(news, 'Akkoord.', 'Other', '', False, '', 0)], []
+
+    def merge(items: list, http: object = None) -> tuple:
+        """One story per item."""
+        given['merged'] = [i.article.link for i in items]
+        return [StoryRecord('Other', 'Akkoord', 'Akkoord.', [ArticleRecord(news.link, 1, 'Akkoord', NOW, 'Teaser', False, '')])], []
+
+    monkeypatch.setattr(module, 'summarise', summarise)
+    monkeypatch.setattr(module, 'merge_stories', merge)
+    stored = store.digest(module.make_digest('button', allow_browser=True, now=NOW))
+    assert given == {'blocked': ['Sports'], 'merged': ['https://k.be/3']}
+    assert [(a['link'], a['topic']) for a in stored['left_out']] == [('https://k.be/2', 'Sports')]
+    assert stored['article_count'] == 1
