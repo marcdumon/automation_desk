@@ -341,7 +341,8 @@ def extension_setup() -> dict:
 def news_overview() -> dict:
     """Everything the News panel shows besides a digest's stories."""
     return {'sources': [s.__dict__ for s in news.sources()], 'subjects': news.subjects(), 'suggestions': news.open_suggestions(),
-            'digests': news.digests(), 'cap_usd': news.cap(), 'running': news_digest.running()}
+            'digests': news.digests(), 'cap_usd': news.cap(), 'running': news_digest.running(),
+            'failure': news_digest.failure()}
 
 
 @app.get('/api/news/digests/{digest_id}')

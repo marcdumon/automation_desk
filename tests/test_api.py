@@ -118,7 +118,7 @@ def test_news_endpoints(client: TestClient) -> None:
     store.add_source('https://a.be', 'A', 'https://a.be/rss', 'feed')
     overview = client.get('/api/news/overview').json()
     assert [s['name'] for s in overview['sources']] == ['A']
-    assert overview['running'] is False
+    assert overview['running'] is False and overview['failure'] == ''
     assert client.post('/api/news/cap', json={'usd': 11}).status_code == 422
     assert client.post('/api/news/cap', json={'usd': 0.5}).json() == {'cap_usd': 0.5}
     assert client.post('/api/news/subjects', json={'names': ['AI', 'Tech']}).json() == {'subjects': ['AI', 'Tech']}

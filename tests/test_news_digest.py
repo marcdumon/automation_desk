@@ -23,18 +23,19 @@ def parts(monkeypatch: pytest.MonkeyPatch) -> dict:
     seen: dict = {}
     art = Article('https://k.be/1', 1, 'Krant', 'Titel', NOW, 'Teaser', 'Tekst')
 
-    def collect(since: datetime, now: datetime, http: object, allow_browser: bool) -> Collected:
+    def collect(now: datetime, http: object, allow_browser: bool) -> Collected:
         """One article and one problem."""
-        seen.update(since=since, allow_browser=allow_browser)
+        seen.update(allow_browser=allow_browser)
         return Collected([art], ['B could not be read: 500'])
 
     def summarise(articles: list, subjects: list, budget: float, http: object = None) -> tuple:
         """One summary with a suggestion."""
-        seen['budget'] = budget
+        seen.update(budget=budget, summarise_http=http)
         return [Summarised(art, 'Samenvatting.', 'Other', 'Housing', False, '', 0)], []
 
     def merge(items: list, http: object = None) -> tuple:
         """One story."""
+        seen['merge_http'] = http
         return [StoryRecord('Other', 'Titel', 'Samenvatting.', [ArticleRecord(art.link, 1, 'Titel', NOW, 'Teaser', False, '')])], []
 
     monkeypatch.setattr(module, 'collect', collect)
@@ -48,15 +49,18 @@ def test_a_digest_is_one_job_and_is_stored(parts: dict) -> None:
     digest_id = module.make_digest('button', allow_browser=True, now=NOW)
     stored = store.digest(digest_id)
     assert stored['problems'] == ['B could not be read: 500'] and stored['trigger'] == 'button'
-    assert parts['since'] == NOW - timedelta(hours=24), 'the first digest looks back 24 hours'
+    assert stored['covers_from'] == (NOW - timedelta(hours=24)).isoformat(), 'the first digest looks back 24 hours'
+    assert (parts['summarise_http'], parts['merge_http']) == (None, None), (
+        'model calls use their own client and its long timeout, not the 30-second page client')
     assert round(parts['budget'], 2) == 0.25, 'cap $0.30 minus $0.05 already spent today'
     assert [s['name'] for s in store.open_suggestions()] == ['Housing']
     job = ledger.detail(stored['job_id'])
     assert (job['group'], job['task_name']) == ('news', 'Make a digest')
 
     later = NOW + timedelta(days=1)
-    module.make_digest('scheduled', allow_browser=False, now=later)
-    assert parts['since'] == NOW and parts['allow_browser'] is False, 'the next digest starts where the last one ended'
+    later_id = module.make_digest('scheduled', allow_browser=False, now=later)
+    assert store.digest(later_id)['covers_from'] == NOW.isoformat() and parts['allow_browser'] is False, (
+        'the next digest starts where the last one ended')
 
 
 def test_never_two_runs_at_once(parts: dict, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -82,3 +86,19 @@ def test_never_two_runs_at_once(parts: dict, monkeypatch: pytest.MonkeyPatch) ->
     first.join(5)
     second.join(5)
     assert len(store.digests()) == 2 and not module.running()
+
+
+def test_a_failed_digest_is_reported_until_one_succeeds(parts: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    good = module.collect
+
+    def broken(now: datetime, http: object, allow_browser: bool) -> Collected:
+        """Collection breaks."""
+        raise RuntimeError('disk full')
+
+    monkeypatch.setattr(module, 'collect', broken)
+    with pytest.raises(RuntimeError):
+        module.make_digest('button', allow_browser=True, now=NOW)
+    assert module.failure() == 'disk full'
+    monkeypatch.setattr(module, 'collect', good)
+    module.make_digest('button', allow_browser=True, now=NOW)
+    assert module.failure() == ''

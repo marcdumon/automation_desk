@@ -68,7 +68,7 @@ def estimate(batch: list[Article]) -> float:
 
 def _teaser(article: Article, batch: int, reason: str) -> Summarised:
     """An article summarised by its teaser."""
-    return Summarised(article, article.teaser or article.title, OTHER, '', True, reason, batch)
+    return Summarised(article, article.teaser or article.title or article.link, OTHER, '', True, reason, batch)
 
 
 def _prompt(batch: list[Article], subjects: list[str]) -> str:
@@ -93,8 +93,8 @@ def _checked(batch: list[Article], reply: BatchSummary, subjects: list[str], ind
         elif subject not in subjects and subject != OTHER:
             subject, suggestion = OTHER, subject
         same = frozenset(batch[m - 1].link for m in answer.same_story if 1 <= m <= len(batch) and m != n)
-        reason = 'site blocks programs' if article.blocked else ''
-        items.append(Summarised(article, answer.summary.strip(), subject, suggestion, article.blocked, reason, index, same))
+        items.append(Summarised(article, answer.summary.strip(), subject, suggestion, bool(article.teaser_reason),
+                                article.teaser_reason, index, same))
     return items
 
 
