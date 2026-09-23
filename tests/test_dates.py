@@ -4,7 +4,7 @@ from datetime import date, time
 
 import pytest
 
-from automation_desk.dates import DateExprError, resolve_day, resolve_range, resolve_time, weekday_index
+from automation_desk.dates import DateExprError, parse_duration, resolve_day, resolve_range, resolve_time, weekday_index
 
 TUESDAY = date(2026, 9, 22)
 THURSDAY = date(2026, 9, 24)
@@ -73,3 +73,15 @@ def test_weekday_index_accepts_plurals() -> None:
     assert weekday_index('Fridays') == 4
     with pytest.raises(DateExprError):
         weekday_index('fri-day')
+
+
+@pytest.mark.parametrize(('expr', 'minutes'), [('2h', 120), ('90 min', 90), ('1h30', 90), ('1:30', 90), ('1.5 h', 90),
+                                               ('3 uur', 180), ('45m', 45), ('2 hours 15 minutes', 135)])
+def test_durations(expr: str, minutes: int) -> None:
+    assert parse_duration(expr).total_seconds() == minutes * 60
+
+
+@pytest.mark.parametrize('expr', ['90', 'ages', '0 min', '10 days'])
+def test_bad_durations(expr: str) -> None:
+    with pytest.raises(DateExprError):
+        parse_duration(expr)

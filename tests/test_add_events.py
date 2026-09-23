@@ -5,6 +5,7 @@ from datetime import date, time
 
 import pytest
 
+from automation_desk.dates import DateExprError
 from automation_desk.groups.base import UserError
 from automation_desk.groups.calendar.organisers import Organiser
 from automation_desk.groups.calendar.tasks import add_events_from_web as module
@@ -162,7 +163,7 @@ def test_organiser_titles_places_and_adjusting_it(make_ctx, pages: dict, monkeyp
     ctx = make_ctx(calendar_api([]), SENTENCE)
     preview, payload = AddEventsFromWeb().resolve(args(exclude_weekdays=[]), ctx)
     assert {r.cells['Title'] for r in preview.rows} >= {'Venue: Saturday talk', 'Venue: Long expo'}
-    assert [o.value for o in preview.options] == ['Venue', '']
+    assert [o.value for o in preview.options] == ['Venue', '', '2h']
 
     preview, payload = AddEventsFromWeb().adjust(payload, {'organiser': 'VNU', 'organiser_address': 'Kade 1, 2000 Antwerpen'}, ctx)
     row = next(r for r in preview.rows if r.cells['Title'] == 'VNU: Saturday talk')
@@ -181,3 +182,54 @@ def test_renaming_the_organiser_updates_instead_of_duplicating(
     preview, payload = AddEventsFromWeb().resolve(args(exclude_weekdays=[]), ctx)
     row = next(r for r in preview.rows if r.cells['Title'] == 'Venue: Long expo')
     assert row.note == 'in the calendar; will be updated: title, place' and payload['updates'][row.id] == 'ev-7'
+
+
+def test_durations_for_all_and_for_each(make_ctx, pages: dict) -> None:
+    ctx = make_ctx(calendar_api([]), SENTENCE)
+    preview, payload = AddEventsFromWeb().resolve(args(exclude_weekdays=[]), ctx)
+    rows = {r.cells['Title']: r for r in preview.rows}
+    assert (rows['Friday concert'].cells['Time'], rows['Friday concert'].cells['Duration']) == ('20:30-22:30', '2h (assumed)')
+    assert rows['Friday concert'].inputs['Duration'] == '2h' and 'Duration' not in rows['Long expo'].inputs, 'no duration for all-day'
+    assert rows['Saturday talk'].cells['Duration'] == '1h30', 'the end time on the page counts'
+
+    key = rows['Saturday talk'].id
+    preview, payload = AddEventsFromWeb().adjust(payload, {'default_duration': '3 uur', f'Duration:{key}': '45 min'}, ctx)
+    rows = {r.cells['Title']: r for r in preview.rows}
+    assert rows['Friday concert'].cells['Time'] == '20:30-23:30', 'the new default applies to all without an end time'
+    assert (rows['Saturday talk'].cells['Time'], rows['Saturday talk'].cells['Duration']) == ('14:00-14:45', '45 min')
+    assert payload['bodies'][key]['end']['dateTime'] == '2026-09-26T14:45:00'
+    with pytest.raises(DateExprError):
+        AddEventsFromWeb().adjust(payload, {'default_duration': 'ages'}, ctx)
+
+
+def test_a_year_far_from_the_others_is_flagged(make_ctx, monkeypatch: pytest.MonkeyPatch) -> None:
+    typo = [event('Lezing', date(2026, 10, 3), start_time=time(9, 30)), event('Stemming', date(2028, 10, 6), start_time=time(20)),
+            event('Bespreking', date(2026, 10, 13), start_time=time(20))]
+    monkeypatch.setattr(module, 'read_events', lambda *a, **k: (typo, [], ''))
+    monkeypatch.setattr(module, 'organiser_for', lambda url, html, http=None, site=None: Organiser('x', '', ''))
+    preview, _ = AddEventsFromWeb().resolve(args(exclude_weekdays=[]), make_ctx(calendar_api([]), SENTENCE))
+    row = next(r for r in preview.rows if r.cells['Title'] == 'Stemming')
+    assert not row.selected and row.selectable and row.note.startswith('the page says 2028 while the other events are in 2026')
+
+
+def test_every_field_can_be_edited(make_ctx, pages: dict) -> None:
+    ctx = make_ctx(calendar_api([]), SENTENCE)
+    preview, payload = AddEventsFromWeb().resolve(args(exclude_weekdays=[]), ctx)
+    concert = next(r for r in preview.rows if r.cells['Title'] == 'Friday concert')
+    expo = next(r for r in preview.rows if r.cells['Title'] == 'Long expo')
+    assert set(concert.inputs) == {'Date', 'Time', 'Duration', 'Title', 'Place', 'Info', 'Source'}
+    edits = {f'Date:{concert.id}': '3/10/2026', f'Time:{concert.id}': '19u30', f'Duration:{concert.id}': '1h30',
+             f'Title:{concert.id}': 'Jazz!', f'Place:{concert.id}': 'Zaal Nova', f'Info:{concert.id}': 'Nieuw',
+             f'Time:{expo.id}': '10:00', f'Date:{expo.id}': '1 okt 2026'}
+    preview, payload = AddEventsFromWeb().adjust(payload, edits, ctx)
+    body = payload['bodies'][concert.id]
+    assert (body['summary'], body['location'], body['start']['dateTime'], body['end']['dateTime']) == (
+        'Jazz!', 'Zaal Nova', '2026-10-03T19:30:00', '2026-10-03T21:00:00')
+    assert body['description'].startswith('Nieuw')
+    expo_body = payload['bodies'][expo.id]
+    assert expo_body['start']['dateTime'] == '2026-10-01T10:00:00', 'a date and time turn an exhibition into a timed event'
+
+    preview, payload = AddEventsFromWeb().adjust(payload, {f'Time:{expo.id}': 'all day'}, ctx)
+    assert payload['bodies'][expo.id]['start'] == {'date': '2026-10-01'}
+    with pytest.raises(UserError, match="Could not read the date 'soon' of 'Jazz!'"):
+        AddEventsFromWeb().adjust(payload, {f'Date:{concert.id}': 'soon'}, ctx)

@@ -27,7 +27,7 @@ _IN_N = re.compile(r'^in\s+(\d+)\s+(days?|weeks?)$')
 _AGO = re.compile(r'^(\d+)\s+(days?|weeks?)\s+ago$')
 _MONTH_DAY = re.compile(r'^([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?$')
 _DAY_MONTH = re.compile(r'^(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?([a-z]+)$')
-_TIME = re.compile(r'^(\d{1,2})(?:[:.h](\d{2}))?\s*(am|pm|h)?$')
+_TIME = re.compile(r'^(\d{1,2})(?:[:.hu](\d{2}))?\s*(am|pm|h|u|uur)?$')
 
 
 class DateExprError(ValueError):
@@ -170,3 +170,34 @@ def gmail_age(expr: str) -> str:
     count = int(m[1] or 1)
     unit = m[2][0]
     return f'{count * 7}d' if unit == 'w' else f'{count}{unit}'
+
+
+_DURATION = re.compile(r'^(?:(\d+(?:[.,]\d+)?)\s*(?:h|hr|hrs|hour|hours|u|uur))?'
+                       r'\s*(?:(\d+)\s*(?:m|min|mins|minute|minutes|minuten)?)?$')
+_CLOCK_DURATION = re.compile(r'^(\d{1,2}):(\d{2})$')
+
+
+def parse_duration(expr: str) -> timedelta:
+    """A duration such as '2h', '90 min', '1h30', '1:30', '1.5 h', '3 uur'; the model never computes it."""
+    e = _norm(expr).replace(' en ', ' ').replace(' and ', ' ')
+    if m := _CLOCK_DURATION.match(e):
+        minutes = int(m[1]) * 60 + int(m[2])
+    elif (m := _DURATION.match(e)) and (m[1] or m[2]):
+        hours = float(m[1].replace(',', '.')) if m[1] else 0.0
+        minutes = round(hours * 60) + int(m[2] or 0)
+        if not m[1] and m[2] and not re.search(r'[a-z]', e):
+            raise DateExprError(f"{expr!r}: say '90 min' or '1h30', a bare number is ambiguous")
+    else:
+        raise DateExprError(f"cannot understand the duration {expr!r}; say e.g. '2h', '90 min', '1h30'")
+    if not 0 < minutes <= 7 * 24 * 60:
+        raise DateExprError(f'{expr!r} is not a sensible duration')
+    return timedelta(minutes=minutes)
+
+
+def duration_label(value: timedelta) -> str:
+    """A duration as shown in previews: '2h', '1h30', '45 min'."""
+    minutes = int(value.total_seconds() // 60)
+    hours, rest = divmod(minutes, 60)
+    if not hours:
+        return f'{rest} min'
+    return f'{hours}h{rest:02d}' if rest else f'{hours}h'
