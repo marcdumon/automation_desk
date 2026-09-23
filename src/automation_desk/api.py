@@ -7,6 +7,7 @@ execute:   plan id + ticked rows -> exactly the previewed changes are applied.
 import hashlib
 import logging
 import re
+import threading
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -27,6 +28,8 @@ from automation_desk.google_auth import AuthError
 from automation_desk.groups import GROUPS
 from automation_desk.groups.base import Context, Preview, TaskGroup, UserError
 from automation_desk.groups.calendar.client import timezone
+from automation_desk.groups.news import digest as news_digest
+from automation_desk.groups.news import store as news
 from automation_desk.interpret import fill_args, route
 from automation_desk.llm import LLMError
 from automation_desk.plans import Plan, PlanStore
@@ -332,6 +335,77 @@ def capture_deliver(request_id: str, result: CaptureResult) -> dict:
 def extension_setup() -> dict:
     """Where the browser extension lives, for the setup steps shown in the GUI."""
     return {'folder': str(EXTENSION_DIR)}
+
+
+@app.get('/api/news/overview')
+def news_overview() -> dict:
+    """Everything the News panel shows besides a digest's stories."""
+    return {'sources': [s.__dict__ for s in news.sources()], 'subjects': news.subjects(), 'suggestions': news.open_suggestions(),
+            'digests': news.digests(), 'cap_usd': news.cap(), 'running': news_digest.running()}
+
+
+@app.get('/api/news/digests/{digest_id}')
+def news_digest_detail(digest_id: int) -> dict:
+    """One digest with its stories grouped by subject."""
+    found = news.digest(digest_id)
+    if found is None:
+        raise HTTPException(404, f'No digest {digest_id}')
+    return found
+
+
+class SuggestionAnswer(BaseModel):
+    """Accept or reject a suggested subject."""
+
+    accept: bool
+
+
+@app.post('/api/news/suggestions/{name}')
+def news_suggestion(name: str, answer: SuggestionAnswer) -> dict:
+    """Accept (the subject joins the list) or reject a suggestion."""
+    news.set_suggestion(name, 'accepted' if answer.accept else 'rejected')
+    return {'ok': True}
+
+
+class SubjectOrder(BaseModel):
+    """The subject list, in order."""
+
+    names: list[str]
+
+
+@app.post('/api/news/subjects')
+def news_subjects(order: SubjectOrder) -> dict:
+    """Rename, reorder or remove subjects from the panel."""
+    news.set_subjects(order.names)
+    return {'subjects': news.subjects()}
+
+
+@app.delete('/api/news/sources/{source_id}')
+def news_remove_source(source_id: int) -> dict:
+    """Stop following a site."""
+    news.remove_source(source_id)
+    return {'ok': True}
+
+
+class CapSetting(BaseModel):
+    """The daily cost cap."""
+
+    usd: float
+
+
+@app.post('/api/news/cap')
+def news_cap(setting: CapSetting) -> dict:
+    """Change the daily cost cap (0 to 10 dollars)."""
+    if not 0 <= setting.usd <= 10:
+        raise UserError('The daily cap must be between $0 and $10.')
+    news.set_cap(setting.usd)
+    return {'cap_usd': news.cap()}
+
+
+@app.post('/api/news/make')
+def news_make() -> dict:
+    """Make a digest now, in the background; the panel polls the overview until it is done."""
+    threading.Thread(target=news_digest.make_digest, args=('button', True), daemon=True).start()
+    return {'started': True}
 
 
 if STATIC.exists():
