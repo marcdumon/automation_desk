@@ -248,3 +248,18 @@ def test_fuller_place_wins_and_longer_description_wins(monkeypatch: pytest.Monke
     done, _ = web_page.complete_from_event_pages(listed, {'https://pompidou.fr/agenda'}, TODAY, TZ, None, False)
     assert done[0].location == 'Grand Palais, Paris', "'Paris' from the event data says less than the list"
     assert done[0].description.startswith('L\u2019exposition') and done[0].end == date(2027, 1, 17)
+
+
+@pytest.mark.parametrize(('text', 'marked', 'days'), [
+    ('De BiAF vindt plaats op zaterdag 10 en zondag 11 oktober 2026 in Antwerpen', '[D1, D2: 10 en zondag 11 oktober 2026]',
+     [date(2026, 10, 10), date(2026, 10, 11)]),
+    ('samedi 10 et dimanche 11 octobre', '[D1, D2: 10 et dimanche 11 octobre]', [date(2026, 10, 10), date(2026, 10, 11)]),
+    ('October 10 and 11, 2026', '[D1, D2: October 10 and 11, 2026]', [date(2026, 10, 10), date(2026, 10, 11)]),
+    ('3, 10 en 17 okt', '[D1, D2, D3: 3, 10 en 17 okt]', [date(2026, 10, 3), date(2026, 10, 10), date(2026, 10, 17)]),
+    ('vr 9 t/m zo 11 okt', '[D1 to D2: 9 t/m zo 11 okt]', [date(2026, 10, 9), date(2026, 10, 11)]),
+    ('oktober 12, 20:00', '[D1: oktober 12]', [date(2026, 10, 12)]),
+])
+def test_several_days_sharing_one_month(text: str, marked: str, days: list[date]) -> None:
+    spans = marked_text(BeautifulSoup(f'<p>{text}</p>', 'lxml'), 'https://x.be', TODAY, TZ)
+    assert marked in spans.text
+    assert [spans.dates[n][0] for n in sorted(spans.dates)] == days
