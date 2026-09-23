@@ -292,11 +292,15 @@ pre.params { max-height: none; margin: 0; padding: 6px; }
 .cap-error { color: var(--error); font-size: 13px; }
 .message.suggestion { display: flex; gap: 12px; align-items: center; }
 .digest h2 { font-size: 20px; margin: 0 0 4px; }
-.digest-subject h3 { margin: 24px 0 8px; font-size: 16px; border-bottom: 1px solid var(--rule); padding-bottom: 4px; }
+.digest-subject > summary { margin: 24px 0 8px; border-bottom: 1px solid var(--rule); padding-bottom: 4px; cursor: pointer; }
+.digest-subject h3 { display: inline; margin: 0; font-size: 16px; }
+.digest-subject > summary .story-delete { margin: 0 8px 0 6px; vertical-align: middle; }
+.digest-head { display: flex; align-items: baseline; gap: 16px; }
 .story { padding: 10px 0; border-bottom: 1px solid var(--rule); max-width: 80ch; }
-.story-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
-.story-delete { font-size: 13px; color: var(--muted); flex: none; }
-.story-delete:hover { color: var(--error); }
+.story-head { display: flex; align-items: baseline; gap: 8px; }
+.story-delete { flex: none; width: 24px; height: 24px; padding: 0; border: 1px solid var(--rule); border-radius: 6px;
+                background: none; color: var(--muted); font-size: 12px; line-height: 1; cursor: pointer; }
+.story-delete:hover { color: var(--error); border-color: var(--error); }
 .open-hint { font-size: 13px; }
 .story-title { font-weight: 600; color: var(--ink); text-decoration: none; }
 .story-title:hover { text-decoration: underline; }

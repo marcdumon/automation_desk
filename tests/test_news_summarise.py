@@ -114,3 +114,10 @@ def test_blocked_topics_are_offered_as_subjects_and_matched_in_any_case(monkeypa
     items, _problems = summarise([article(1), article(2), article(3)], ['AI'], 1.0, blocked=['Sports'])
     assert [(i.subject, i.suggestion) for i in items] == [('Sports', ''), ('Sports', ''), ('AI', '')]
     assert '- Sports' in prompts[0]
+
+
+def test_the_model_is_told_to_prefer_a_subject_or_a_suggestion_over_other() -> None:
+    """The model filed 47 of 77 articles under Other, a stock index included, and suggested nothing."""
+    assert 'closest subject' in module.SYSTEM
+    assert 'stock index' in module.SYSTEM
+    assert 'Other only' in module.SYSTEM
