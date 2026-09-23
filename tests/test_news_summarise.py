@@ -24,7 +24,7 @@ def answer(*rows: tuple[int, str, str]) -> BatchSummary:
 def test_answers_are_checked(monkeypatch: pytest.MonkeyPatch) -> None:
     replies = [answer((1, 'Akkoord over de begroting.', 'Politics BE'), (2, 'Ook over de begroting.', 'Politics BE'),
                       (3, 'Nieuwe huurwet.', 'suggest: Housing'), (99, 'Niet gestuurd.', 'AI'),
-                      (4, 'Over AI.', 'Sport'))]
+                      (4, 'Over AI.', 'Sport')), answer()]
     monkeypatch.setattr(module, 'ask', lambda *a, **k: replies.pop(0))
     items, problems = summarise([article(1), article(2), article(3), article(4), article(5)], ['Politics BE', 'AI'], 1.0)
     by_link = {i.article.link: i for i in items}
@@ -32,7 +32,7 @@ def test_answers_are_checked(monkeypatch: pytest.MonkeyPatch) -> None:
     assert (by_link['https://k.be/4'].subject, by_link['https://k.be/4'].suggestion) == ('Other', 'Sport'), (
         'a subject not in the list becomes a suggestion')
     assert (by_link['https://k.be/5'].summary, by_link['https://k.be/5'].from_teaser) == ('Teaser 5', True), (
-        'an article the model skipped keeps its teaser')
+        'an article the model skipped, also when asked again, keeps its teaser')
     assert len(items) == 5 and problems == []
 
 
@@ -40,7 +40,7 @@ def test_empty_answer_and_failed_batch_fall_back_to_teasers(monkeypatch: pytest.
     calls = []
 
     def fail(*a: object, **k: object) -> BatchSummary:
-        """The first batch answers nothing; the model then errors twice."""
+        """The first batch answers nothing; the model then errors."""
         calls.append(1)
         if len(calls) == 1:
             return BatchSummary(articles=[])
@@ -51,7 +51,7 @@ def test_empty_answer_and_failed_batch_fall_back_to_teasers(monkeypatch: pytest.
     items, problems = summarise([article(1), article(2), article(3)], [], 1.0)
     assert all(i.from_teaser for i in items) and len(items) == 3
     assert problems == ['1 batch(es) could not be summarised (down); their articles use teasers.']
-    assert len(calls) == 3, 'the failed batch is retried once'
+    assert len(calls) == 4, 'the empty answer is asked again once; the failed batch is retried once'
 
 
 def test_cost_cap_switches_the_rest_to_teasers(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -67,7 +67,8 @@ def test_cost_cap_switches_the_rest_to_teasers(monkeypatch: pytest.MonkeyPatch) 
 def test_articles_read_from_their_teaser_are_marked(monkeypatch: pytest.MonkeyPatch) -> None:
     unreadable = Article('https://k.be/7', 1, 'Krant', 'Titel 7', None, 'Teaser 7', 'Teaser 7', 'page could not be read (404)')
     bare = Article('https://k.be/8', 1, 'Krant', '', None, '', '', 'page could not be read')
-    monkeypatch.setattr(module, 'ask', lambda *a, **k: answer((1, 'Over de teaser.', 'AI')))
+    replies = [answer((1, 'Over de teaser.', 'AI')), answer()]
+    monkeypatch.setattr(module, 'ask', lambda *a, **k: replies.pop(0))
     items, _problems = summarise([unreadable, bare], ['AI'], 1.0)
     assert (items[0].from_teaser, items[0].reason) == (True, 'page could not be read (404)')
     assert items[1].summary == 'https://k.be/8', 'an item with no teaser and no title still shows something'
@@ -77,3 +78,19 @@ def test_the_batch_call_asks_for_no_same_story_numbers() -> None:
     """A cheap model marked whole batches as one story; merging is the story merger's job alone (and saves output tokens)."""
     assert 'same_story' not in json.dumps(BatchSummary.model_json_schema())
     assert 'same story' not in module.SYSTEM
+
+
+def test_skipped_articles_are_asked_again_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    prompts = []
+
+    def reply(system: str, user: str, *a: object, **k: object) -> BatchSummary:
+        """The model skips article 2 of 3, then answers it when asked for it alone."""
+        prompts.append(user)
+        return answer((1, 'Eerste.', 'AI'), (3, 'Derde.', 'AI')) if len(prompts) == 1 else answer((1, 'Tweede.', 'AI'))
+
+    monkeypatch.setattr(module, 'ask', reply)
+    items, problems = summarise([article(1), article(2), article(3)], ['AI'], 1.0)
+    assert [(i.article.link, i.summary, i.from_teaser) for i in items] == [
+        ('https://k.be/1', 'Eerste.', False), ('https://k.be/2', 'Tweede.', False), ('https://k.be/3', 'Derde.', False)]
+    assert 'Answer all 3 articles' in prompts[0] and 'Titel 2' in prompts[1] and 'Titel 1' not in prompts[1]
+    assert problems == []
