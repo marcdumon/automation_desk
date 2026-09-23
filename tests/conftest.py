@@ -7,8 +7,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from llm_automation import ledger as ledger_store
-from llm_automation.groups.base import Context
+from automation_desk import ledger as ledger_store
+from automation_desk.groups.base import Context
 
 TZ = ZoneInfo('Europe/Brussels')
 TODAY = date(2026, 9, 22)

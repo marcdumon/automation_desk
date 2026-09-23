@@ -4,7 +4,7 @@ import threading
 
 import pytest
 
-from llm_automation.capture import CaptureBroker, Captured, CaptureError
+from automation_desk.capture import CaptureBroker, Captured, CaptureError
 
 
 def test_request_is_claimed_once_and_delivered() -> None:

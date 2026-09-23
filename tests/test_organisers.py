@@ -2,8 +2,8 @@
 
 import pytest
 
-from llm_automation.groups.calendar import organisers
-from llm_automation.groups.calendar.organisers import Organiser, fix_caps, placed, titled
+from automation_desk.groups.calendar import organisers
+from automation_desk.groups.calendar.organisers import Organiser, fix_caps, placed, titled
 
 KMSKA = Organiser('kmska.be', 'KMSKA', 'Leopold de Waelplaats 1, 2000 Antwerpen')
 

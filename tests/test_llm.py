@@ -7,9 +7,9 @@ import pytest
 import respx
 from pydantic import BaseModel
 
-from llm_automation import jobs, llm
-from llm_automation.groups.calendar.web_page import FoundEvent
-from llm_automation.groups.tasks.tasks.change_dates import ChangeDatesArgs
+from automation_desk import jobs, llm
+from automation_desk.groups.calendar.web_page import FoundEvent
+from automation_desk.groups.tasks.tasks.change_dates import ChangeDatesArgs
 
 COMPLETIONS = 'https://openrouter.ai/api/v1/chat/completions'
 

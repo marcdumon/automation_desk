@@ -3,12 +3,12 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from llm_automation import api
-from llm_automation.dates import DateExprError
-from llm_automation.groups import GROUPS
-from llm_automation.groups.base import Preview, Row
-from llm_automation.groups.tasks.tasks.change_dates import ChangeDatesArgs
-from llm_automation.interpret import Route
+from automation_desk import api
+from automation_desk.dates import DateExprError
+from automation_desk.groups import GROUPS
+from automation_desk.groups.base import Preview, Row
+from automation_desk.groups.tasks.tasks.change_dates import ChangeDatesArgs
+from automation_desk.interpret import Route
 
 from .conftest import TZ
 

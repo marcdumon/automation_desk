@@ -1,4 +1,4 @@
-# llm_automation
+# automation_desk
 
 A local app for automating Google Calendar, Google Tasks and Gmail by typing plain sentences.
 
@@ -20,7 +20,7 @@ with a tick box per item, and changes nothing until you press Apply.
 
 ## What the language model may and may not do
 
-A cheap model on OpenRouter (see `llm_automation.toml`) only fills in a standard task's arguments from your sentence.
+A cheap model on OpenRouter (see `automation_desk.toml`) only fills in a standard task's arguments from your sentence.
 It never sees your mail, calendars or tasks: list and calendar names are matched in code.
 
 It never writes a date either. Dates are relative expressions (`tomorrow`, `today+2`, `friday`, `next week`) that
@@ -58,14 +58,24 @@ Install the extension once in Vivaldi (or any Chromium-based browser):
 
 Keep the Automation desk page open while a preview runs; it passes the app's page requests to the extension.
 
+## Run it
+
+```bash
+./run_automation_desk.sh          # or add --no-browser
+```
+
+It installs missing packages, rebuilds the GUI when its source changed, starts the app, waits until it answers and
+opens http://127.0.0.1:8765. If the app is already running it only opens the browser. Ctrl+C stops it; the app's
+output goes to `data/server.log`.
+
 ## Setup
 
 ```bash
 uv sync
 cp .env.example .env                                  # set OPENROUTER_API_KEY
-uv run python -m llm_automation.google_auth           # one-time Google login (Tasks, Calendar, Gmail)
+uv run python -m automation_desk.google_auth           # one-time Google login (Tasks, Calendar, Gmail)
 cd frontend && npm install && npm run build && cd ..
-uv run llm-automation                                 # http://127.0.0.1:8765
+uv run automation-desk                                 # http://127.0.0.1:8765
 ```
 
 The Google login needs an OAuth client of type Desktop at `secrets/client_secret.json` in this project, and stores
@@ -75,7 +85,7 @@ For frontend development, run `npm run dev` in `frontend/`. It proxies `/api` to
 
 ## Adding a standard task
 
-Write one class in `src/llm_automation/groups/<group>/tasks/`, subclassing `StandardTask`:
+Write one class in `src/automation_desk/groups/<group>/tasks/`, subclassing `StandardTask`:
 - `Args`: a pydantic model extending `TaskArgs`; any date field is a string holding a relative expression
 - `resolve`: reads Google and returns the preview plus a frozen payload
 - `execute`: applies the payload to the ticked rows

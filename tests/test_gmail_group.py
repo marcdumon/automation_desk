@@ -4,12 +4,12 @@ import base64
 
 import pytest
 
-from llm_automation.groups.base import UserError
-from llm_automation.groups.gmail.select import MailSelectionArgs, build_query
-from llm_automation.groups.gmail.tasks.draft_mail import DraftMail, DraftMailArgs
-from llm_automation.groups.gmail.tasks.find_mail import FindMail, FindMailArgs
-from llm_automation.groups.gmail.tasks.label_mail import LabelMail, LabelMailArgs
-from llm_automation.groups.gmail.tasks.trash_mail import TrashMail
+from automation_desk.groups.base import UserError
+from automation_desk.groups.gmail.select import MailSelectionArgs, build_query
+from automation_desk.groups.gmail.tasks.draft_mail import DraftMail, DraftMailArgs
+from automation_desk.groups.gmail.tasks.find_mail import FindMail, FindMailArgs
+from automation_desk.groups.gmail.tasks.label_mail import LabelMail, LabelMailArgs
+from automation_desk.groups.gmail.tasks.trash_mail import TrashMail
 
 from .conftest import FakeGoogle
 
@@ -87,7 +87,7 @@ def test_label_creates_missing_label_and_archive_and_mark_read(make_ctx) -> None
 
 
 def test_find_keeps_the_core_concept_and_answers_with_checked_quotes(make_ctx, monkeypatch: pytest.MonkeyPatch) -> None:
-    from llm_automation.groups.gmail.tasks import find_mail
+    from automation_desk.groups.gmail.tasks import find_mail
 
     both = '(bloedtest OR "blood test") (resultaat OR results)'
     fake = gmail({both: ['m1'], '(bloedtest OR "blood test")': ['m1'], '(resultaat OR results)': ['m2']})

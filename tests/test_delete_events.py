@@ -3,8 +3,8 @@
 import pytest
 from googleapiclient.errors import HttpError
 
-from llm_automation.groups.base import UserError
-from llm_automation.groups.calendar.tasks.delete_events import DeleteEvents, DeleteEventsArgs
+from automation_desk.groups.base import UserError
+from automation_desk.groups.calendar.tasks.delete_events import DeleteEvents, DeleteEventsArgs
 
 from .conftest import FakeGoogle
 
