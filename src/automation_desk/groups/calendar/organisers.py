@@ -97,9 +97,12 @@ def propose(html: str, site: str, http: httpx.Client | None = None) -> Organiser
     return Organiser(site=site, name=' '.join(found.short_name.split()) or site, address=address)
 
 
-def organiser_for(url: str, html: str, http: httpx.Client | None = None) -> Organiser:
-    """The saved profile of the site `url` belongs to, or a new proposal (saved) for a site seen the first time."""
-    site = site_of(url)
+def organiser_for(url: str, html: str, http: httpx.Client | None = None, site: str | None = None) -> Organiser:
+    """The saved profile of the site `url` belongs to, or a new proposal (saved) for a site seen the first time.
+
+    `site` names the source when it is not a website: a mail sender's domain, or an uploaded file's name.
+    """
+    site = site or site_of(url)
     known = stored(site)
     if known:
         return known
