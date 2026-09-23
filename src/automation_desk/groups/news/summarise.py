@@ -22,7 +22,7 @@ class ArticleSummary(BaseModel):
 
     number: int = Field(description='The number of the article.')
     summary: str = Field(description='2-4 lines summarising the article, in the language the article is written in.')
-    subject: str = Field(description="One subject from the list, exactly as written; or 'suggest: <new subject>' when none "
+    subject: str = Field(description="One subject from the list, exactly as written; or 'suggest: <new subject in English>' when none "
                                      'fits; or Other.')
 
 
@@ -34,7 +34,8 @@ class BatchSummary(BaseModel):
 
 SYSTEM = """You summarise news articles for a personal daily digest.
 For every numbered article: write 2-4 lines in the SAME language as the article (Dutch, French or English; never translate);
-pick one subject from the list exactly as written, or 'suggest: <name>' when none fits well, or Other.
+pick one subject from the list exactly as written, or 'suggest: <name in English>' when none fits well, or Other.
+Subject names are always English (e.g. Health, not Santé or Gezondheid), whatever the article's language.
 Use only what the article says."""
 
 
