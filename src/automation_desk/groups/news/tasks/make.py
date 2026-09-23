@@ -32,5 +32,6 @@ class MakeDigest(StandardTask):
         """Make it, with the browser allowed because the user is at the page."""
         if 'digest' not in selected:
             return ['No digest made.']
-        make_digest('button', True)
+        if make_digest('button', True) is None:
+            return ['Nothing new since the previous digest.']
         return ['Digest made: open it on the News page.']

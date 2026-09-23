@@ -42,6 +42,7 @@ def parts(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(module, 'summarise', summarise)
     monkeypatch.setattr(module, 'merge_stories', merge)
     monkeypatch.setattr(ledger, 'cost_since', lambda group, since: 0.05)
+    seen['collect'] = collect
     return seen
 
 
@@ -129,3 +130,16 @@ def test_articles_on_a_blocked_topic_are_left_out(parts: dict, monkeypatch: pyte
     assert given == {'blocked': ['Sports'], 'merged': ['https://k.be/3']}
     assert [(a['link'], a['topic']) for a in stored['left_out']] == [('https://k.be/2', 'Sports')]
     assert stored['article_count'] == 1
+
+
+def test_a_run_with_nothing_new_saves_no_digest(parts: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    first = module.make_digest('button', allow_browser=True, now=NOW)
+    monkeypatch.setattr(module, 'collect', lambda now, http, allow_browser: Collected([], []))
+    later = NOW + timedelta(minutes=20)
+    assert module.make_digest('button', allow_browser=True, now=later) is None
+    assert [d['id'] for d in store.digests()] == [first], 'no empty digest in the list'
+    assert store.nothing_new() == {'at': later.isoformat(), 'since': NOW.isoformat(), 'problems': []}
+    assert store.latest_made_at() == later, 'the schedule counts the run: no retry every minute'
+    monkeypatch.setattr(module, 'collect', parts['collect'])
+    module.make_digest('button', allow_browser=True, now=later + timedelta(hours=1))
+    assert store.nothing_new() is None, 'a real digest replaces the message'

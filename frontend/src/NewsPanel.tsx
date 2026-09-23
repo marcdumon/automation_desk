@@ -50,6 +50,12 @@ export default function NewsPanel() {
               {when(d.made_at)}: {d.story_count} stories from {d.source_count} sites</button></li>))}</ul>
         </details>
       )}
+      {data.nothing_new && !data.running && (
+        <div className="message">
+          <p>Nothing new since {shortWhen(data.nothing_new.since)} (checked {shortWhen(data.nothing_new.at)}).</p>
+          {data.nothing_new.problems.map(p => <p key={p} className="muted">{p}</p>)}
+        </div>
+      )}
       {data.failure && !data.running && (
         <div className="message error">
           <p>The last digest could not be made: {data.failure}. The morning run tries again an hour later, or press Make digest
