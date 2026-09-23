@@ -145,8 +145,9 @@ export type NewsOverview = {
 }
 export const getNewsOverview = () => call<NewsOverview>('/api/news/overview')
 export const getNewsDigest = (id: number) => call<NewsDigest>(`/api/news/digests/${id}`)
-export const answerSuggestion = (name: string, accept: boolean) =>
-  call<{ ok: boolean }>(`/api/news/suggestions/${encodeURIComponent(name)}`, { accept })
+export type SuggestionAnswer = 'accept' | 'block' | 'reject'
+export const answerSuggestion = (name: string, answer: SuggestionAnswer) =>
+  call<{ ok: boolean }>('/api/news/suggestions', { name, answer })
 export const saveSubjects = (names: string[]) => call<{ subjects: string[] }>('/api/news/subjects', { names })
 export const saveBlocked = (names: string[]) => call<{ blocked: string[] }>('/api/news/blocked', { names })
 export const setNewsCap = (usd: number) => call<{ cap_usd: number }>('/api/news/cap', { usd })
@@ -155,6 +156,12 @@ export async function deleteNewsStory(id: string): Promise<void> {
   const response = await fetch(`/api/news/stories/${encodeURIComponent(id)}`, { method: 'DELETE' })
   if (!response.ok) throw new Error(`The story could not be deleted (${response.status}). Reload the page.`)
 }
+export async function deleteNewsDigest(id: number): Promise<void> {
+  const response = await fetch(`/api/news/digests/${id}`, { method: 'DELETE' })
+  if (!response.ok) throw new Error(`The digest could not be deleted (${response.status}). Reload the page.`)
+}
+export const deleteNewsSubject = (digestId: number, subject: string) =>
+  call<{ deleted: number }>(`/api/news/digests/${digestId}/delete-subject`, { subject })
 export async function removeNewsSource(id: number): Promise<void> {
   await fetch(`/api/news/sources/${id}`, { method: 'DELETE' })
 }

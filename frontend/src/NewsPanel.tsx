@@ -2,8 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
 import {
-  answerSuggestion, deleteNewsStory, getNewsDigest, getNewsOverview, makeNewsDigest, removeNewsSource, saveBlocked, saveSubjects, setNewsCap,
-  type NewsDigest,
+  answerSuggestion, deleteNewsDigest, deleteNewsStory, deleteNewsSubject, getNewsDigest, getNewsOverview, makeNewsDigest, removeNewsSource, saveBlocked, saveSubjects, setNewsCap,
+  type NewsDigest, type SuggestionAnswer,
 } from './api'
 import { usd, when } from './format'
 import { canOpenInBackground, openInBackground } from './openTab'
@@ -24,7 +24,7 @@ export default function NewsPanel() {
     client.invalidateQueries({ queryKey: ['jobs'] })
   }
   const make = useMutation({ mutationFn: makeNewsDigest, onSuccess: refresh })
-  const suggest = useMutation({ mutationFn: ({ name, accept }: { name: string; accept: boolean }) => answerSuggestion(name, accept),
+  const suggest = useMutation({ mutationFn: ({ name, answer }: { name: string; answer: SuggestionAnswer }) => answerSuggestion(name, answer),
                                 onSuccess: refresh })
   if (!overview.data) return null
   const data = overview.data
@@ -60,17 +60,24 @@ export default function NewsPanel() {
         <div key={s.name} className="message suggestion">
           <p>Suggested subject <strong>{s.name}</strong> ({s.examples.length} headline{s.examples.length === 1 ? '' : 's'}):
             {' '}{s.examples.slice(0, 3).join(' · ')}</p>
-          <button type="button" className="quiet" onClick={() => suggest.mutate({ name: s.name, accept: true })}>Accept</button>
-          <button type="button" className="quiet" onClick={() => suggest.mutate({ name: s.name, accept: false })}>Reject</button>
+          <button type="button" className="quiet" title="Add as a subject" onClick={() => suggest.mutate({ name: s.name, answer: 'accept' })}>
+            Accept</button>
+          <button type="button" className="quiet" title="Add to the blocked topics: its articles are left out"
+                  onClick={() => suggest.mutate({ name: s.name, answer: 'block' })}>Block</button>
+          <button type="button" className="quiet" title="Not a subject; do not suggest it again"
+                  onClick={() => suggest.mutate({ name: s.name, answer: 'reject' })}>Reject</button>
         </div>
       ))}
-      {digest.data ? <DigestView digest={digest.data} onChange={refresh} /> : <p className="muted">No digest yet. Add sites, then make one.</p>}
+      {digest.data ? <DigestView digest={digest.data} onChange={refresh} onDeleted={() => { setChosen(null); refresh() }} /> : <p className="muted">No digest yet. Add sites, then make one.</p>}
     </div>
   )
 }
 
-function DigestView({ digest, onChange }: { digest: NewsDigest; onChange: () => void }) {
+function DigestView({ digest, onChange, onDeleted }: { digest: NewsDigest; onChange: () => void; onDeleted: () => void }) {
   const remove = useMutation({ mutationFn: deleteNewsStory, onSuccess: onChange })
+  const removeSubject = useMutation({ mutationFn: (subject: string) => deleteNewsSubject(digest.id, subject), onSuccess: onChange })
+  const removeDigest = useMutation({ mutationFn: () => deleteNewsDigest(digest.id), onSuccess: onDeleted })
+  const failed = remove.error ?? removeSubject.error ?? removeDigest.error
   const reasons = new Map<string, number>()
   for (const a of digest.subjects.flatMap(g => g.stories.flatMap(s => s.articles)).filter(a => a.from_teaser)) {
     reasons.set(a.reason || 'no reason given', (reasons.get(a.reason || 'no reason given') ?? 0) + 1)
@@ -78,7 +85,12 @@ function DigestView({ digest, onChange }: { digest: NewsDigest; onChange: () => 
   const teasers = [...reasons.values()].reduce((sum, n) => sum + n, 0)
   return (
     <section className="digest">
-      <h2>Digest of {when(digest.made_at)}</h2>
+      <div className="digest-head">
+        <h2>Digest of {when(digest.made_at)}</h2>
+        <button type="button" className="quiet" disabled={removeDigest.isPending}
+                onClick={() => window.confirm(`Delete this digest with its ${digest.story_count} stories? Its articles will not come back.`)
+                  && removeDigest.mutate()}>Delete digest</button>
+      </div>
       <p className="muted">Since {when(digest.covers_from)}: {digest.article_count} articles, {digest.story_count} stories,
         {' '}{digest.source_count} sites; cost {usd(digest.cost_usd)}.</p>
       {teasers > 0 && (
@@ -90,19 +102,31 @@ function DigestView({ digest, onChange }: { digest: NewsDigest; onChange: () => 
           Automation desk reader extension: go to vivaldi://extensions and press the reload arrow (↻) on its card, then reload
           this page.</p>
       )}
-      {remove.isError && <p className="cap-error">{remove.error.message}</p>}
+      {failed && <p className="cap-error">{failed.message}</p>}
       {digest.left_out.length > 0 && <LeftOutList articles={digest.left_out} />}
       {digest.problems.length > 0 && <ul className="sheet-notes">{digest.problems.map((p, i) => <li key={i}>{p}</li>)}</ul>}
       {digest.subjects.map(group => (
-        <div key={group.subject} className="digest-subject">
-          <h3>{group.subject}</h3>
+        <details key={group.subject} className="digest-subject" open>
+          <summary>
+            {/* CLAUDE> a click on the ✕ must not also fold the section */}
+            <button type="button" className="story-delete" aria-label={`Delete all ${group.subject} stories`} title="Delete this whole subject"
+                    disabled={removeSubject.isPending}
+                    onClick={e => {
+                      e.preventDefault()
+                      if (window.confirm(`Delete all ${group.stories.length} ${group.subject} stories? Their articles will not come back.`)) {
+                        removeSubject.mutate(group.subject)
+                      }
+                    }}>✕</button>
+            <h3>{group.subject} <span className="muted">({group.stories.length})</span></h3>
+          </summary>
           {group.stories.map(story => (
             <article key={story.id} className="story">
+              {/* CLAUDE> delete sits right before the title: open and delete are one small move apart */}
               <div className="story-head">
+                <button type="button" className="story-delete" aria-label={`Delete ${story.title}`} title="Delete this story"
+                        disabled={remove.isPending} onClick={() => remove.mutate(story.id)}>✕</button>
                 <a className="story-title" href={story.articles[0]?.link} target="_blank" rel="noreferrer"
                    onClick={openInBackground}>{story.title}</a>
-                <button type="button" className="link story-delete" disabled={remove.isPending}
-                        onClick={() => remove.mutate(story.id)}>Delete</button>
               </div>
               <p className="story-summary">{story.summary}</p>
               <p className="story-sources">
@@ -114,7 +138,7 @@ function DigestView({ digest, onChange }: { digest: NewsDigest; onChange: () => 
               </p>
             </article>
           ))}
-        </div>
+        </details>
       ))}
     </section>
   )

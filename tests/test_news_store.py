@@ -92,3 +92,43 @@ def test_deleting_a_story_keeps_its_articles_seen() -> None:
     assert (stored['story_count'], stored['article_count']) == (1, 1)
     assert store.known_links(['https://a.be/1', 'https://a.be/2']) == {'https://a.be/1', 'https://a.be/2'}, 'never back in a digest'
     assert store.delete_story('nope') is False
+
+
+def test_a_suggestion_can_be_blocked() -> None:
+    store.set_blocked(['Sports'])
+    made = datetime(2026, 9, 24, 7, 0, tzinfo=TZ)
+    store.save_digest(DigestRecord(made_at=made, covers_from=made.replace(day=23), trigger='button', job_id='j', problems=[],
+                                   stories=[], suggestions={'Celebrities': ['Ster trouwt']}))
+    store.set_suggestion('Celebrities', 'blocked')
+    assert store.blocked() == ['Sports', 'Celebrities'] and store.open_suggestions() == []
+    assert 'Celebrities' not in store.subjects()
+
+
+def _two_subject_digest(made: datetime) -> tuple[int, int]:
+    """A digest with an AI story (two articles) and a Politics story; returns (digest id, source id)."""
+    source = store.add_source('https://a.be', 'A', 'https://a.be/feed', 'feed')
+    art = lambda link: ArticleRecord(link, source, 'T', made, 't', False, '')  # noqa: E731
+    record = DigestRecord(made_at=made, covers_from=made.replace(day=23), trigger='button', job_id='j', problems=[], stories=[
+        StoryRecord('AI', 'Een', 'S.', [art('https://a.be/1'), art('https://a.be/2')]), StoryRecord('Politics', 'Twee', 'S.', [art('https://a.be/3')])],
+        left_out=[LeftOut('https://a.be/sport', source, 'Goal', 'Sports')])
+    return store.save_digest(record), source
+
+
+def test_deleting_a_whole_subject() -> None:
+    digest_id, _ = _two_subject_digest(datetime(2026, 9, 24, 7, 0, tzinfo=TZ))
+    assert store.delete_subject(digest_id, 'AI') == 1
+    stored = store.digest(digest_id)
+    assert [g['subject'] for g in stored['subjects']] == ['Politics'] and stored['article_count'] == 1
+    assert store.known_links(['https://a.be/1', 'https://a.be/2']) == {'https://a.be/1', 'https://a.be/2'}
+    assert store.delete_subject(digest_id, 'Nope') == 0
+
+
+def test_deleting_a_digest_keeps_its_articles_seen_and_its_time() -> None:
+    made = datetime(2026, 9, 24, 7, 0, tzinfo=TZ)
+    digest_id, _ = _two_subject_digest(made)
+    assert store.delete_digest(digest_id) is True
+    assert store.digest(digest_id) is None and store.digests() == []
+    assert store.known_links(['https://a.be/1', 'https://a.be/3', 'https://a.be/sport']) == {
+        'https://a.be/1', 'https://a.be/3', 'https://a.be/sport'}, 'its articles, left-out ones included, never come back'
+    assert store.latest_made_at() == made, 'the schedule still sees it: no new digest right after deleting'
+    assert store.delete_digest(digest_id) is False

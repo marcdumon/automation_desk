@@ -11,6 +11,7 @@ import threading
 from datetime import datetime
 from functools import cache
 from pathlib import Path
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 import uvicorn
@@ -355,15 +356,16 @@ def news_digest_detail(digest_id: int) -> dict:
 
 
 class SuggestionAnswer(BaseModel):
-    """Accept or reject a suggested subject."""
+    """What to do with a suggested subject; the name travels in the body, so a name with '/' works."""
 
-    accept: bool
+    name: str
+    answer: Literal['accept', 'block', 'reject']
 
 
-@app.post('/api/news/suggestions/{name}')
-def news_suggestion(name: str, answer: SuggestionAnswer) -> dict:
-    """Accept (the subject joins the list) or reject a suggestion."""
-    news.set_suggestion(name, 'accepted' if answer.accept else 'rejected')
+@app.post('/api/news/suggestions')
+def news_suggestion(request: SuggestionAnswer) -> dict:
+    """Accept (a new subject), block (a new blocked topic) or reject a suggestion."""
+    news.set_suggestion(request.name, {'accept': 'accepted', 'block': 'blocked', 'reject': 'rejected'}[request.answer])
     return {'ok': True}
 
 
@@ -385,6 +387,26 @@ def news_blocked(order: SubjectOrder) -> dict:
     """Change the blocked topics from the panel."""
     news.set_blocked(order.names)
     return {'blocked': news.blocked()}
+
+
+@app.delete('/api/news/digests/{digest_id}')
+def news_delete_digest(digest_id: int) -> dict:
+    """Remove a whole digest; its articles never come back."""
+    if not news.delete_digest(digest_id):
+        raise HTTPException(404, f'No digest {digest_id}')
+    return {'ok': True}
+
+
+class SubjectChoice(BaseModel):
+    """One subject of a digest; in the body, so any name works."""
+
+    subject: str
+
+
+@app.post('/api/news/digests/{digest_id}/delete-subject')
+def news_delete_subject(digest_id: int, choice: SubjectChoice) -> dict:
+    """Remove every story of one subject from a digest."""
+    return {'deleted': news.delete_subject(digest_id, choice.subject)}
 
 
 @app.delete('/api/news/stories/{story_id}')

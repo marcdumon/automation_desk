@@ -1,6 +1,7 @@
 """All reads and writes of the news tables in the ledger database."""
 
 import json
+import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -226,28 +227,63 @@ def digest(digest_id: int) -> dict | None:
             'left_out': [{'link': o['link'], 'title': o['title'], 'source': o['source'] or '', 'topic': o['topic']} for o in left_out]}
 
 
-def delete_story(story_id: str) -> bool:
-    """Remove a story from its digest; its articles stay seen so they never return. False when there is no such story."""
-    with connect(write=True) as db:
-        story = db.execute('SELECT digest_id FROM news_stories WHERE id = ?', (story_id,)).fetchone()
-        if story is None:
-            return False
+def _delete_stories(db: sqlite3.Connection, story_ids: list[str], digest_id: int) -> None:
+    """Remove stories from a digest and recount it; their articles stay seen so they never return."""
+    for story_id in story_ids:
         db.execute('INSERT OR IGNORE INTO news_seen (link, source_id, seen) '
                    'SELECT link, source_id, ? FROM news_articles WHERE story_id = ?', (_now(), story_id))
         db.execute('DELETE FROM news_articles WHERE story_id = ?', (story_id,))
         db.execute('DELETE FROM news_stories WHERE id = ?', (story_id,))
-        joined = 'FROM news_articles a JOIN news_stories t ON t.id = a.story_id WHERE t.digest_id = :d'
-        db.execute(f'UPDATE news_digests SET story_count = (SELECT COUNT(*) FROM news_stories WHERE digest_id = :d), '
-                   f'article_count = (SELECT COUNT(*) {joined}), source_count = (SELECT COUNT(DISTINCT a.source_id) {joined}) '
-                   'WHERE id = :d', {'d': story['digest_id']})
+    joined = 'FROM news_articles a JOIN news_stories t ON t.id = a.story_id WHERE t.digest_id = :d'
+    db.execute(f'UPDATE news_digests SET story_count = (SELECT COUNT(*) FROM news_stories WHERE digest_id = :d), '
+               f'article_count = (SELECT COUNT(*) {joined}), source_count = (SELECT COUNT(DISTINCT a.source_id) {joined}) '
+               'WHERE id = :d', {'d': digest_id})
+
+
+def delete_story(story_id: str) -> bool:
+    """Remove a story from its digest; its articles never return. False when there is no such story."""
+    with connect(write=True) as db:
+        story = db.execute('SELECT digest_id FROM news_stories WHERE id = ?', (story_id,)).fetchone()
+        if story is None:
+            return False
+        _delete_stories(db, [story_id], story['digest_id'])
+    return True
+
+
+def delete_subject(digest_id: int, subject: str) -> int:
+    """Remove every story of one subject from a digest; returns how many stories went."""
+    with connect(write=True) as db:
+        ids = [r[0] for r in db.execute(
+            "SELECT id FROM news_stories WHERE digest_id = ? AND COALESCE(NULLIF(subject, ''), 'Other') = ?", (digest_id, subject))]
+        if ids:
+            _delete_stories(db, ids, digest_id)
+    return len(ids)
+
+
+def delete_digest(digest_id: int) -> bool:
+    """Remove a whole digest; its articles (left-out ones too) never return, and its time still counts for the schedule."""
+    with connect(write=True) as db:
+        head = db.execute('SELECT made_at FROM news_digests WHERE id = ?', (digest_id,)).fetchone()
+        if head is None:
+            return False
+        _delete_stories(db, [r[0] for r in db.execute('SELECT id FROM news_stories WHERE digest_id = ?', (digest_id,))], digest_id)
+        db.execute('INSERT OR IGNORE INTO news_seen (link, source_id, seen) '
+                   'SELECT link, source_id, ? FROM news_left_out WHERE digest_id = ?', (_now(), digest_id))
+        db.execute('DELETE FROM news_left_out WHERE digest_id = ?', (digest_id,))
+        db.execute('DELETE FROM news_digests WHERE id = ?', (digest_id,))
+        # CLAUDE> without this, no digest left means "none yet": the scheduler would make a new one within a minute
+        db.execute("INSERT INTO news_settings (key, value) VALUES ('deleted_made_at', ?) ON CONFLICT (key) DO UPDATE SET "
+                   'value = MAX(value, excluded.value)', (head['made_at'],))
     return True
 
 
 def latest_made_at() -> datetime | None:
-    """When the newest digest was made."""
+    """When the newest digest was made, deleted digests included."""
     with connect() as db:
-        row = db.execute('SELECT MAX(made_at) FROM news_digests').fetchone()
-    return datetime.fromisoformat(row[0]) if row[0] else None
+        stored = db.execute('SELECT MAX(made_at) FROM news_digests').fetchone()[0]
+        deleted = db.execute("SELECT value FROM news_settings WHERE key = 'deleted_made_at'").fetchone()
+    times = [datetime.fromisoformat(t) for t in (stored, deleted[0] if deleted else None) if t]
+    return max(times) if times else None
 
 
 def _job_cost(job_id: str | None) -> float:
@@ -266,11 +302,13 @@ def open_suggestions() -> list[dict]:
 
 
 def set_suggestion(name: str, status: str) -> None:
-    """Accept (the subject joins the list, last) or reject a suggestion."""
+    """Accept (the subject joins the list, last), block (it joins the blocked topics) or reject a suggestion."""
     with connect(write=True) as db:
         db.execute('UPDATE news_suggestions SET status = ? WHERE name = ?', (status, name))
-    if status == 'accepted' and name not in subjects():
+    if status == 'accepted':
         set_subjects([*subjects(), name])
+    elif status == 'blocked':
+        set_blocked([*blocked(), name])
 
 
 def cap() -> float:
