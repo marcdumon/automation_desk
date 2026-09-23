@@ -142,6 +142,7 @@ export type NewsSource = { id: number; site: string; name: string; feed: string;
 export type NewsOverview = {
   sources: NewsSource[]; subjects: string[]; suggestions: { name: string; examples: string[] }[]
   blocked: string[]; digests: NewsDigestHead[]; cap_usd: number; running: boolean; failure: string
+  nothing_new: { at: string; since: string; problems: string[] } | null
 }
 export const getNewsOverview = () => call<NewsOverview>('/api/news/overview')
 export const getNewsDigest = (id: number) => call<NewsDigest>(`/api/news/digests/${id}`)

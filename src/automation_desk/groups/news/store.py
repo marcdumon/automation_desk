@@ -272,17 +272,42 @@ def delete_digest(digest_id: int) -> bool:
         db.execute('DELETE FROM news_left_out WHERE digest_id = ?', (digest_id,))
         db.execute('DELETE FROM news_digests WHERE id = ?', (digest_id,))
         # CLAUDE> without this, no digest left means "none yet": the scheduler would make a new one within a minute
-        db.execute("INSERT INTO news_settings (key, value) VALUES ('deleted_made_at', ?) ON CONFLICT (key) DO UPDATE SET "
-                   'value = MAX(value, excluded.value)', (head['made_at'],))
+        _set_last_run(db, head['made_at'])
     return True
 
 
+def _set_last_run(db: sqlite3.Connection, at_iso: str) -> None:
+    """Remember the latest digest run for the schedule, also when its digest is deleted or was never saved."""
+    db.execute("INSERT INTO news_settings (key, value) VALUES ('last_run_at', ?) ON CONFLICT (key) DO UPDATE SET "
+               'value = MAX(value, excluded.value)', (at_iso,))
+
+
+def record_nothing_new(at: datetime, since: datetime, problems: list[str]) -> None:
+    """A run that found no new article: no digest is saved, the page says so, and the schedule counts the run."""
+    note = {'at': at.isoformat(timespec='seconds'), 'since': since.isoformat(timespec='seconds'), 'problems': problems}
+    with connect(write=True) as db:
+        db.execute("INSERT INTO news_settings (key, value) VALUES ('nothing_new', ?) "
+                   'ON CONFLICT (key) DO UPDATE SET value = excluded.value', (json.dumps(note, ensure_ascii=False),))
+        _set_last_run(db, note['at'])
+
+
+def nothing_new() -> dict | None:
+    """The latest run that found nothing new, while no digest was made after it."""
+    with connect() as db:
+        row = db.execute("SELECT value FROM news_settings WHERE key = 'nothing_new'").fetchone()
+        newest = db.execute('SELECT MAX(made_at) FROM news_digests').fetchone()[0]
+    note = json.loads(row[0]) if row else None
+    if note is None or (newest and datetime.fromisoformat(newest) >= datetime.fromisoformat(note['at'])):
+        return None
+    return note
+
+
 def latest_made_at() -> datetime | None:
-    """When the newest digest was made, deleted digests included."""
+    """When the latest digest run was, deleted digests and runs with nothing new included."""
     with connect() as db:
         stored = db.execute('SELECT MAX(made_at) FROM news_digests').fetchone()[0]
-        deleted = db.execute("SELECT value FROM news_settings WHERE key = 'deleted_made_at'").fetchone()
-    times = [datetime.fromisoformat(t) for t in (stored, deleted[0] if deleted else None) if t]
+        last_run = db.execute("SELECT value FROM news_settings WHERE key = 'last_run_at'").fetchone()
+    times = [datetime.fromisoformat(t) for t in (stored, last_run[0] if last_run else None) if t]
     return max(times) if times else None
 
 

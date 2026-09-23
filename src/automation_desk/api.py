@@ -344,7 +344,7 @@ def news_overview() -> dict:
     """Everything the News panel shows besides a digest's stories."""
     return {'sources': [s.__dict__ for s in news.sources()], 'subjects': news.subjects(), 'suggestions': news.open_suggestions(),
             'blocked': news.blocked(), 'digests': news.digests(), 'cap_usd': news.cap(), 'running': news_digest.running(),
-            'failure': news_digest.failure()}
+            'failure': news_digest.failure(), 'nothing_new': news.nothing_new()}
 
 
 @app.get('/api/news/digests/{digest_id}')

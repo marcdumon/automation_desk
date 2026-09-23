@@ -29,8 +29,11 @@ def failure() -> str:
     return _failure.get('message', '')
 
 
-def make_digest(trigger: str, allow_browser: bool, now: datetime | None = None) -> int:
-    """Make and store a digest of everything since the previous one; a second call waits for a running one."""
+def make_digest(trigger: str, allow_browser: bool, now: datetime | None = None) -> int | None:
+    """Make and store a digest of everything since the previous one; a second call waits for a running one.
+
+    Returns the digest's id, or None when nothing new was found (then no digest is saved).
+    """
     with _lock:
         _active.set()
         try:
@@ -44,12 +47,17 @@ def make_digest(trigger: str, allow_browser: bool, now: datetime | None = None) 
         return digest_id
 
 
-def _make(trigger: str, allow_browser: bool, now: datetime) -> int:
+def _make(trigger: str, allow_browser: bool, now: datetime) -> int | None:
     """The run itself, as one job."""
     since = store.latest_made_at() or now - timedelta(hours=24)
     job = jobs.Job(group=GROUP, sentence=f'News digest ({trigger})', task_id='make_digest', task_name='Make a digest')
     with jobs.run(job), httpx.Client(timeout=30.0) as http:
         found = collect(now, http, allow_browser)
+        if not found.articles:
+            store.record_nothing_new(now, since, found.problems)
+            job.message = f"Nothing new since {since.strftime('%d %b %H:%M')}"
+            job.preview = {'summary': job.message, 'columns': [], 'rows': [], 'notes': found.problems, 'read_only': True}
+            return None
         today = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat(timespec='seconds')
         budget = max(0.0, store.cap() - ledger.cost_since(GROUP, today))
         # CLAUDE> model calls use their own client with its long timeout; `http` (30 s) is for page reads only
