@@ -1,4 +1,7 @@
-"""Merge articles that report the same story: marks from the batches, then one model call across all batches."""
+"""Merge articles that report the same story, with one model call over all headlines.
+
+Summarising batches do not mark same-story articles: a cheap model marked whole batches as one story there.
+"""
 
 from collections import Counter
 
@@ -52,7 +55,7 @@ def _model_groups(items: list[Summarised], http: httpx.Client | None) -> tuple[l
             break
         except LLMError as error:
             if attempt == 1:
-                return [], f'Stories were not merged across batches ({error}); a story may appear twice.'
+                return [], f'Stories were not merged ({error}); a story may appear twice.'
     used: set[int] = set()
     kept, dropped = [], 0
     for group in reply.groups if reply else []:
@@ -71,10 +74,6 @@ def _model_groups(items: list[Summarised], http: httpx.Client | None) -> tuple[l
 def merge_stories(items: list[Summarised], http: httpx.Client | None = None) -> tuple[list[StoryRecord], list[str]]:
     """Stories from summarised articles; the subject most of a story's articles got, the summary of its longest article."""
     groups = _Groups([i.article.link for i in items])
-    for i in items:
-        for other in i.same_story:
-            if other in groups.parent:
-                groups.join(i.article.link, other)
     problems = []
     if len(items) > 1:
         model_groups, problem = _model_groups(items, http)

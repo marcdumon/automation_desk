@@ -52,3 +52,11 @@ def test_a_failed_digest_is_retried_an_hour_later(monkeypatch: pytest.MonkeyPatc
     assert calls == ['scheduled'], 'not again every minute'
     schedule.tick(start + timedelta(minutes=60))
     assert calls == ['scheduled', 'scheduled']
+
+
+def test_no_second_digest_queued_behind_a_running_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    store.add_source('https://a.be', 'A', 'https://a.be/rss', 'feed')
+    monkeypatch.setattr(schedule.digest, 'running', lambda: True)
+    monkeypatch.setattr(schedule.digest, 'make_digest', lambda trigger, allow_browser: pytest.fail('must not wait for a second run'))
+    monkeypatch.setattr(schedule, '_last_failure', {})
+    schedule.tick(at(24, 7, 0))

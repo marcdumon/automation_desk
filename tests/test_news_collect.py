@@ -91,21 +91,21 @@ def test_a_failed_first_read_stays_a_first_read(web: dict, monkeypatch: pytest.M
 
 def test_unreadable_pages_use_the_teaser_and_say_why(web: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     store.add_source('https://k.be', 'K', 'https://k.be/rss', 'feed')
-    web['feeds']['https://k.be/rss'] = items(*((f'https://k.be/x/{n}', NOW - timedelta(hours=1)) for n in (1, 2, 3)))
+    web['feeds']['https://k.be/rss'] = items(*((f'https://k.be/x/{n}', NOW - timedelta(hours=1)) for n in (1, 2, 3, 4)))
 
     def download(url: str, http: object) -> httpx.Response:
-        """A missing page, a page without article text, and one that times out."""
+        """A missing page, a page without article text, one that times out, and a paywall (402)."""
         request = httpx.Request('GET', url)
         if url.endswith('3'):
             raise httpx.ReadTimeout('slow', request=request)
         body = '<html><body><p>Log in to read.</p></body></html>'
-        return httpx.Response(404 if url.endswith('1') else 200, text=body, request=request)
+        return httpx.Response({'1': 404, '4': 402}.get(url[-1], 200), text=body, request=request)
 
     monkeypatch.setattr(module, 'download', download)
     got = collect(NOW, httpx.Client(), allow_browser=False)
     assert [(a.text, a.teaser_reason) for a in got.articles] == [
         ('Teaser 1', 'page could not be read (404)'), ('Teaser 2', 'only the teaser is readable'),
-        ('Teaser 3', 'page could not be read')]
+        ('Teaser 3', 'page could not be read'), ('Teaser 4', 'paywall: only the teaser is readable')]
 
 
 def test_a_link_in_two_feeds_is_taken_once(web: dict) -> None:

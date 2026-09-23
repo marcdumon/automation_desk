@@ -32,7 +32,8 @@ def tick(now: datetime) -> None:
     if failed and now < failed + RETRY_AFTER:
         return
     try:
-        if store.sources() and due(now, store.latest_made_at(), config().news.digest_time):
+        # CLAUDE> a digest being made (the button) is not yet stored; queuing behind it would make a second, empty one
+        if not digest.running() and store.sources() and due(now, store.latest_made_at(), config().news.digest_time):
             digest.make_digest('scheduled', allow_browser=False)
         _last_failure.clear()
     except Exception:
