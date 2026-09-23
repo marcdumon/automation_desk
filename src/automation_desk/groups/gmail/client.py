@@ -91,3 +91,22 @@ def sender(meta: dict) -> str:
 def gmail_link(thread_id: str) -> str:
     """A link that opens the conversation in Gmail."""
     return f'https://mail.google.com/mail/u/0/#all/{thread_id}'
+
+
+def mail_pdfs(svc: Resource, message_id: str) -> list[tuple[str, bytes]]:
+    """The PDF attachments of one mail, as (file name, content)."""
+    raw = svc.users().messages().get(userId='me', id=message_id, format='full').execute()
+    found = []
+
+    def walk(part: dict) -> None:
+        name = part.get('filename') or ''
+        body = part.get('body', {})
+        if name.lower().endswith('.pdf') or part.get('mimeType') == 'application/pdf':
+            data = body.get('data') or svc.users().messages().attachments().get(
+                userId='me', messageId=message_id, id=body['attachmentId']).execute()['data']
+            found.append((name or 'attachment.pdf', base64.urlsafe_b64decode(data + '=' * (-len(data) % 4))))
+        for child in part.get('parts', []):
+            walk(child)
+
+    walk(raw.get('payload', {}))
+    return found

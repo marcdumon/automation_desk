@@ -88,3 +88,25 @@ def test_user_errors_are_422(client: TestClient, monkeypatch: pytest.MonkeyPatch
 
 def test_unknown_group_is_404(client: TestClient) -> None:
     assert client.post('/api/groups/nope/interpret', json={'text': 'x'}).status_code == 404
+
+
+def test_attached_files_reach_the_task(client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setattr(api, 'UPLOADS', tmp_path)
+    up = client.post('/api/uploads', params={'name': '../programma herfst.pdf'}, content=b'%PDF-1.7 hello').json()
+    assert up['name'] == 'programma herfst.pdf' and (tmp_path / up['id']).read_bytes() == b'%PDF-1.7 hello'
+    task = GROUPS['calendar'].task('add_events_from_web')
+    seen: dict = {}
+    monkeypatch.setattr(api, 'fill_args', lambda group, t, text: task.Args(
+        status='ok', message='', calendar_name='x', exclude_weekdays=[], date_range='', text_filter='', follow_pages=False,
+        pdf_mail_from=[], pdf_mail_subject=[]))
+
+    def resolve(args: object, ctx: object) -> tuple:
+        """Record the files the task was given."""
+        seen['files'] = ctx.files
+        raise api.UserError('stop here')
+
+    monkeypatch.setattr(task, 'resolve', resolve)
+    client.post('/api/groups/calendar/interpret', json={'text': 'add these', 'task_id': task.id, 'upload_ids': [up['id']]})
+    assert seen['files'] == [('programma herfst.pdf', b'%PDF-1.7 hello')]
+    gone = client.post('/api/groups/calendar/interpret', json={'text': 'x', 'task_id': task.id, 'upload_ids': ['nope']})
+    assert gone.status_code == 422 and 'Attach it again' in gone.json()['detail']

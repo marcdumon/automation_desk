@@ -8,7 +8,8 @@ with a tick box per item, and changes nothing until you press Apply.
 
 | Group | Standard task | Example |
 |---|---|---|
-| Calendar | Add events from a web page | `add all events from https://…/agenda to calendar Exhibitions except the ones on fridays` |
+| Calendar | Add events from a web page or PDF | `add all events from https://…/agenda to calendar Exhibitions except the ones on fridays` |
+| Calendar | …from a PDF link, an attached PDF (Attach PDF / drag it in) or a PDF in a mail | `add the events from the PDF in the mail from Kanal to calendar Exhibitions` |
 | Calendar | Delete events from a calendar | `delete the events of next week in calendar Test` |
 | Tasks | Change the date of tasks | `change the date of the Zalando and clean tasks in list Today to tomorrow` |
 | Tasks | Move tasks to another list | `move all completed tasks to list Completed` |

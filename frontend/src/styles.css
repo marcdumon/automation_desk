@@ -106,7 +106,10 @@ button, input, textarea { font: inherit; color: inherit; }
 .command:focus-within { box-shadow: 0 0 0 3px var(--accent-wash); }
 .command textarea::placeholder { color: var(--muted); opacity: 0.55; font-weight: 400; }
 .command-actions { display: flex; align-items: center; gap: 16px; justify-content: space-between; margin-top: 8px; }
-.hint { font-size: 13px; color: var(--muted); }
+.hint { font-size: 13px; color: var(--muted); margin-right: auto; }
+.attachments { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; font-size: 13px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border: 1px solid var(--rule); border-radius: 999px; background: var(--accent-wash); }
+.chip button { border: 0; background: none; cursor: pointer; font-size: 15px; line-height: 1; padding: 0 6px; color: var(--muted); }
 
 button.primary {
   background: var(--accent); color: var(--surface);

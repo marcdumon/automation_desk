@@ -4,6 +4,7 @@ import hashlib
 import re
 from dataclasses import replace
 from datetime import date, datetime, timedelta
+from email.utils import parseaddr
 
 import httpx
 from pydantic import Field
@@ -13,7 +14,10 @@ from automation_desk.dates import label, resolve_range, weekday_index
 from automation_desk.groups.base import Context, Preview, PreviewOption, Row, StandardTask, TaskArgs, UserError, match_name
 from automation_desk.groups.calendar.client import events_tagged, writable_calendars
 from automation_desk.groups.calendar.organisers import Organiser, organiser_for, placed, save, titled
-from automation_desk.groups.calendar.web_page import WebEvent, read_events
+from automation_desk.groups.calendar.pdf import PdfError, is_pdf
+from automation_desk.groups.calendar.web_page import WebEvent, pdf_as_html, pdf_events, read_events
+from automation_desk.groups.gmail.client import gmail_link, mail_pdfs, message_ids, metadata, received, sender
+from automation_desk.groups.gmail.select import any_of
 
 URL = re.compile(r'(?:https?://|www\.)[^\s<>"\']+', re.IGNORECASE)
 DEFAULT_DURATION = timedelta(hours=2)
@@ -32,6 +36,10 @@ class AddEventsArgs(TaskArgs):
     text_filter: str = Field(description="Any other condition on the events in the user's words, e.g. 'only concerts', "
                                          "'no workshops for children'. Empty when none.")
     follow_pages: bool = Field(description='True when the user asks to follow further/next pages of the agenda.')
+    pdf_mail_from: list[str] = Field(description="Only when the user says the agenda PDF is in a mail: its senders as named, "
+                                                 "e.g. ['Kanal'] for 'the PDF in the mail from Kanal'. Else [].")
+    pdf_mail_subject: list[str] = Field(description='Only when the agenda PDF is in a mail: words of that mail\'s subject '
+                                                    'the user gave. Else [].')
 
 
 def source_key(page_url: str, event: WebEvent) -> str:
@@ -40,7 +48,7 @@ def source_key(page_url: str, event: WebEvent) -> str:
     An event's own detail link is preferred over its title, because on plain-text pages the title is the model's copy
     and may be worded slightly differently on the next import.
     """
-    own_link = event.url and event.url.split('#')[0] != page_url.split('#')[0]
+    own_link = event.url.startswith('http') and event.url.split('#')[0] != page_url.split('#')[0]
     identity = event.url if own_link else ' '.join(event.title.casefold().split())
     return hashlib.sha1(f'{page_url}|{identity}|{event.start.isoformat()}'.encode()).hexdigest()[:20]
 
@@ -136,42 +144,95 @@ class AddEventsFromWeb(StandardTask):
     """Scrape an agenda page and add its events to a named calendar."""
 
     id = 'add_events_from_web'
-    name = 'Add events from a web page'
-    description = ('Reads the agenda at a URL (date, place, info) and adds the events to one of your calendars, with '
+    name = 'Add events from a web page or PDF'
+    description = ('Reads an agenda (a web page, a PDF link, a PDF you attach, or a PDF in a mail: date, place, info) '
+                   'and adds the events to one of your calendars, with '
                    'exclusions such as weekdays, a period or a free-text rule. Importing the same page twice adds nothing twice.')
     example = 'add all events from https://example.org/agenda to calendar Exhibitions except the ones on fridays'
     Args = AddEventsArgs
-    guidance = ('The URL is handled by the app; do not repeat it. Put weekday exclusions in exclude_weekdays, a period in '
-                'date_range and any other condition in text_filter.')
+    guidance = ('The URL and any attached PDF are handled by the app; do not repeat them. Put weekday exclusions in '
+                'exclude_weekdays, a period in date_range and any other condition in text_filter. Only when the user says '
+                'the agenda PDF is in a mail, fill pdf_mail_from and/or pdf_mail_subject.')
 
     def resolve(self, args: AddEventsArgs, ctx: Context) -> tuple[Preview, dict]:
-        """Read the page(s) and who runs the site, then compose the preview."""
-        found = URL.search(ctx.sentence)
-        if not found:
-            raise UserError('Put the address of the agenda page (https://...) in your sentence.')
-        url = found.group(0).rstrip('.,;:!?)')
-        url = url if url.lower().startswith('http') else f'https://{url}'
-
+        """Read the agenda (an attached PDF, a PDF in a mail, or a web page or PDF link) and who made it, then compose."""
         svc = ctx.google('calendar', 'v3')
         calendar = match_name(args.calendar_name, writable_calendars(svc), 'summary', 'calendar')
         period = resolve_range(args.date_range, ctx.today, ctx.sentence) if args.date_range.strip() else None
 
         with httpx.Client(timeout=60.0) as http:
             try:
-                events, notes, first_html = read_events(url, ctx.today, ctx.tz, args.text_filter,
-                                                        config().max_pages if args.follow_pages else 1, http)
+                if ctx.files:
+                    url, site, events, notes, html_for_organiser = self._from_files(args, ctx, http)
+                elif args.pdf_mail_from or args.pdf_mail_subject:
+                    url, site, events, notes, html_for_organiser = self._from_mail(args, ctx, http)
+                else:
+                    url, site = self._url(ctx), None
+                    events, notes, html_for_organiser = read_events(url, ctx.today, ctx.tz, args.text_filter,
+                                                                    config().max_pages if args.follow_pages else 1, http)
+            except PdfError as error:
+                raise UserError(str(error)) from error
             except httpx.HTTPStatusError as error:
-                raise UserError(f'{url} answered {error.response.status_code} {error.response.reason_phrase}.') from error
+                raise UserError(f'{error.request.url} answered {error.response.status_code} '
+                                f'{error.response.reason_phrase}.') from error
             except httpx.HTTPError as error:
-                raise UserError(f'Could not read {url}: {error}') from error
+                raise UserError(f'Could not read the agenda: {error}') from error
             if not events:
-                raise UserError(f'No events found on {url}, also not after reading it in your browser.')
-            organiser = organiser_for(url, first_html, http)
+                raise UserError('No events found in the agenda, also not after reading it in your browser.')
+            organiser = organiser_for(url, html_for_organiser, http, site=site)
 
         payload = {'url': url, 'calendar_id': calendar['id'], 'calendar': calendar['summary'], 'page_tag': page_tag(url),
                    'events': events, 'notes': notes, 'excluded': {weekday_index(d) for d in args.exclude_weekdays},
                    'period': period, 'organiser': organiser}
         return self.compose(payload, ctx)
+
+    @staticmethod
+    def _url(ctx: Context) -> str:
+        """The agenda address in the sentence."""
+        found = URL.search(ctx.sentence)
+        if not found:
+            raise UserError('Put the address of the agenda page or PDF (https://...) in your sentence, attach a PDF, '
+                            'or say which mail holds the PDF.')
+        url = found.group(0).rstrip('.,;:!?)')
+        return url if url.lower().startswith('http') else f'https://{url}'
+
+    @staticmethod
+    def _from_files(args: AddEventsArgs, ctx: Context, http: httpx.Client) -> tuple[str, str, list, list[str], str]:
+        """Events of the PDFs the user attached."""
+        events, notes, texts = [], [], []
+        digest = hashlib.sha1(b''.join(content for _, content in ctx.files)).hexdigest()[:16]
+        for name, content in ctx.files:
+            if not is_pdf(content):
+                raise UserError(f'{name} is not a PDF.')
+            found, text = pdf_events(content, f'{name} (attached file)', ctx.today, ctx.tz, args.text_filter, http)
+            events += found
+            texts.append(text)
+            notes.append(f'{name}: {len(found)} event(s) from its text (dates found by code, events listed by the model).')
+        names = ', '.join(name for name, _ in ctx.files)
+        return f'file:{digest}', f'file {names}', events, notes, pdf_as_html('\n'.join(texts), names)
+
+    @staticmethod
+    def _from_mail(args: AddEventsArgs, ctx: Context, http: httpx.Client) -> tuple[str, str, list, list[str], str]:
+        """Events of the PDFs attached to the newest mail that matches the senders and subject words."""
+        gmail = ctx.google('gmail', 'v1')
+        query = ' '.join(filter(None, ['has:attachment filename:pdf', any_of('from', args.pdf_mail_from),
+                                       any_of('subject', args.pdf_mail_subject)]))
+        found, _ = message_ids(gmail, query, [], 1)
+        if not found:
+            raise UserError(f'No mail with a PDF matches that. Gmail search: {query}')
+        meta = metadata(gmail, found[0]['id'])
+        link = gmail_link(meta['thread_id'])
+        events, notes, texts = [], [], []
+        for name, content in mail_pdfs(gmail, meta['id']):
+            got, text = pdf_events(content, link, ctx.today, ctx.tz, args.text_filter, http)
+            events += got
+            texts.append(text)
+            notes.append(f"{name} from the mail '{meta['subject']}' of {sender(meta)} ({received(meta, ctx.tz)}): "
+                         f'{len(got)} event(s).')
+        if not notes:
+            raise UserError(f"The mail '{meta['subject']}' has no PDF attached after all.")
+        domain = parseaddr(meta['from'])[1].rpartition('@')[2].lower()
+        return link, domain or sender(meta), events, notes, pdf_as_html('\n'.join(texts), meta['subject'])
 
     def adjust(self, payload: dict, options: dict[str, str], ctx: Context) -> tuple[Preview, dict]:
         """Use the organiser name and address the user set, remember them for the site, and compose again."""

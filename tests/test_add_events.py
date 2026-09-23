@@ -66,7 +66,7 @@ def calendar_api(earlier: list[dict]) -> FakeGoogle:
 def args(**kwargs: object) -> AddEventsArgs:
     """AddEventsArgs for the Exhibitions example, overridable per test."""
     base = {'status': 'ok', 'message': '', 'calendar_name': 'exhibitions', 'exclude_weekdays': ['friday'], 'date_range': '',
-            'text_filter': '', 'follow_pages': False}
+            'text_filter': '', 'follow_pages': False, 'pdf_mail_from': [], 'pdf_mail_subject': []}
     return AddEventsArgs(**{**base, **kwargs})
 
 
@@ -82,7 +82,7 @@ def pages(monkeypatch: pytest.MonkeyPatch) -> dict:
 
     monkeypatch.setattr(module, 'read_events', fake_read)
     # CLAUDE> an organiser without name or address leaves titles and places as the page gave them
-    monkeypatch.setattr(module, 'organiser_for', lambda url, html, http=None: Organiser('venue.be', '', ''))
+    monkeypatch.setattr(module, 'organiser_for', lambda url, html, http=None, site=None: Organiser('venue.be', '', ''))
     return seen
 
 
@@ -158,7 +158,7 @@ def test_earlier_import_with_wrong_link_and_no_info_is_updated_not_duplicated(ma
 def test_organiser_titles_places_and_adjusting_it(make_ctx, pages: dict, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     from automation_desk.groups.calendar import organisers
     monkeypatch.setattr(organisers, 'STORE', tmp_path / 'organisers.json')
-    monkeypatch.setattr(module, 'organiser_for', lambda url, html, http=None: Organiser('venue.be', 'Venue', ''))
+    monkeypatch.setattr(module, 'organiser_for', lambda url, html, http=None, site=None: Organiser('venue.be', 'Venue', ''))
     ctx = make_ctx(calendar_api([]), SENTENCE)
     preview, payload = AddEventsFromWeb().resolve(args(exclude_weekdays=[]), ctx)
     assert {r.cells['Title'] for r in preview.rows} >= {'Venue: Saturday talk', 'Venue: Long expo'}
@@ -174,7 +174,7 @@ def test_renaming_the_organiser_updates_instead_of_duplicating(
         make_ctx, pages: dict, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     from automation_desk.groups.calendar import organisers
     monkeypatch.setattr(organisers, 'STORE', tmp_path / 'organisers.json')
-    monkeypatch.setattr(module, 'organiser_for', lambda url, html, http=None: Organiser('venue.be', 'Venue', ''))
+    monkeypatch.setattr(module, 'organiser_for', lambda url, html, http=None, site=None: Organiser('venue.be', 'Venue', ''))
     earlier = imported(named('Long expo'), event_id='ev-7')
     fake = calendar_api([earlier])
     ctx = make_ctx(fake, SENTENCE)

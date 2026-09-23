@@ -102,6 +102,8 @@ class Context:
     now: datetime
     tz: ZoneInfo
     service: Callable[[str, str], Resource]
+    # CLAUDE> files the user attached to the command, as (name, content)
+    files: list[tuple[str, bytes]] = field(default_factory=list)
     _cache: dict[tuple[str, str], Resource] = field(default_factory=dict)
 
     def google(self, name: str, version: str) -> Resource:
@@ -149,6 +151,8 @@ class TaskGroup:
     name: str
     description: str
     tasks: list[StandardTask]
+    # CLAUDE> whether the page offers attaching files (PDF agendas) to a command
+    accepts_files: bool = False
 
     def task(self, task_id: str) -> StandardTask:
         """The standard task with this id."""

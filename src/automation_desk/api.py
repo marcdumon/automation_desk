@@ -4,7 +4,9 @@ interpret: sentence -> model fills the task's arguments -> code resolves against
 execute:   plan id + ticked rows -> exactly the previewed changes are applied.
 """
 
+import hashlib
 import logging
+import re
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -19,7 +21,7 @@ from pydantic import BaseModel
 
 from automation_desk import google_auth, jobs, ledger, reminders
 from automation_desk.capture import EXTENSION_DIR, Captured, CaptureError, broker
-from automation_desk.config import config
+from automation_desk.config import ROOT, config
 from automation_desk.dates import DateExprError
 from automation_desk.google_auth import AuthError
 from automation_desk.groups import GROUPS
@@ -46,10 +48,26 @@ def user_timezone() -> ZoneInfo:
         return ZoneInfo(config().fallback_timezone)
 
 
-def context(sentence: str) -> Context:
+def context(sentence: str, files: list[tuple[str, bytes]] | None = None) -> Context:
     """A fresh per-request context."""
     tz = user_timezone()
-    return Context(sentence=sentence, now=datetime.now(tz), tz=tz, service=google_auth.service)
+    return Context(sentence=sentence, now=datetime.now(tz), tz=tz, service=google_auth.service, files=files or [])
+
+
+UPLOADS = ROOT / 'data' / 'uploads'
+UPLOAD_ID = re.compile(r'^[0-9a-f]{16}-[\w.\- ]{1,120}$')
+MAX_UPLOAD_BYTES = 20_000_000
+
+
+def uploaded(upload_ids: list[str]) -> list[tuple[str, bytes]]:
+    """The files the user attached, by the ids the upload returned."""
+    files = []
+    for upload_id in upload_ids:
+        path = UPLOADS / upload_id
+        if not UPLOAD_ID.match(upload_id) or not path.is_file():
+            raise UserError('An attached file is no longer there. Attach it again.')
+        files.append((upload_id.split('-', 1)[1], path.read_bytes()))
+    return files
 
 
 def group_or_404(group_id: str) -> TaskGroup:
@@ -93,7 +111,7 @@ def google_error(_: Request, error: HttpError) -> JSONResponse:
 @app.get('/api/groups')
 def list_groups() -> list[dict]:
     """Task groups and their standard tasks, for the sidebar and the task cards."""
-    return [{'id': g.id, 'name': g.name, 'description': g.description,
+    return [{'id': g.id, 'name': g.name, 'description': g.description, 'accepts_files': g.accepts_files,
              'tasks': [{'id': t.id, 'name': t.name, 'description': t.description, 'example': t.example} for t in g.tasks]}
             for g in GROUPS.values()]
 
@@ -151,6 +169,7 @@ class InterpretRequest(BaseModel):
 
     text: str
     task_id: str | None = None
+    upload_ids: list[str] = []
 
 
 class InterpretResponse(BaseModel):
@@ -178,13 +197,14 @@ def interpret(group_id: str, request: InterpretRequest) -> InterpretResponse:
 
     job = jobs.Job(group=group.id, sentence=text)
     with jobs.run(job):
-        response = _interpret(group, request.task_id, text, job)
+        response = _interpret(group, request.task_id, text, job, uploaded(request.upload_ids))
     # CLAUDE> the job's figures are taken after it closed, so its time is the real one
     response.job = job.summary()
     return response
 
 
-def _interpret(group: TaskGroup, task_id: str | None, text: str, job: jobs.Job) -> InterpretResponse:
+def _interpret(group: TaskGroup, task_id: str | None, text: str, job: jobs.Job,
+               files: list[tuple[str, bytes]]) -> InterpretResponse:
     """Pick the task, have the model fill its arguments and resolve them; the caller records it all on `job`."""
     if task_id:
         task = group.task(task_id)
@@ -201,7 +221,7 @@ def _interpret(group: TaskGroup, task_id: str | None, text: str, job: jobs.Job) 
         job.status, job.message = args.status, args.message
         return InterpretResponse(status=args.status, message=args.message, task_id=task.id, task_name=task.name)
 
-    preview, payload = task.resolve(args, context(text))
+    preview, payload = task.resolve(args, context(text, files))
     plan_id = plans.put(Plan(group_id=group.id, task_id=task.id, payload=payload, job=job,
                              row_ids={row.id for row in preview.rows if row.selectable}))
     job.message, job.preview = preview.summary, preview.model_dump()
@@ -268,6 +288,21 @@ def job_detail(job_id: str) -> dict:
     if found is None:
         raise HTTPException(404, f'No job {job_id!r}')
     return found
+
+
+@app.post('/api/uploads')
+async def upload(request: Request, name: str) -> dict:
+    """Keep a file the user attached (the raw request body) in data/uploads inside the project."""
+    content = await request.body()
+    if not content:
+        raise UserError('The file is empty.')
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise UserError(f'The file is larger than {MAX_UPLOAD_BYTES // 1_000_000} MB.')
+    safe = re.sub(r'[^\w.\- ]', '_', Path(name).name)[:120] or 'file'
+    upload_id = f'{hashlib.sha1(content).hexdigest()[:16]}-{safe}'
+    UPLOADS.mkdir(parents=True, exist_ok=True)
+    (UPLOADS / upload_id).write_bytes(content)
+    return {'id': upload_id, 'name': safe, 'size': len(content)}
 
 
 @app.get('/api/capture/pending')

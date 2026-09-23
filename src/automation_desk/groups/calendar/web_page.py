@@ -23,6 +23,7 @@ from icalendar import Calendar
 from pydantic import BaseModel, Field
 
 from automation_desk.capture import read_in_browser
+from automation_desk.groups.calendar.pdf import is_pdf, pdf_text
 from automation_desk.jobs import record_fetch
 from automation_desk.llm import ask
 
@@ -109,6 +110,7 @@ class Page:
     url: str
     html: str
     via: str = 'download'
+    pdf: bytes = b''
 
 
 def fetch(url: str, http: httpx.Client, use_browser: bool = False) -> Page:
@@ -118,6 +120,8 @@ def fetch(url: str, http: httpx.Client, use_browser: bool = False) -> Page:
         blocked = response.headers.get('cf-mitigated') == 'challenge' or response.status_code in BLOCKED_STATUS
         if not blocked:
             response.raise_for_status()
+            if is_pdf(response.content):
+                return Page(url=str(response.url), html='', pdf=response.content)
             return Page(url=str(response.url), html=response.text)
     return browser_page(url)
 
@@ -574,6 +578,11 @@ def read_events(url: str, today: date, tz: ZoneInfo, text_filter: str, max_pages
     while current and current not in seen and len(seen) < max_pages:
         seen.add(current)
         page = fetch(current, http, use_browser)
+        if page.pdf:
+            found, text = pdf_events(page.pdf, page.url, today, tz, text_filter, http)
+            notes.append(f'{page.url} is a PDF: {len(found)} event(s) from its text (dates found by code, events listed '
+                         'by the model).')
+            return found, notes, pdf_as_html(text, page.url)
         found, source = _page_events(page, today, tz, text_filter, http)
         if found is None and page.via == 'download':
             page = browser_page(current)
@@ -587,6 +596,20 @@ def read_events(url: str, today: date, tz: ZoneInfo, text_filter: str, max_pages
         current = next_page(BeautifulSoup(page.html, 'lxml'), page.url) if max_pages > 1 else None
     events, detail_notes = complete_from_event_pages(events, seen, today, tz, http, use_browser)
     return events, notes + detail_notes, first_html
+
+
+def pdf_as_html(text: str, title: str) -> str:
+    """PDF text as a simple page, for the date marking and for finding who made it."""
+    lines = ''.join(f'<p>{html.escape(line)}</p>' for line in text.splitlines() if line.strip())
+    return f'<html><head><title>{html.escape(title)}</title></head><body>{lines}</body></html>'
+
+
+def pdf_events(content: bytes, source: str, today: date, tz: ZoneInfo, text_filter: str,
+               http: httpx.Client | None = None) -> tuple[list[WebEvent], str]:
+    """Events of an agenda PDF: code reads its text and dates, the model lists the events by date number."""
+    text = pdf_text(content, '|'.join(sorted(MONTHS, key=len, reverse=True)))
+    spans = marked_text(BeautifulSoup(pdf_as_html(text, source), 'lxml'), source, today, tz)
+    return text_events(spans, text_filter, source, today, http), text
 
 
 @dataclass(frozen=True)

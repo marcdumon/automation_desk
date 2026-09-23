@@ -1,7 +1,8 @@
 // CLAUDE> thin typed wrappers over the backend; every group uses the same generic routes
 
 export type StandardTask = { id: string; name: string; description: string; example: string }
-export type Group = { id: string; name: string; description: string; tasks: StandardTask[] }
+export type Group = { id: string; name: string; description: string; tasks: StandardTask[]; accepts_files: boolean }
+export type Upload = { id: string; name: string; size: number }
 export type Row = { id: string; cells: Record<string, string>; selectable: boolean; selected: boolean; note: string; links: Record<string, string> }
 export type PreviewOption = { name: string; label: string; value: string; help: string; multiline: boolean }
 export type Evidence = { quote: string; source: string; link: string; verified: boolean }
@@ -108,8 +109,15 @@ export const reminderDone = (id: string) => call<{ ok: boolean }>(`/api/reminder
 export const getVersion = () => call<{ build: string }>('/api/version')
 export const getAuth = () => call<{ ok: boolean; message: string }>('/api/auth')
 export const login = () => call<{ ok: boolean; message: string }>('/api/auth/login', {})
-export const interpret = (group: string, text: string, taskId: string | null) =>
-  call<Interpretation>(`/api/groups/${group}/interpret`, { text, task_id: taskId })
+export const interpret = (group: string, text: string, taskId: string | null, uploadIds: string[] = []) =>
+  call<Interpretation>(`/api/groups/${group}/interpret`, { text, task_id: taskId, upload_ids: uploadIds })
+
+export async function uploadFile(file: File): Promise<Upload> {
+  const response = await fetch(`/api/uploads?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throw new ApiError(typeof data.detail === 'string' ? data.detail : `Upload failed (${response.status})`, false)
+  return data as Upload
+}
 export const adjust = (group: string, planId: string, options: Record<string, string>) =>
   call<Interpretation>(`/api/groups/${group}/plans/${planId}/adjust`, { options })
 export const execute = (group: string, planId: string, selected: string[]) =>

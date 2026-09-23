@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 
-import { ApiError, adjust, execute, getJobs, interpret, login, type Group, type Interpretation, type JobSummary } from './api'
+import { ApiError, adjust, execute, getJobs, interpret, login, uploadFile, type Upload, type Group, type Interpretation, type JobSummary } from './api'
 import { servePageRequests } from './capture'
 import ChangeSheet from './ChangeSheet'
 import ExtensionSetup from './ExtensionSetup'
@@ -18,6 +18,22 @@ export default function GroupPage({ group, log, onLog }: Props) {
   // CLAUDE> a sentence kept across 'Reload and try again' is picked up once, then forgotten
   const [text, setText] = useState(() => takeKeptSentence(group.id))
   const [taskId, setTaskId] = useState<string | null>(null)
+  const [files, setFiles] = useState<Upload[]>([])
+  const [uploading, setUploading] = useState('')
+  const [uploadError, setUploadError] = useState('')
+  const picker = useRef<HTMLInputElement>(null)
+  const attach = async (chosen: FileList | null) => {
+    for (const file of Array.from(chosen ?? [])) {
+      setUploading(file.name)
+      try {
+        const up = await uploadFile(file)
+        setFiles(current => [...current.filter(f => f.id !== up.id), up])
+      } catch (err) {
+        setUploadError((err as Error).message)
+      }
+    }
+    setUploading('')
+  }
   const [result, setResult] = useState<Interpretation | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [command, setCommand] = useState('')
@@ -28,7 +44,7 @@ export default function GroupPage({ group, log, onLog }: Props) {
   const refreshJobs = () => queryClient.invalidateQueries({ queryKey: ['jobs'] })
 
   const ask = useMutation({
-    mutationFn: () => interpret(group.id, text, taskId),
+    mutationFn: () => interpret(group.id, text, taskId, files.map(f => f.id)),
     onSuccess: data => {
       setResult(data)
       setCommand(text)
@@ -53,6 +69,7 @@ export default function GroupPage({ group, log, onLog }: Props) {
       onLog({ when: new Date().toLocaleTimeString(), command, lines: data.results, job: data.job })
       setResult(null)
       setText('')
+      setFiles([])
     },
     onSettled: refreshJobs,
   })
@@ -95,7 +112,9 @@ export default function GroupPage({ group, log, onLog }: Props) {
         <p className="empty">{group.name} has no standard tasks yet. Describe the one you want and it can be added.</p>
       ) : (
         <>
-          <form className="command" onSubmit={event => { event.preventDefault(); submit() }}>
+          <form className="command" onSubmit={event => { event.preventDefault(); submit() }}
+                onDragOver={event => { if (group.accepts_files) event.preventDefault() }}
+                onDrop={event => { if (group.accepts_files) { event.preventDefault(); attach(event.dataTransfer.files) } }}>
             <label htmlFor="command-box" className="command-label">
               {chosen ? chosen.name : `Tell ${group.name} what to do`}
             </label>
@@ -110,7 +129,26 @@ export default function GroupPage({ group, log, onLog }: Props) {
                 if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit() }
               }}
             />
+            {group.accepts_files && (files.length > 0 || uploading || uploadError) && (
+              <div className="attachments">
+                {files.map(f => (
+                  <span key={f.id} className="chip">
+                    {f.name} <span className="muted">({Math.max(1, Math.round(f.size / 1024))} KB)</span>
+                    <button type="button" aria-label={`Remove ${f.name}`} onClick={() => setFiles(files.filter(x => x.id !== f.id))}>×</button>
+                  </span>
+                ))}
+                {uploading && <span className="muted">Attaching {uploading}…</span>}
+                {uploadError && <span className="bad">{uploadError}</span>}
+              </div>
+            )}
             <div className="command-actions">
+              {group.accepts_files && (
+                <>
+                  <input ref={picker} type="file" accept="application/pdf,.pdf" multiple hidden
+                         onChange={event => { setUploadError(''); attach(event.target.files); event.target.value = '' }} />
+                  <button type="button" className="quiet" onClick={() => picker.current?.click()}>Attach PDF</button>
+                </>
+              )}
               <span className="hint">
                 {chosen ? 'Standard task selected. Click it again to let the app choose.' : 'The app picks the matching standard task.'}
               </span>
