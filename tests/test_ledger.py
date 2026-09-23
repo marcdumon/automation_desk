@@ -49,16 +49,25 @@ def test_totals_per_group_and_model_and_group_filter() -> None:
 
 
 def test_writers_in_parallel_do_not_lose_jobs() -> None:
-    def write(n: int) -> None:
-        """Save ten jobs."""
-        for i in range(10):
-            job = jobs.Job(group='g', sentence=f'{n}-{i}')
-            job.llm_calls.append(call(0.001))
-            jobs.save(job)
+    errors: list[BaseException] = []
 
-    threads = [threading.Thread(target=write, args=(n,)) for n in range(4)]
+    def write(n: int) -> None:
+        """Save twenty jobs, each twice (as a preview and after its apply); keep any error for the test to see."""
+        try:
+            for i in range(20):
+                job = jobs.Job(group='g', sentence=f'{n}-{i}')
+                job.llm_calls.append(call(0.001))
+                jobs.save(job)
+                job.apply_status = 'ok'
+                jobs.save(job)
+        except BaseException as error:
+            errors.append(error)
+
+    threads = [threading.Thread(target=write, args=(n,)) for n in range(8)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    assert len(ledger.summaries()) == 40
+    assert errors == [], 'a writer failed instead of waiting its turn'
+    assert len(ledger.summaries()) == 160
+    assert round(ledger.totals()['total_cost_usd'], 6) == 0.16

@@ -9,6 +9,7 @@ A connection per operation, WAL journaling and a busy timeout let the app and ot
 
 import json
 import sqlite3
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -61,19 +62,45 @@ PAGE_COLUMNS = ['stage', 'url', 'status', 'bytes', 'latency_ms', 'via']
 JSON_FIELDS = {'request', 'response', 'params'}
 
 
+_ready: set[Path] = set()
+_ready_lock = threading.Lock()
+
+
+def _ensure_schema(target: Path) -> None:
+    """Create the tables once per database file per process."""
+    with _ready_lock:
+        if target in _ready:
+            return
+        target.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(target, timeout=30)
+        try:
+            connection.execute('PRAGMA journal_mode=WAL')
+            connection.executescript(SCHEMA)
+        finally:
+            connection.close()
+        _ready.add(target)
+
+
 @contextmanager
-def connect(path: Path | None = None) -> Iterator[sqlite3.Connection]:
-    """A connection with the schema in place; commits on success, rolls back on error."""
-    target = path or DB
-    target.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(target, timeout=30)
+def connect(write: bool = False) -> Iterator[sqlite3.Connection]:
+    """A connection; a writing one takes the write lock up front, so a second writer waits instead of failing.
+
+    Commits on success, rolls back on error.
+    """
+    _ensure_schema(DB)
+    # CLAUDE> autocommit mode, transactions started by hand: a deferred transaction that upgrades from read to write
+    # fails at once with 'database is locked' when another writer is busy, without waiting for the timeout
+    connection = sqlite3.connect(DB, timeout=30, isolation_level=None)
     connection.row_factory = sqlite3.Row
     try:
-        connection.execute('PRAGMA journal_mode=WAL')
         connection.execute('PRAGMA foreign_keys=ON')
-        connection.executescript(SCHEMA)
-        with connection:
+        connection.execute('BEGIN IMMEDIATE' if write else 'BEGIN')
+        try:
             yield connection
+        except BaseException:
+            connection.execute('ROLLBACK')
+            raise
+        connection.execute('COMMIT')
     finally:
         connection.close()
 
@@ -86,7 +113,7 @@ def _dump(value: object) -> str:
 def store(job: 'Job') -> None:
     """Save a job and all its calls, replacing an earlier save of the same job."""
     summary = job.summary()
-    with connect() as db:
+    with connect(write=True) as db:
         db.execute('DELETE FROM jobs WHERE id = ?', (job.id,))
         db.execute(
             '''INSERT INTO jobs (id, grp, sentence, task_id, task_name, started, status, message, preview_ms, applied_at,
