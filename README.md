@@ -18,6 +18,7 @@ with a tick box per item, and changes nothing until you press Apply.
 | Gmail | Label or mark mail (also archive) | `archive all newsletters older than 2 weeks` |
 | Gmail | Trash mail | `trash all mail from Zalando older than a month` |
 | Gmail | Draft an email (never sends) | `draft a mail to Anna: ik ben morgen 10 minuten te laat` |
+| News | Add or remove news sites / subjects; Make a digest now | `add sites lemonde.fr, standaard.be and simonwillison.net` |
 
 ## What the language model may and may not do
 
@@ -58,6 +59,14 @@ Install the extension once in Vivaldi (or any Chromium-based browser):
 2. Click **Load unpacked** and choose the project's `browser_extension` folder.
 
 Keep the Automation desk page open while a preview runs; it passes the app's page requests to the extension.
+
+## News digest
+
+Every morning at 07:00 (or when the app starts, if that was missed) the app reads the news feeds of your sites, fetches
+each new article (at most ~500 words), and has the model write a 2–4 line summary in the article's language, pick one of
+your subjects (or suggest a new one) and mark articles about the same story. The News page shows the digest grouped by
+subject; earlier digests are kept. A daily cost cap (default $0.30) switches the rest of a day's articles to their feed
+teaser. Article text is not stored.
 
 ## Run it
 
