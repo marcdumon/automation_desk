@@ -15,3 +15,14 @@ max_pages = 5
 [server]
 # CLAUDE> 8000 is taken by fin_research
 port = 8765
+
+[prices]
+# CLAUDE> dollars per million tokens of the configured model, checked on openrouter.ai; used to estimate a batch before sending it
+input_per_m = 0.25
+output_per_m = 1.50
+
+[news]
+digest_time = '07:00'
+cap_usd = 0.30
+max_words = 500
+batch_size = 20

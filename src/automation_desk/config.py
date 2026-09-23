@@ -13,6 +13,16 @@ CONFIG_FILE = ROOT / 'automation_desk.toml'
 
 
 @dataclass(frozen=True)
+class NewsSettings:
+    """Settings of the daily news digest."""
+
+    digest_time: str
+    cap_usd: float
+    max_words: int
+    batch_size: int
+
+
+@dataclass(frozen=True)
 class Config:
     """Everything configurable, in one place."""
 
@@ -21,6 +31,9 @@ class Config:
     fallback_timezone: str
     max_pages: int
     port: int
+    price_in_per_m: float
+    price_out_per_m: float
+    news: NewsSettings
 
     @property
     def openrouter_key(self) -> str:
@@ -39,4 +52,7 @@ def config() -> Config:
         fallback_timezone=raw['time']['fallback_timezone'],
         max_pages=int(raw['web']['max_pages']),
         port=int(raw['server']['port']),
+        price_in_per_m=float(raw['prices']['input_per_m']),
+        price_out_per_m=float(raw['prices']['output_per_m']),
+        news=NewsSettings(**raw['news']),
     )

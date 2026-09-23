@@ -117,8 +117,8 @@ class Page:
 def fetch(url: str, http: httpx.Client, use_browser: bool = False) -> Page:
     """A page: downloaded when the site allows it, otherwise loaded in the browser."""
     if not use_browser:
-        response = _get(url, http)
-        blocked = response.headers.get('cf-mitigated') == 'challenge' or response.status_code in BLOCKED_STATUS
+        response = download(url, http)
+        blocked = is_blocked(response)
         if not blocked:
             response.raise_for_status()
             if is_pdf(response.content):
@@ -135,12 +135,17 @@ def browser_page(url: str) -> Page:
     return Page(url=captured.url, html=captured.html, via='browser')
 
 
-def _get(url: str, http: httpx.Client) -> httpx.Response:
+def download(url: str, http: httpx.Client) -> httpx.Response:
     """GET with a browser user agent, recorded on the current job."""
     started = monotonic()
     response = http.get(url, headers={'User-Agent': USER_AGENT}, follow_redirects=True)
     record_fetch(url, response.status_code, len(response.content), int((monotonic() - started) * 1000))
     return response
+
+
+def is_blocked(response: httpx.Response) -> bool:
+    """Whether a site refused a program (bot check or 401/403/429/503) rather than answering 'not here'."""
+    return response.headers.get('cf-mitigated') == 'challenge' or response.status_code in BLOCKED_STATUS
 
 
 def infer_year(month: int, day: int, today: date) -> date:
@@ -779,7 +784,7 @@ def _page_events(page: Page, today: date, tz: ZoneInfo, text_filter: str,
     if found:
         return apply_text_filter(found, text_filter, http), 'schema.org event data'
     for link in ics_links(soup, page.url)[:3]:
-        response = _get(link, http)
+        response = download(link, http)
         if response.status_code == 200 and b'BEGIN:VCALENDAR' in response.content[:2000]:
             found += ics_events(response.content, page.url, tz)
     if found:

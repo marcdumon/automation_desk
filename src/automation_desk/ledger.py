@@ -52,6 +52,29 @@ CREATE TABLE IF NOT EXISTS page_reads (
     job_id TEXT NOT NULL REFERENCES jobs (id) ON DELETE CASCADE, seq INTEGER NOT NULL, stage TEXT, url TEXT,
     status INTEGER, bytes INTEGER, latency_ms INTEGER, via TEXT, PRIMARY KEY (job_id, seq)
 );
+CREATE TABLE IF NOT EXISTS news_sources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, site TEXT NOT NULL UNIQUE, name TEXT NOT NULL, feed TEXT, kind TEXT NOT NULL,
+    added TEXT NOT NULL, last_checked TEXT, last_result TEXT
+);
+CREATE TABLE IF NOT EXISTS news_subjects (name TEXT PRIMARY KEY, position INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS news_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS news_digests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, made_at TEXT NOT NULL, covers_from TEXT NOT NULL, trigger TEXT NOT NULL,
+    job_id TEXT, article_count INTEGER, story_count INTEGER, source_count INTEGER, problems TEXT
+);
+CREATE INDEX IF NOT EXISTS news_digests_made ON news_digests (made_at);
+CREATE TABLE IF NOT EXISTS news_stories (
+    id TEXT PRIMARY KEY, digest_id INTEGER NOT NULL REFERENCES news_digests (id) ON DELETE CASCADE, position INTEGER,
+    subject TEXT, title TEXT, summary TEXT
+);
+CREATE TABLE IF NOT EXISTS news_articles (
+    link TEXT PRIMARY KEY, source_id INTEGER, story_id TEXT REFERENCES news_stories (id) ON DELETE CASCADE,
+    title TEXT, published TEXT, teaser TEXT, from_teaser INTEGER, reason TEXT
+);
+CREATE TABLE IF NOT EXISTS news_seen (link TEXT PRIMARY KEY, source_id INTEGER, seen TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS news_suggestions (
+    name TEXT PRIMARY KEY, examples TEXT, digest_id INTEGER, status TEXT NOT NULL
+);
 '''
 
 LLM_COLUMNS = ['stage', 'purpose', 'model_requested', 'model_used', 'provider', 'prompt_tokens', 'completion_tokens',
@@ -197,3 +220,11 @@ def detail(job_id: str) -> dict | None:
 def all_jobs() -> list[dict]:
     """Every job in full, newest first; for checks and tests, not for pages."""
     return [full for s in summaries() if (full := detail(s['id']))]
+
+
+def cost_since(group: str, since_iso: str) -> float:
+    """What the model calls of one group's jobs started at or after `since_iso` cost, as OpenRouter reported."""
+    with connect() as db:
+        row = db.execute('SELECT COALESCE(SUM(c.cost_usd), 0) FROM llm_calls c JOIN jobs j ON j.id = c.job_id '
+                         'WHERE j.grp = ? AND j.started >= ?', (group, since_iso)).fetchone()
+    return float(row[0])

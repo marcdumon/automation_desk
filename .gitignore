@@ -11,3 +11,4 @@ secrets/
 data/
 .ruff_cache/
 *.tsbuildinfo
+.superpowers/
