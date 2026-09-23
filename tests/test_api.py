@@ -22,7 +22,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 def test_groups_listing(client: TestClient) -> None:
     groups = client.get('/api/groups').json()
-    assert [g['id'] for g in groups] == ['calendar', 'tasks', 'gmail']
+    assert [g['id'] for g in groups] == ['calendar', 'tasks', 'gmail', 'news']
     assert [t['id'] for t in groups[1]['tasks']] == ['change_dates', 'move_tasks', 'complete_tasks', 'delete_tasks', 'add_task']
 
 
@@ -110,3 +110,19 @@ def test_attached_files_reach_the_task(client: TestClient, monkeypatch: pytest.M
     assert seen['files'] == [('programma herfst.pdf', b'%PDF-1.7 hello')]
     gone = client.post('/api/groups/calendar/interpret', json={'text': 'x', 'task_id': task.id, 'upload_ids': ['nope']})
     assert gone.status_code == 422 and 'Attach it again' in gone.json()['detail']
+
+
+def test_news_endpoints(client: TestClient) -> None:
+    from automation_desk.groups.news import store
+
+    store.add_source('https://a.be', 'A', 'https://a.be/rss', 'feed')
+    overview = client.get('/api/news/overview').json()
+    assert [s['name'] for s in overview['sources']] == ['A']
+    assert overview['running'] is False
+    assert client.post('/api/news/cap', json={'usd': 11}).status_code == 422
+    assert client.post('/api/news/cap', json={'usd': 0.5}).json() == {'cap_usd': 0.5}
+    assert client.post('/api/news/subjects', json={'names': ['AI', 'Tech']}).json() == {'subjects': ['AI', 'Tech']}
+    assert client.get('/api/news/digests/99').status_code == 404
+    source_id = overview['sources'][0]['id']
+    assert client.delete(f'/api/news/sources/{source_id}').json() == {'ok': True}
+    assert client.get('/api/news/overview').json()['sources'] == []
