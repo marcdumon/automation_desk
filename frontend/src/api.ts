@@ -3,7 +3,10 @@
 export type StandardTask = { id: string; name: string; description: string; example: string }
 export type Group = { id: string; name: string; description: string; tasks: StandardTask[]; accepts_files: boolean }
 export type Upload = { id: string; name: string; size: number }
-export type Row = { id: string; cells: Record<string, string>; selectable: boolean; selected: boolean; note: string; links: Record<string, string> }
+export type Row = {
+  id: string; cells: Record<string, string>; selectable: boolean; selected: boolean; note: string
+  links: Record<string, string>; inputs: Record<string, string>
+}
 export type PreviewOption = { name: string; label: string; value: string; help: string; multiline: boolean }
 export type Evidence = { quote: string; source: string; link: string; verified: boolean }
 export type Preview = {

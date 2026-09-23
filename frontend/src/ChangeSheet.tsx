@@ -19,6 +19,15 @@ type Props = {
 // CLAUDE> the frozen plan as a table of changes; nothing reaches Google until "Apply" is pressed
 export default function ChangeSheet({ taskName, preview, selected, onToggle, onToggleAll, onConfirm, onCancel, busy, cost, onAdjust, adjusting }: Props) {
   const selectable = preview.rows.filter(r => r.selectable)
+  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(preview.options.map(o => [o.name, o.value])))
+  const [cellValues, setCellValues] = useState<Record<string, string>>({})
+  const changedCells = Object.entries(cellValues).filter(([key, value]) => {
+    const [column, ...rest] = key.split(':')
+    return preview.rows.find(r => r.id === rest.join(':'))?.inputs?.[column] !== value
+  })
+  const changed = preview.options.some(o => values[o.name] !== o.value) || changedCells.length > 0
+  const editable = preview.options.length > 0 || preview.rows.some(r => Object.keys(r.inputs ?? {}).length > 0)
+  const update = () => onAdjust({ ...values, ...Object.fromEntries(changedCells) })
   const allOn = selectable.length > 0 && selectable.every(r => selected.has(r.id))
   return (
     <div className="sheet" aria-label="Changes to apply">
@@ -46,7 +55,8 @@ export default function ChangeSheet({ taskName, preview, selected, onToggle, onT
           )}
         </div>
       )}
-      {preview.options.length > 0 && <Options preview={preview} onAdjust={onAdjust} adjusting={adjusting} />}
+      {editable && <Options preview={preview} values={values} setValues={setValues} changed={changed} onUpdate={update}
+                            adjusting={adjusting} />}
       <div className="table-wrap">
         <table>
           <thead>
@@ -73,12 +83,24 @@ export default function ChangeSheet({ taskName, preview, selected, onToggle, onT
                   {preview.columns.map((c, i) => (
                     <td key={c}>
                       <span className="value">
-                        {row.links?.[c]
+                        {row.inputs?.[c] !== undefined
+                          ? (row.inputs[c].length > 20 || row.inputs[c].includes('\n')
+                            ? <textarea className={`cell-input col-${c.toLowerCase()}`} rows={1}
+                                        aria-label={`${c} of ${Object.values(row.cells)[0] ?? row.id}`}
+                                        value={cellValues[`${c}:${row.id}`] ?? row.inputs[c]}
+                                        onChange={e => setCellValues({ ...cellValues, [`${c}:${row.id}`]: e.target.value })} />
+                            : <input className={`cell-input col-${c.toLowerCase()}`}
+                                     aria-label={`${c} of ${Object.values(row.cells)[0] ?? row.id}`}
+                                     value={cellValues[`${c}:${row.id}`] ?? row.inputs[c]}
+                                     onChange={e => setCellValues({ ...cellValues, [`${c}:${row.id}`]: e.target.value })}
+                                     onKeyDown={e => { if (e.key === 'Enter' && changed) { e.preventDefault(); update() } }} />)
+                          : row.links?.[c]
                           ? <a href={row.links[c]} target="_blank" rel="noreferrer">{row.cells[c]}</a>
                           : /^https?:\/\//.test(row.cells[c] ?? '')
                           ? <a href={row.cells[c]} target="_blank" rel="noreferrer">{row.cells[c].replace(/^https?:\/\/(www\.)?/, '')}</a>
                           : row.cells[c]}
                       </span>
+                      {row.inputs?.[c] !== undefined && row.cells[c]?.endsWith('(assumed)') && <span className="note">assumed</span>}
                       {i === 0 && row.note && <span className="note">{row.note}</span>}
                     </td>
                   ))}
@@ -106,13 +128,14 @@ export default function ChangeSheet({ taskName, preview, selected, onToggle, onT
   )
 }
 
-// CLAUDE> settings the task offers for this preview; changing them recomposes it without reading the site again
-function Options({ preview, onAdjust, adjusting }: { preview: Preview; onAdjust: Props['onAdjust']; adjusting: boolean }) {
-  const initial = Object.fromEntries(preview.options.map(o => [o.name, o.value]))
-  const [values, setValues] = useState(initial)
-  const changed = preview.options.some(o => values[o.name] !== o.value)
+// CLAUDE> settings the task offers for this preview, plus the per-row inputs; changing them recomposes the preview
+// without reading the source again
+function Options({ preview, values, setValues, changed, onUpdate, adjusting }: {
+  preview: Preview; values: Record<string, string>; setValues: (v: Record<string, string>) => void; changed: boolean
+  onUpdate: () => void; adjusting: boolean
+}) {
   return (
-    <form className="options" onSubmit={e => { e.preventDefault(); if (changed) onAdjust(values) }}>
+    <form className="options" onSubmit={e => { e.preventDefault(); if (changed) onUpdate() }}>
       {preview.options.map(o => (
         <label key={o.name} className={o.multiline ? 'wide' : ''}>
           <span className="option-label">{o.label}</span>

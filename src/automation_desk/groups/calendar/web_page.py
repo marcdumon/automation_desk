@@ -74,7 +74,8 @@ DATE_PATTERNS = [
 ]
 # CLAUDE> every pattern captures (hour, minute, suffix); '12.50' counts only with a suffix, so prices are not times
 TIME_PATTERNS = [
-    re.compile(r'\b(\d{1,2})[:hu](\d{2})[ \t]*(am|pm|uur)?\b', re.IGNORECASE),
+    # CLAUDE> '9:30U', '9:30h' and '9:30 uur' all occur in Belgian programmes
+    re.compile(r'\b(\d{1,2})[:hu](\d{2})[ \t]*(am|pm|uur|u|h)?\b', re.IGNORECASE),
     re.compile(r'\b(\d{1,2})\.(\d{2})[ \t]*(uur|u|h)\b', re.IGNORECASE),
     re.compile(r'\b(\d{1,2})()[ \t]*(am|pm|h|u|uur)\b', re.IGNORECASE),
 ]
@@ -327,6 +328,11 @@ def _date_matches(text: str, today: date) -> list[tuple[int, int, list[tuple[dat
                 taken.append((m.start(), m.end()))
                 found.append((m.start(), m.end(), [(d, None) for d in days if d], style))
     return found
+
+
+def read_dates(text: str, today: date) -> list[date]:
+    """Every date written in a text, in order, read by the same code as agenda pages (for dates the user types)."""
+    return [day for _, _, days, _ in sorted(_date_matches(text, today), key=lambda m: m[0]) for day, _ in days]
 
 
 def _time_matches(text: str, busy: list[tuple[int, int]]) -> list[tuple[int, int, time]]:

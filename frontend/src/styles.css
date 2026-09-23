@@ -148,6 +148,15 @@ button.quiet:hover:not(:disabled) { border-color: var(--muted); }
 .option-label { font-weight: 600; }
 .options input { min-width: 260px; padding: 6px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); }
 .options label.wide { flex-basis: 100%; }
+.cell-input { width: 100%; min-width: 6em; padding: 4px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); font-size: 14px; }
+/* CLAUDE> long values wrap and the box grows with its text */
+textarea.cell-input { resize: vertical; field-sizing: content; min-height: 2.1em; max-height: 14em; }
+.cell-input.col-date { min-width: 9em; }
+.cell-input.col-time, .cell-input.col-duration { min-width: 5.5em; max-width: 7em; }
+.cell-input.col-title { min-width: 13em; }
+.cell-input.col-info { min-width: 16em; }
+.cell-input.col-source { min-width: 9em; }
+.cell-input.col-place { min-width: 10em; }
 .options textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); resize: vertical; }
 td { white-space: pre-line; }
 .option-help { color: var(--muted); font-size: 12px; }

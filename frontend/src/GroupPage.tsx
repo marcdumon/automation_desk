@@ -58,7 +58,8 @@ export default function GroupPage({ group, log, onLog }: Props) {
     mutationFn: (options: Record<string, string>) => adjust(group.id, result!.plan_id!, options),
     onSuccess: data => {
       setResult(current => ({ ...current!, ...data, arguments: current?.arguments ?? null }))
-      setSelected(new Set(data.preview?.rows.filter(r => r.selectable && r.selected).map(r => r.id) ?? []))
+      // CLAUDE> keep the user's ticks; only rows that can no longer be applied drop out
+      setSelected(current => new Set(data.preview?.rows.filter(r => r.selectable && current.has(r.id)).map(r => r.id) ?? []))
     },
     onSettled: refreshJobs,
   })
@@ -188,7 +189,7 @@ export default function GroupPage({ group, log, onLog }: Props) {
 
           {result?.status === 'preview' && result.preview && (
             <ChangeSheet
-              key={JSON.stringify(result.preview.options)}
+              key={JSON.stringify([result.preview.options, result.preview.rows.map(r => r.inputs)])}
               taskName={result.task_name ?? ''}
               preview={result.preview}
               selected={selected}

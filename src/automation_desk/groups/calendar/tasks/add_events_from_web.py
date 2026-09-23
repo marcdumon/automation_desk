@@ -2,6 +2,7 @@
 
 import hashlib
 import re
+from collections import Counter
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 from email.utils import parseaddr
@@ -10,12 +11,20 @@ import httpx
 from pydantic import Field
 
 from automation_desk.config import config
-from automation_desk.dates import label, resolve_range, weekday_index
+from automation_desk.dates import (
+    DateExprError,
+    duration_label,
+    label,
+    parse_duration,
+    resolve_range,
+    resolve_time,
+    weekday_index,
+)
 from automation_desk.groups.base import Context, Preview, PreviewOption, Row, StandardTask, TaskArgs, UserError, match_name
 from automation_desk.groups.calendar.client import events_tagged, writable_calendars
 from automation_desk.groups.calendar.organisers import Organiser, organiser_for, placed, save, titled
 from automation_desk.groups.calendar.pdf import PdfError, is_pdf
-from automation_desk.groups.calendar.web_page import WebEvent, pdf_as_html, pdf_events, read_events
+from automation_desk.groups.calendar.web_page import WebEvent, pdf_as_html, pdf_events, read_dates, read_events
 from automation_desk.groups.gmail.client import gmail_link, mail_pdfs, message_ids, metadata, received, sender
 from automation_desk.groups.gmail.select import any_of
 
@@ -58,7 +67,27 @@ def page_tag(url: str) -> str:
     return hashlib.sha1(url.split('#')[0].rstrip('/').encode()).hexdigest()[:20]
 
 
-def event_body(event: WebEvent, tz_name: str, key: str, tag: str) -> dict:
+def is_timed(event: WebEvent) -> bool:
+    """Whether the event gets a start and end time (not all-day): a start time, and one day unless an end time is given."""
+    return event.start_time is not None and ((event.end or event.start) == event.start or event.end_time is not None)
+
+
+def timed_span(event: WebEvent, default: timedelta = DEFAULT_DURATION,
+               override: timedelta | None = None) -> tuple[datetime, datetime, bool]:
+    """Start and end of a timed event, and whether the duration is assumed rather than from the page or the user."""
+    assert event.start_time is not None
+    start = datetime.combine(event.start, event.start_time)
+    if override:
+        return start, start + override, False
+    if event.end_time:
+        end = datetime.combine(event.end or event.start, event.end_time)
+        if end > start:
+            return start, end, False
+    return start, start + default, True
+
+
+def event_body(event: WebEvent, tz_name: str, key: str, tag: str, default: timedelta = DEFAULT_DURATION,
+               override: timedelta | None = None) -> dict:
     """The Calendar API body for one web event: timed when the page gives a start time, all-day otherwise."""
     last_day = event.end or event.start
     body: dict = {
@@ -67,15 +96,11 @@ def event_body(event: WebEvent, tz_name: str, key: str, tag: str) -> dict:
         'description': '\n\n'.join(part for part in (event.description, f'Source: {event.url}') if part),
         'extendedProperties': {'private': {PAGE_TAG: tag, EVENT_TAG: key}},
     }
-    multi_day = last_day != event.start and event.end_time is None
-    if event.start_time is None or multi_day:
+    if not is_timed(event):
         body['start'] = {'date': event.start.isoformat()}
         body['end'] = {'date': (last_day + timedelta(days=1)).isoformat()}
         return body
-    start = datetime.combine(event.start, event.start_time)
-    end = datetime.combine(last_day, event.end_time) if event.end_time else start + DEFAULT_DURATION
-    if end <= start:
-        end = start + DEFAULT_DURATION
+    start, end, _ = timed_span(event, default, override)
     body['start'] = {'dateTime': start.isoformat(), 'timeZone': tz_name}
     body['end'] = {'dateTime': end.isoformat(), 'timeZone': tz_name}
     return body
@@ -129,15 +154,51 @@ def differences(earlier: dict, body: dict) -> list[str]:
     return [label for label, (old, new) in checks.items() if old != new]
 
 
-def when(event: WebEvent) -> tuple[str, str]:
-    """Date and time columns of the preview."""
+EDITABLE = ('Date', 'Time', 'Duration', 'Title', 'Place', 'Info', 'Source')
+ALL_DAY_WORDS = {'', 'all day', 'all-day', 'hele dag', 'toute la journée', '—', '-'}
+
+
+def apply_edits(event: WebEvent, edits: dict[str, str], today: date) -> tuple[WebEvent, timedelta | None]:
+    """An event with the user's edits applied, and the duration the user set, if any. Everything is read by code."""
+    changes: dict = {}
+    for column, field_name in (('Title', 'title'), ('Place', 'location'), ('Info', 'description'), ('Source', 'url')):
+        if column in edits:
+            value = edits[column].strip()
+            changes[field_name] = '' if value == '—' else value
+    name = changes.get('title') or event.title
+    if 'Date' in edits:
+        days = read_dates(edits['Date'], today)
+        if not days:
+            raise UserError(f"Could not read the date '{edits['Date']}' of '{name}'. Write e.g. '3/10/2026' or '3 okt 2026'.")
+        changes['start'], changes['end'] = days[0], (days[-1] if days[-1] != days[0] else None)
+    if 'Time' in edits:
+        typed = ' '.join(edits['Time'].casefold().split()).removeprefix('from ')
+        if typed in ALL_DAY_WORDS:
+            changes['start_time'] = changes['end_time'] = None
+        else:
+            try:
+                changes['start_time'] = resolve_time(typed.split('-')[0].strip())
+            except DateExprError as error:
+                raise UserError(f"Could not read the time '{edits['Time']}' of '{name}'. Write e.g. '20:00' or "
+                                "'all day'.") from error
+            if event.end_time and event.end_time <= changes['start_time']:
+                changes['end_time'] = None
+    edited = replace(event, **changes) if changes else event
+    override = None
+    if edits.get('Duration', '').strip() not in ('', '—') and is_timed(edited):
+        override = parse_duration(edits['Duration'].removesuffix('(assumed)'))
+    return edited, override
+
+
+def when(event: WebEvent, default: timedelta = DEFAULT_DURATION,
+         override: timedelta | None = None) -> tuple[str, str, str]:
+    """Date, time and duration columns of the preview."""
     day = label(event.start) + (f' → {label(event.end)}' if event.end and event.end != event.start else '')
-    if event.start_time is None:
-        return day, 'all day'
-    clock = event.start_time.strftime('%H:%M')
-    if event.end_time:
-        return day, f"{clock}-{event.end_time.strftime('%H:%M')}"
-    return day, f'{clock} (2h assumed)'
+    if not is_timed(event):
+        return day, 'all day' if event.start_time is None else f"from {event.start_time.strftime('%H:%M')}", '—'
+    start, end, assumed = timed_span(event, default, override)
+    duration = duration_label(end - start) + (' (assumed)' if assumed else '')
+    return day, f"{start.strftime('%H:%M')}-{end.strftime('%H:%M')}", duration
 
 
 class AddEventsFromWeb(StandardTask):
@@ -235,15 +296,31 @@ class AddEventsFromWeb(StandardTask):
         return link, domain or sender(meta), events, notes, pdf_as_html('\n'.join(texts), meta['subject'])
 
     def adjust(self, payload: dict, options: dict[str, str], ctx: Context) -> tuple[Preview, dict]:
-        """Use the organiser name and address the user set, remember them for the site, and compose again."""
-        organiser = Organiser(site=payload['organiser'].site, name=' '.join(options.get('organiser', '').split()),
-                              address=' '.join(options.get('organiser_address', '').split()))
-        save(organiser)
-        return self.compose({**payload, 'organiser': organiser}, ctx)
+        """Use the organiser, default duration and per-event durations the user set, and compose again.
+
+        The organiser is remembered for the site. Durations are parsed by code ('2h', '90 min', '1h30').
+        """
+        organiser = payload['organiser']
+        if 'organiser' in options or 'organiser_address' in options:
+            organiser = Organiser(site=organiser.site, name=' '.join(options.get('organiser', organiser.name).split()),
+                                  address=' '.join(options.get('organiser_address', organiser.address).split()))
+            save(organiser)
+        default = payload.get('default_duration', DEFAULT_DURATION)
+        if options.get('default_duration', '').strip():
+            default = parse_duration(options['default_duration'])
+        edits = {key: dict(fields) for key, fields in payload.get('edits', {}).items()}
+        for name, value in options.items():
+            column, _, key = name.partition(':')
+            if key and column in EDITABLE:
+                edits.setdefault(key, {})[column] = value
+        return self.compose({**payload, 'organiser': organiser, 'default_duration': default, 'edits': edits}, ctx)
 
     def compose(self, payload: dict, ctx: Context) -> tuple[Preview, dict]:
         """Titles, places, exclusions and what is already in the calendar, from events already read."""
         url, organiser = payload['url'], payload['organiser']
+        default, edits = payload.get('default_duration', DEFAULT_DURATION), payload.get('edits', {})
+        # CLAUDE> a year far from the one most events share is probably a typo on the page ('6/10/2028' among 2026 dates)
+        usual_year = Counter(e.start.year for e in payload['events']).most_common(1)[0][0]
         svc = ctx.google('calendar', 'v3')
         # CLAUDE> keys and matching use the title as the page gives it, so renaming the organiser never breaks the link
         pairs = [(e, replace(e, title=titled(e.title, organiser), location=placed(e.location, organiser)))
@@ -255,8 +332,11 @@ class AddEventsFromWeb(StandardTask):
             if key in seen:
                 continue
             seen.add(key)
+            event, override = apply_edits(event, edits.get(key, {}), ctx.today)
             reason = self._excluded(event, payload['excluded'], payload['period'], ctx.now.replace(tzinfo=None))
-            body = event_body(event, str(ctx.tz), key, payload['page_tag'])
+            if not reason and abs(event.start.year - usual_year) >= 2:
+                reason = f'the page says {event.start.year} while the other events are in {usual_year}: check the year'
+            body = event_body(event, str(ctx.tz), key, payload['page_tag'], default, override)
             earlier = find.match(key, raw) or find.match(key, event)
             changed = differences(earlier, body) if earlier else []
             unchanged = earlier is not None and not changed
@@ -265,26 +345,36 @@ class AddEventsFromWeb(StandardTask):
                 note = f"in the calendar; will be updated: {', '.join(changed)}" + (f' ({reason})' if reason else '')
             else:
                 note = 'already in the calendar, unchanged' if unchanged else reason
-            day, clock = when(event)
+            day, clock, duration = when(event, default, override)
             info = (event.description[:140] + '…') if len(event.description) > 140 else event.description
+            inputs = {'Date': day, 'Time': event.start_time.strftime('%H:%M') if event.start_time else 'all day',
+                      'Title': event.title, 'Place': event.location, 'Info': event.description, 'Source': event.url}
+            if is_timed(event):
+                inputs['Duration'] = duration.removesuffix(' (assumed)')
             rows.append(Row(id=key, selectable=not unchanged, selected=not (unchanged or reason), note=note,
-                            cells={'Date': day, 'Time': clock, 'Title': event.title, 'Place': event.location or '—',
-                                   'Info': info or '—', 'Source': event.url}))
+                            cells={'Date': day, 'Time': clock, 'Duration': duration, 'Title': event.title,
+                                   'Place': event.location or '—', 'Info': info or '—', 'Source': event.url},
+                            inputs=inputs))
             bodies[key] = body
 
         chosen = sum(r.selected for r in rows)
         updating = sum(r.selected and r.id in updates for r in rows)
         notes = [*payload['notes'],
                  'Weekday exclusions apply to single-day events; multi-day events (exhibitions) are kept unless unticked.',
-                 'Events with a start time but no end time get 2 hours.']
+                 f'Events with a start time but no end time get the default duration ({duration_label(default)}); '
+                 'change it for all above, or for one event in its Duration box.',
+                 'Every field of an event can be edited in its row; Update preview applies the changes. An edited title '
+                 'or place is used exactly as typed.']
         summary = f"Add {chosen - updating} and update {updating} of {len(rows)} event(s) in calendar '{payload['calendar']}'"
         options = [
             PreviewOption(name='organiser', label='Organiser', value=organiser.name,
                           help=f'Every title starts with it. Remembered for {organiser.site}.'),
             PreviewOption(name='organiser_address', label='Organiser address', value=organiser.address,
                           help='Added to places that are missing or only name the organiser.'),
+            PreviewOption(name='default_duration', label='Default duration', value=duration_label(default),
+                          help="For events whose page gives no end time, e.g. '2h', '90 min', '1h30'."),
         ]
-        preview = Preview(summary=summary, columns=['Date', 'Time', 'Title', 'Place', 'Info', 'Source'], rows=rows,
+        preview = Preview(summary=summary, columns=['Date', 'Time', 'Duration', 'Title', 'Place', 'Info', 'Source'], rows=rows,
                           notes=notes, options=options)
         return preview, {**payload, 'bodies': bodies, 'updates': updates}
 

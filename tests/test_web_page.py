@@ -263,3 +263,8 @@ def test_several_days_sharing_one_month(text: str, marked: str, days: list[date]
     spans = marked_text(BeautifulSoup(f'<p>{text}</p>', 'lxml'), 'https://x.be', TODAY, TZ)
     assert marked in spans.text
     assert [spans.dates[n][0] for n in sorted(spans.dates)] == days
+
+
+def test_a_time_written_with_a_trailing_u_is_read() -> None:
+    spans = marked_text(BeautifulSoup('<p>ZA 3/10/2026 9:30U Athena-lezing</p>', 'lxml'), 'https://x.be', TODAY, TZ)
+    assert '[T1: 9:30U]' in spans.text and spans.times[1] == time(9, 30)

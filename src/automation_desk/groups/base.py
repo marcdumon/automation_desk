@@ -37,6 +37,8 @@ class Row(BaseModel):
     note: str = ''
     # CLAUDE> column -> address: that cell is shown as a link, e.g. 'Open' -> the mail in Gmail
     links: dict[str, str] = {}
+    # CLAUDE> column -> value the user may edit in the preview, e.g. 'Duration' -> '2h'; sent back as '<column>:<row id>'
+    inputs: dict[str, str] = {}
 
 
 class PreviewOption(BaseModel):
