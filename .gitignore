@@ -1,0 +1,13 @@
+.venv/
+.pytest_cache/
+__pycache__/
+.env
+!.env.example
+CLAUDE.md
+frontend/node_modules/
+frontend/dist/
+src/llm_automation/static/
+secrets/
+data/
+.ruff_cache/
+*.tsbuildinfo

@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Automation desk reader",
+  "version": "1.0",
+  "description": "Lets the local Automation desk (llm_automation) read agenda pages through this browser.",
+  "permissions": ["tabs", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["http://127.0.0.1:8765/*", "http://localhost:8765/*", "http://127.0.0.1:5173/*", "http://localhost:5173/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

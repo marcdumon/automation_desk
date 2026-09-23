@@ -1,0 +1,17 @@
+# CLAUDE> Non-secret settings only. The OpenRouter key comes from .env.
+
+[llm]
+base_url = 'https://openrouter.ai/api/v1'
+# CLAUDE> Verified 2026-09-22 in openrouter.ai/api/v1/models: supports structured_outputs, $0.25 in / $1.50 out per M tokens.
+model = 'google/gemini-3.1-flash-lite'
+
+[time]
+# CLAUDE> used only when the Calendar settings cannot be read
+fallback_timezone = 'Europe/Brussels'
+
+[web]
+max_pages = 5
+
+[server]
+# CLAUDE> 8000 is taken by fin_research
+port = 8765
