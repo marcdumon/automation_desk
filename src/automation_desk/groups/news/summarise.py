@@ -1,0 +1,128 @@
+"""Summaries by the model, in batches: 2-4 lines in the article's language, a subject, and same-story marks.
+
+Every answer is checked in code. The daily cost cap is kept by estimating a batch before sending it.
+"""
+
+from dataclasses import dataclass
+
+import httpx
+from pydantic import BaseModel, Field
+
+from automation_desk.config import config
+from automation_desk.groups.news.collect import Article
+from automation_desk.llm import LLMError, ask
+
+OTHER = 'Other'
+OUTPUT_TOKENS_PER_ARTICLE = 120
+
+
+class ArticleSummary(BaseModel):
+    """The model's answer for one article."""
+
+    number: int = Field(description='The number of the article.')
+    summary: str = Field(description='2-4 lines summarising the article, in the language the article is written in.')
+    subject: str = Field(description="One subject from the list, exactly as written; or 'suggest: <new subject>' when none "
+                                     'fits; or Other.')
+    same_story: list[int] = Field(description='Numbers of other articles in this batch that report the same story.')
+
+
+class BatchSummary(BaseModel):
+    """The model's answer for a batch."""
+
+    articles: list[ArticleSummary]
+
+
+SYSTEM = """You summarise news articles for a personal daily digest.
+For every numbered article: write 2-4 lines in the SAME language as the article (Dutch, French or English; never translate);
+pick one subject from the list exactly as written, or 'suggest: <name>' when none fits well, or Other;
+list the numbers of other articles in this batch that report the same story.
+Use only what the article says."""
+
+
+@dataclass(frozen=True)
+class Summarised:
+    """An article with its summary and subject, ready for merging."""
+
+    article: Article
+    summary: str
+    subject: str
+    suggestion: str
+    from_teaser: bool
+    reason: str
+    batch: int
+    same_story: frozenset[str] = frozenset()
+
+
+def batch_size() -> int:
+    """Articles per model call."""
+    return config().news.batch_size
+
+
+def estimate(batch: list[Article]) -> float:
+    """Dollars a batch will likely cost, from its length and the model's prices (four characters per token)."""
+    cfg = config()
+    tokens_in = sum(len(a.text) + len(a.title) for a in batch) / 4 + 400
+    tokens_out = OUTPUT_TOKENS_PER_ARTICLE * len(batch)
+    return (tokens_in * cfg.price_in_per_m + tokens_out * cfg.price_out_per_m) / 1_000_000
+
+
+def _teaser(article: Article, batch: int, reason: str) -> Summarised:
+    """An article summarised by its teaser."""
+    return Summarised(article, article.teaser or article.title, OTHER, '', True, reason, batch)
+
+
+def _prompt(batch: list[Article], subjects: list[str]) -> str:
+    """The numbered articles and the subject list."""
+    listed = '\n'.join(f'- {s}' for s in subjects) or '- (none yet)'
+    body = '\n\n'.join(f'Article {n}\nTitle: {a.title}\nSite: {a.source_name}\n{a.text}' for n, a in enumerate(batch, 1))
+    return f'Subjects:\n{listed}\n- {OTHER}\n\n{body}'
+
+
+def _checked(batch: list[Article], reply: BatchSummary, subjects: list[str], index: int) -> list[Summarised]:
+    """The model's answers kept only where they fit the batch; missing articles get their teaser."""
+    answers = {a.number: a for a in reply.articles if 1 <= a.number <= len(batch)}
+    items = []
+    for n, article in enumerate(batch, 1):
+        answer = answers.get(n)
+        if answer is None or not answer.summary.strip():
+            items.append(_teaser(article, index, 'no summary from the model'))
+            continue
+        subject, suggestion = answer.subject.strip(), ''
+        if subject.casefold().startswith('suggest:'):
+            subject, suggestion = OTHER, subject.split(':', 1)[1].strip()
+        elif subject not in subjects and subject != OTHER:
+            subject, suggestion = OTHER, subject
+        same = frozenset(batch[m - 1].link for m in answer.same_story if 1 <= m <= len(batch) and m != n)
+        reason = 'site blocks programs' if article.blocked else ''
+        items.append(Summarised(article, answer.summary.strip(), subject, suggestion, article.blocked, reason, index, same))
+    return items
+
+
+def summarise(articles: list[Article], subjects: list[str], budget_usd: float,
+              http: httpx.Client | None = None) -> tuple[list[Summarised], list[str]]:
+    """Summaries of all articles, in batches; articles past the budget, or of failed batches, keep their teaser."""
+    items: list[Summarised] = []
+    size, spent, capped, failed, failure = batch_size(), 0.0, 0, 0, ''
+    for index, start in enumerate(range(0, len(articles), size)):
+        batch = articles[start:start + size]
+        cost = estimate(batch)
+        if spent + cost > budget_usd:
+            items += [_teaser(a, index, 'daily cost cap reached') for a in batch]
+            capped += len(batch)
+            continue
+        spent += cost
+        for attempt in range(2):
+            try:
+                reply = ask(SYSTEM, _prompt(batch, subjects), BatchSummary, http=http, purpose='summarise news articles')
+                items += _checked(batch, reply, subjects, index)
+                break
+            except LLMError as error:
+                if attempt == 1:
+                    failed, failure = failed + 1, str(error)
+                    items += [_teaser(a, index, 'the model could not summarise it') for a in batch]
+    problems = []
+    if capped:
+        problems.append(f'Daily cost cap (${budget_usd:.2f}) reached: {capped} article(s) use their teaser.')
+    if failed:
+        problems.append(f'{failed} batch(es) could not be summarised ({failure}); their articles use teasers.')
+    return items, problems
