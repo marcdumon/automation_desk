@@ -53,10 +53,19 @@ _MONTH = '(' + '|'.join(sorted(MONTHS, key=len, reverse=True)) + r')\.?'
 _ORD = r'(?:st|nd|rd|th|er|e|ste|de)?'
 # CLAUDE> '23 sep 26' has a two-digit year, but in '12 okt 20:00' or '12 okt 20 uur' the number is a time
 _YEAR = r"(?:,?[ \t]+(\d{4}|'?\d{2}(?![\d:]|\.\d|[ \t]*(?:u|uur|h|am|pm)\b))|[ \t]*('\d{2})(?!\d))?"
-_TO = r"[ \t]*(?:[-\u2013\u2014]|t/m|tot|to|until|au|jusqu'au|jusqu\u2019au)[ \t]*"
+_RANGE_WORD = r"(?:[-\u2013\u2014]|t/m|tot(?:[ \t]+en[ \t]+met)?|to|until|through|au|jusqu'au|jusqu\u2019au)"
+_LIST_WORD = r'(?:,|&|\+|en|and|et)'
+# CLAUDE> weekday names (nl, en, fr; full or short) that may stand before a day number inside a list or range
+_WEEKDAY = (r'(?:maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag|ma|di|wo|do|vr|za|zo|monday|tuesday|wednesday|'
+            r'thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thurs|fri|sat|sun|lundi|mardi|mercredi|jeudi|vendredi|'
+            r'samedi|dimanche|lun|mar|mer|jeu|ven|sam|dim)\.?')
+# CLAUDE> a number followed by ':', '.', 'u', 'uur' or 'h' is a time ('oktober 12, 20:00'), never a further day
+_NEXT_DAY = rf'[ \t]*(?:{_RANGE_WORD}|{_LIST_WORD})[ \t]*(?:{_WEEKDAY}[ \t]+)?\d{{1,2}}{_ORD}(?![:.]\d|[ \t]*(?:u|uur|h)\b)'
 DATE_PATTERNS = [
-    # CLAUDE> '12 - 20 oktober 2026': a range inside one month becomes two spans
-    ('range', re.compile(rf'\b(\d{{1,2}}){_ORD}{_TO}(\d{{1,2}}){_ORD}[ \t]+{_MONTH}{_YEAR}\b', re.IGNORECASE)),
+    # CLAUDE> several days sharing one month: '12 - 20 oktober', 'zaterdag 10 en zondag 11 oktober 2026', '3, 10 en 17 okt'
+    ('days_month', re.compile(rf'\b\d{{1,2}}{_ORD}(?:{_NEXT_DAY})+[ \t]+{_MONTH}{_YEAR}\b', re.IGNORECASE)),
+    # CLAUDE> the same, month first: 'October 10 and 11, 2026'
+    ('month_days', re.compile(rf'\b{_MONTH}[ \t]+\d{{1,2}}{_ORD}(?:{_NEXT_DAY})+{_YEAR}\b', re.IGNORECASE)),
     ('dmy', re.compile(rf'\b(\d{{1,2}}){_ORD}[ \t]+{_MONTH}{_YEAR}\b', re.IGNORECASE)),
     ('mdy', re.compile(rf'\b{_MONTH}[ \t]+(\d{{1,2}}){_ORD}{_YEAR}\b', re.IGNORECASE)),
     ('iso', re.compile(r'\b(\d{4})-(\d{2})-(\d{2})\b')),
@@ -276,8 +285,11 @@ class Spans:
     date_links: dict[int, int] = field(default_factory=dict)
 
 
-def _date_matches(text: str, today: date) -> list[tuple[int, int, list[tuple[date, time | None]]]]:
-    """Non-overlapping date matches: (start, end, dates), earlier and longer patterns win."""
+def _date_matches(text: str, today: date) -> list[tuple[int, int, list[tuple[date, time | None]], str]]:
+    """Non-overlapping date matches: (start, end, dates, style), earlier and longer patterns win.
+
+    Style is 'single', 'range' (two days joined by a range word: 12 - 20 oktober) or 'list' (separate days).
+    """
     found = []
     taken: list[tuple[int, int]] = []
     for kind, pattern in DATE_PATTERNS:
@@ -285,12 +297,20 @@ def _date_matches(text: str, today: date) -> list[tuple[int, int, list[tuple[dat
             if any(m.start() < e and s < m.end() for s, e in taken):
                 continue
             g = m.groups()
+            style = 'single'
             # CLAUDE> the two trailing groups are the alternative year forms ('2026' / '26' vs '.'27')
-            year = g[-2] or g[-1] if kind in ('range', 'dmy', 'mdy') else None
-            if kind == 'range':
-                first = _make_date(year, MONTHS[g[2].lower()], int(g[0]), today)
-                last = _make_date(year, MONTHS[g[2].lower()], int(g[1]), today)
-                days = [first, last]
+            year = g[-2] or g[-1] if kind in ('days_month', 'month_days', 'dmy', 'mdy') else None
+            if kind in ('days_month', 'month_days'):
+                month_text = g[0]
+                month_start = m.start(1)
+                # CLAUDE> the day numbers are the digits outside the month and year; weekday words hold no digits
+                numbers_part = text[m.start():month_start] if kind == 'days_month' else text[m.end(1):m.end()]
+                if kind == 'month_days' and (g[-2] or g[-1]):
+                    numbers_part = numbers_part[:numbers_part.rfind(g[-2] or g[-1])]
+                numbers = [int(n) for n in re.findall(r'\d{1,2}', numbers_part)]
+                days = [_make_date(year, MONTHS[month_text.lower()], n, today) for n in numbers]
+                is_range = len(numbers) == 2 and re.search(_RANGE_WORD, re.sub(r'\d', ' ', numbers_part), re.IGNORECASE)
+                style = 'range' if is_range else 'list'
             elif kind == 'dmy':
                 days = [_make_date(year, MONTHS[g[1].lower()], int(g[0]), today)]
             elif kind == 'mdy':
@@ -299,9 +319,9 @@ def _date_matches(text: str, today: date) -> list[tuple[int, int, list[tuple[dat
                 days = [_make_date(g[0], int(g[1]), int(g[2]), today)]
             else:
                 days = [_make_date(g[2], int(g[1]), int(g[0]), today)]
-            if all(days):
+            if days and all(days):
                 taken.append((m.start(), m.end()))
-                found.append((m.start(), m.end(), [(d, None) for d in days if d]))
+                found.append((m.start(), m.end(), [(d, None) for d in days if d], style))
     return found
 
 
@@ -354,23 +374,26 @@ def marked_text(soup: BeautifulSoup, page_url: str, today: date, tz: ZoneInfo) -
     text = '\n'.join(' '.join(line.split()) for line in text.splitlines() if line.strip())
 
     date_hits = _date_matches(text, today)
-    time_hits = _time_matches(text, [(s, e) for s, e, _ in date_hits])
+    time_hits = _time_matches(text, [(s, e) for s, e, _, _ in date_hits])
     dates: dict[int, tuple[date, time | None]] = {}
     times: dict[int, time] = {}
     until: set[int] = set()
     pieces, cursor = [], 0
-    for start, end, value in sorted([(s, e, ('d', v)) for s, e, v in date_hits] + [(s, e, ('t', v)) for s, e, v in time_hits]):
+    marks = [(s, e, ('d', (v, style))) for s, e, v, style in date_hits] + [(s, e, ('t', v)) for s, e, v in time_hits]
+    for start, end, value in sorted(marks, key=lambda mark: mark[0]):
         pieces.append(text[cursor:start])
         original = text[start:end]
         kind, payload = value
         if kind == 'd':
+            payload, style = payload
             ids = []
             for day in payload:
                 dates[len(dates) + 1] = day
                 ids.append(f'D{len(dates)}')
             if len(payload) == 1 and UNTIL_BEFORE.search(text[max(0, start - 20):start]):
                 until.add(len(dates))
-            pieces.append(f"[{'/'.join(ids)}: {original}]" if len(ids) == 1 else f"[{ids[0]} to {ids[1]}: {original}]")
+            joined = f'{ids[0]} to {ids[1]}' if style == 'range' else ', '.join(ids)
+            pieces.append(f'[{joined}: {original}]')
         else:
             times[len(times) + 1] = payload
             pieces.append(f'[T{len(times)}: {original}]')
@@ -434,7 +457,10 @@ class Extraction(BaseModel):
 
 
 EXTRACT_SYSTEM = """You read the text of an agenda web page and list the events it announces.
-Dates are marked [Dn: original text] (or [Dn to Dm: text] for a range), times [Tn: text], links [Ln].
+Dates are marked [Dn: original text], a range as [Dn to Dm: text] and separate days sharing a month as
+[Dn, Dm, Dk: text], times [Tn: text], links [Ln].
+One event held on consecutive listed days ('zaterdag 10 en zondag 11 oktober') is ONE event: date_span = the first day,
+end_date_span = the last. Separate dates of a series ('3, 10 en 17 oktober') are separate events.
 Refer to dates and times ONLY by those numbers; never write a date or time yourself.
 Skip navigation, opening hours of the venue, newsletter blocks and items that are not events.
 List every event, also those that fail the filter instruction: mark those with matches_filter false, never leave them out.
