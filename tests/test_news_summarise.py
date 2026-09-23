@@ -94,3 +94,9 @@ def test_skipped_articles_are_asked_again_once(monkeypatch: pytest.MonkeyPatch) 
         ('https://k.be/1', 'Eerste.', False), ('https://k.be/2', 'Tweede.', False), ('https://k.be/3', 'Derde.', False)]
     assert 'Answer all 3 articles' in prompts[0] and 'Titel 2' in prompts[1] and 'Titel 1' not in prompts[1]
     assert problems == []
+
+
+def test_suggested_subjects_are_asked_in_english() -> None:
+    """Summaries stay in the article's language; subject names are always English ('Health', never 'Santé')."""
+    assert 'suggest: <name in English>' in module.SYSTEM
+    assert 'in English' in ArticleSummary.model_fields['subject'].description
