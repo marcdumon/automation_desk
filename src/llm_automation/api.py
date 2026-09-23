@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from googleapiclient.errors import HttpError
 from pydantic import BaseModel
 
-from llm_automation import google_auth, jobs, reminders
+from llm_automation import google_auth, jobs, ledger, reminders
 from llm_automation.capture import EXTENSION_DIR, Captured, CaptureError, broker
 from llm_automation.config import config
 from llm_automation.dates import DateExprError
@@ -258,31 +258,16 @@ def execute(group_id: str, request: ExecuteRequest) -> dict:
 @app.get('/api/jobs')
 def list_jobs(group: str | None = None) -> dict:
     """Job summaries, newest first, with totals overall, per group and per model."""
-    summaries = [jobs.summarise(raw) for raw in jobs.load()]
-    if group:
-        summaries = [s for s in summaries if s['group'] == group]
-    by_group: dict[str, dict] = {}
-    by_model: dict[str, dict] = {}
-    for raw in jobs.load():
-        for call in raw.get('llm_calls', []):
-            model = call['model_used'] or call['model_requested']
-            for key, bucket in ((raw['group'], by_group), (model, by_model)):
-                entry = bucket.setdefault(key, {'calls': 0, 'prompt_tokens': 0, 'completion_tokens': 0, 'cost_usd': 0.0})
-                entry['calls'] += 1
-                entry['prompt_tokens'] += call['prompt_tokens']
-                entry['completion_tokens'] += call['completion_tokens']
-                entry['cost_usd'] += call['cost_usd']
-    return {'jobs': summaries, 'total_cost_usd': sum(g['cost_usd'] for g in by_group.values()),
-            'by_group': by_group, 'by_model': by_model, 'configured_model': config().llm_model}
+    return {'jobs': ledger.summaries(group), **ledger.totals(), 'configured_model': config().llm_model}
 
 
 @app.get('/api/jobs/{job_id}')
 def job_detail(job_id: str) -> dict:
-    """One job in full: every model call with prompt and reply, every Google call, every page fetched."""
-    for raw in jobs.load():
-        if raw['id'] == job_id:
-            return {**raw, 'summary': jobs.summarise(raw)}
-    raise HTTPException(404, f'No job {job_id!r}')
+    """One job in full: every model call with prompt and reply, every Google call, every page read, its result."""
+    found = ledger.detail(job_id)
+    if found is None:
+        raise HTTPException(404, f'No job {job_id!r}')
+    return found
 
 
 @app.get('/api/capture/pending')

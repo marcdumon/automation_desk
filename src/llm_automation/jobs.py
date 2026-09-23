@@ -3,23 +3,21 @@
 A job is one command: its preview and, when the user confirms, its apply. It records each model call (model asked for,
 model and provider that answered, tokens, exact cost reported by OpenRouter, latency, exact request and response), each
 Google API call and each web page read, every one labelled with the step ('preview' or 'apply') that made it.
-Jobs are appended to data/jobs.jsonl inside the project; a job applied later is appended again, and the latest wins.
+Jobs are stored in the SQLite ledger (ledger.py, data/automation.db inside the project); saving a job again replaces it.
 """
 
-import json
 import secrets
 import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from llm_automation.config import ROOT
+from llm_automation import ledger
 
-LEDGER = ROOT / 'data' / 'jobs.jsonl'
 # CLAUDE> the group of model calls made outside the app (scripts, checks), so the ledger matches OpenRouter's bill
 OUTSIDE_APP = 'outside the app'
 _write_lock = threading.Lock()
@@ -164,33 +162,13 @@ def run(job: Job, step: str = 'preview') -> Iterator[Job]:
 
 
 def save(job: Job) -> None:
-    """Append one finished job to the ledger."""
-    LEDGER.parent.mkdir(parents=True, exist_ok=True)
-    with _write_lock, LEDGER.open('a') as ledger:
-        record = asdict(job)
-        ledger.write(json.dumps(record, ensure_ascii=False) + '\n')
+    """Store a job in the ledger, replacing an earlier save of the same job."""
+    ledger.store(job)
 
 
 def load() -> list[dict]:
-    """Every recorded job in its latest state, newest first."""
-    if not LEDGER.exists():
-        return []
-    latest: dict[str, dict] = {}
-    with LEDGER.open() as ledger:
-        for line in ledger:
-            if line.strip():
-                record = json.loads(line)
-                latest[record['id']] = record
-    return sorted(latest.values(), key=lambda r: r['started'], reverse=True)
-
-
-def summarise(raw: dict) -> dict:
-    """A stored job's summary."""
-    job = Job(**{k: v for k, v in raw.items() if k not in ('llm_calls', 'google_calls', 'fetches')})
-    job.llm_calls = [LLMCall(**c) for c in raw.get('llm_calls', [])]
-    job.google_calls = [GoogleCall(**c) for c in raw.get('google_calls', [])]
-    job.fetches = [Fetch(**c) for c in raw.get('fetches', [])]
-    return job.summary()
+    """Every recorded job in full, newest first; for checks and tests (pages query the ledger directly)."""
+    return ledger.all_jobs()
 
 
 class _RecordedRequest:
