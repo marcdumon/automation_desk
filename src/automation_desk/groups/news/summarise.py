@@ -13,6 +13,7 @@ from automation_desk.groups.news.collect import Article
 from automation_desk.llm import LLMError, ask
 
 OTHER = 'Other'
+NO_SUMMARY = 'no summary from the model'
 OUTPUT_TOKENS_PER_ARTICLE = 120
 
 
@@ -72,7 +73,7 @@ def _prompt(batch: list[Article], subjects: list[str]) -> str:
     """The numbered articles and the subject list."""
     listed = '\n'.join(f'- {s}' for s in subjects) or '- (none yet)'
     body = '\n\n'.join(f'Article {n}\nTitle: {a.title}\nSite: {a.source_name}\n{a.text}' for n, a in enumerate(batch, 1))
-    return f'Subjects:\n{listed}\n- {OTHER}\n\n{body}'
+    return f'Subjects:\n{listed}\n- {OTHER}\n\nAnswer all {len(batch)} articles, numbered 1 to {len(batch)}.\n\n{body}'
 
 
 def _checked(batch: list[Article], reply: BatchSummary, subjects: list[str], index: int) -> list[Summarised]:
@@ -82,7 +83,7 @@ def _checked(batch: list[Article], reply: BatchSummary, subjects: list[str], ind
     for n, article in enumerate(batch, 1):
         answer = answers.get(n)
         if answer is None or not answer.summary.strip():
-            items.append(_teaser(article, index, 'no summary from the model'))
+            items.append(_teaser(article, index, NO_SUMMARY))
             continue
         subject, suggestion = answer.subject.strip(), ''
         if subject.casefold().startswith('suggest:'):
@@ -107,15 +108,29 @@ def summarise(articles: list[Article], subjects: list[str], budget_usd: float,
             capped += len(batch)
             continue
         spent += cost
+        done: list[Summarised] = []
         for attempt in range(2):
             try:
                 reply = ask(SYSTEM, _prompt(batch, subjects), BatchSummary, http=http, purpose='summarise news articles')
-                items += _checked(batch, reply, subjects, index)
+                done = _checked(batch, reply, subjects, index)
                 break
             except LLMError as error:
                 if attempt == 1:
                     failed, failure = failed + 1, str(error)
                     items += [_teaser(a, index, 'the model could not summarise it') for a in batch]
+        if done:
+            # CLAUDE> the model sometimes skips articles without saying so (4 of 20 answered once); ask once for the rest alone
+            missing = [i.article for i in done if i.reason == NO_SUMMARY]
+            if missing and spent + estimate(missing) <= budget_usd:
+                spent += estimate(missing)
+                try:
+                    again = _checked(missing, ask(SYSTEM, _prompt(missing, subjects), BatchSummary, http=http,
+                                                  purpose='summarise skipped news articles'), subjects, index)
+                    answered = {i.article.link: i for i in again if i.reason != NO_SUMMARY}
+                    done = [answered.get(i.article.link, i) for i in done]
+                except LLMError:
+                    pass
+            items += done
     problems = []
     if capped:
         problems.append(f'Daily cost cap (${budget_usd:.2f}) reached: {capped} article(s) use their teaser.')
