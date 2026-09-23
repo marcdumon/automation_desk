@@ -43,7 +43,7 @@ class _Groups:
 
 def _model_groups(items: list[Summarised], http: httpx.Client | None) -> tuple[list[list[int]], str]:
     """The model's groups (checked: known numbers, no article twice) and a problem line, if any."""
-    listing = '\n'.join(f'{n}. [{i.article.source_name}] {i.article.title} | {i.summary.splitlines()[0][:160]}'
+    listing = '\n'.join(f'{n}. [{i.article.source_name}] {i.article.title} | {(i.summary.splitlines() or [i.article.title])[0][:160]}'
                         for n, i in enumerate(items, 1))
     reply = None
     for attempt in range(2):

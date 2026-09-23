@@ -62,3 +62,12 @@ def test_cost_cap_switches_the_rest_to_teasers(monkeypatch: pytest.MonkeyPatch) 
     assert [i.from_teaser for i in items] == [False, True, True]
     assert [i.reason for i in items][1:] == ['daily cost cap reached', 'daily cost cap reached']
     assert problems == ['Daily cost cap ($0.30) reached: 2 article(s) use their teaser.']
+
+
+def test_articles_read_from_their_teaser_are_marked(monkeypatch: pytest.MonkeyPatch) -> None:
+    unreadable = Article('https://k.be/7', 1, 'Krant', 'Titel 7', None, 'Teaser 7', 'Teaser 7', 'page could not be read (404)')
+    bare = Article('https://k.be/8', 1, 'Krant', '', None, '', '', 'page could not be read')
+    monkeypatch.setattr(module, 'ask', lambda *a, **k: answer((1, 'Over de teaser.', 'AI', [])))
+    items, _problems = summarise([unreadable, bare], ['AI'], 1.0)
+    assert (items[0].from_teaser, items[0].reason) == (True, 'page could not be read (404)')
+    assert items[1].summary == 'https://k.be/8', 'an item with no teaser and no title still shows something'

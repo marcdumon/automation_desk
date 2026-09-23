@@ -1,4 +1,4 @@
-"""New articles of all sources since the previous digest, with ~500 words of their text, or their teaser."""
+"""New articles of all sources, with ~500 words of their text, or their teaser."""
 
 import contextvars
 from concurrent.futures import ThreadPoolExecutor
@@ -16,6 +16,7 @@ from automation_desk.groups.news.feeds import Item, feed_items, front_page_links
 
 SOURCE_WORKERS = 4
 FIRST_READ_WINDOW = timedelta(hours=24)
+LATER_READ_WINDOW = timedelta(days=7)
 
 
 @dataclass(frozen=True)
@@ -29,7 +30,8 @@ class Article:
     published: datetime | None
     teaser: str
     text: str
-    blocked: bool = False
+    # CLAUDE> why `text` is the teaser rather than the article: 'site blocks programs', 'page could not be read'...
+    teaser_reason: str = ''
 
 
 @dataclass
@@ -40,49 +42,65 @@ class Collected:
     problems: list[str] = field(default_factory=list)
 
 
-def _text(item: Item, http: httpx.Client, allow_browser: bool) -> tuple[str, bool]:
-    """About max_words words of the article, and whether the site blocked it; the teaser when nothing better is readable."""
+def _text(item: Item, http: httpx.Client, allow_browser: bool) -> tuple[str, str]:
+    """About max_words words of the article, or its teaser with the reason the article itself could not be read."""
     words = config().news.max_words
+    fallback = item.teaser or item.title or item.link
     try:
         response = download(item.link, http)
-        blocked = is_blocked(response)
-        if blocked and not allow_browser:
-            return item.teaser or item.title, True
-        page_html = browser_page(item.link).html if blocked else response.text
+        if is_blocked(response):
+            if not allow_browser:
+                return fallback, 'site blocks programs'
+            page_html = browser_page(item.link).html
+        elif not response.is_success:
+            return fallback, f'page could not be read ({response.status_code})'
+        else:
+            page_html = response.text
     except (httpx.HTTPError, CaptureError):
-        return item.teaser or item.title, False
+        return fallback, 'page could not be read'
     soup = BeautifulSoup(page_html, 'lxml')
     for tag in soup(['script', 'style', 'noscript', 'nav', 'header', 'footer']):
         tag.decompose()
-    text = full_description(soup, item.teaser) or item.teaser or item.title
-    return ' '.join(text.split()[:words]), False
+    text = full_description(soup, item.teaser)
+    # CLAUDE> full_description falls back to the teaser itself when the page holds no article text (paywall, login)
+    if not text or ' '.join(text.split()) == ' '.join(item.teaser.split()):
+        return fallback, 'only the teaser is readable'
+    return ' '.join(text.split()[:words]), ''
 
 
-def _one_source(source: store.Source, since: datetime, now: datetime, http: httpx.Client,
-                allow_browser: bool) -> tuple[list[Article], str]:
-    """New articles of one source and a short result for the site list."""
+def _one_source(source: store.Source, now: datetime, http: httpx.Client, allow_browser: bool) -> tuple[list[Article], str]:
+    """New articles of one source and a short result for the site list.
+
+    A first read (until the site was once read well) takes only dated items of the last 24 hours and records the rest as
+    seen, so a new site brings no backlog. Later reads take every unseen item of the last week, whatever the date of the
+    previous digest, so an item listed late or a day the site was down loses nothing.
+    """
     first_read = not source.last_checked
     found = feed_items(source.feed, http) if source.kind == 'feed' else front_page_links(source.site, http)
-    unseen = [i for i in dict((i.link, i) for i in found).values() if i.link not in store.known_links([i.link for i in found])]
+    listed = list({i.link: i for i in found}.values())
+    known = store.known_links([i.link for i in listed])
+    unseen = [i for i in listed if i.link not in known]
     if source.kind == 'frontpage' and first_read:
         store.mark_seen(source.id, [i.link for i in unseen])
         return [], f'first read: {len(unseen)} link recorded, new ones from the next digest'
-    earliest = now - FIRST_READ_WINDOW if first_read else since
-    fresh = [i for i in unseen if i.published is None or i.published >= earliest]
+    earliest = now - (FIRST_READ_WINDOW if first_read else LATER_READ_WINDOW)
+    fresh = [i for i in unseen if (i.published >= earliest if i.published else not first_read)]
+    taken = {i.link for i in fresh}
+    store.mark_seen(source.id, [i.link for i in unseen if i.link not in taken])
     articles = []
     for item in fresh:
-        text, blocked = _text(item, http, allow_browser)
-        articles.append(Article(item.link, source.id, source.name, item.title, item.published, item.teaser, text, blocked))
+        text, reason = _text(item, http, allow_browser)
+        articles.append(Article(item.link, source.id, source.name, item.title, item.published, item.teaser, text, reason))
     return articles, f'{len(articles)} new'
 
 
-def collect(since: datetime, now: datetime, http: httpx.Client, allow_browser: bool) -> Collected:
+def collect(now: datetime, http: httpx.Client, allow_browser: bool) -> Collected:
     """New articles of every source, four sources at a time; a source that fails becomes a problem, not a failure."""
     result = Collected()
 
     def run(source: store.Source) -> tuple[store.Source, list[Article] | Exception, str]:
         try:
-            articles, summary = _one_source(source, since, now, http, allow_browser)
+            articles, summary = _one_source(source, now, http, allow_browser)
             return source, articles, summary
         except (httpx.HTTPError, ValueError) as error:
             return source, error, str(error)
@@ -94,7 +112,7 @@ def collect(since: datetime, now: datetime, http: httpx.Client, allow_browser: b
     for source, articles, summary in outcomes:
         if isinstance(articles, Exception):
             result.problems.append(f'{source.name} could not be read: {summary}')
-            store.set_source_result(source.id, f'could not be read: {summary}')
+            store.set_source_result(source.id, f'could not be read: {summary}', ok=False)
             continue
         store.set_source_result(source.id, summary)
         for article in articles:

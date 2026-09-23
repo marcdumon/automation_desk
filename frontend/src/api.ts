@@ -134,11 +134,11 @@ export type NewsDigestHead = {
   id: number; made_at: string; covers_from: string; trigger: string; job_id: string
   article_count: number; story_count: number; source_count: number; problems: string[]
 }
-export type NewsDigest = NewsDigestHead & { subjects: { subject: string; stories: NewsStory[] }[] }
+export type NewsDigest = NewsDigestHead & { cost_usd: number; subjects: { subject: string; stories: NewsStory[] }[] }
 export type NewsSource = { id: number; site: string; name: string; feed: string; kind: string; last_checked: string; last_result: string }
 export type NewsOverview = {
   sources: NewsSource[]; subjects: string[]; suggestions: { name: string; examples: string[] }[]
-  digests: NewsDigestHead[]; cap_usd: number; running: boolean
+  digests: NewsDigestHead[]; cap_usd: number; running: boolean; failure: string
 }
 export const getNewsOverview = () => call<NewsOverview>('/api/news/overview')
 export const getNewsDigest = (id: number) => call<NewsDigest>(`/api/news/digests/${id}`)

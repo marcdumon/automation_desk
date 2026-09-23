@@ -46,3 +46,11 @@ def test_a_single_article_needs_no_merger_call(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(module, 'ask', lambda *a, **k: pytest.fail('no call for one article'))
     stories, _ = merge_stories([item(1, 'AI', 0)])
     assert len(stories) == 1
+
+
+def test_an_empty_summary_does_not_break_the_merger(monkeypatch: pytest.MonkeyPatch) -> None:
+    blank = item(1, 'Other', 0)
+    items = [Summarised(blank.article, '', 'Other', '', True, 'no summary from the model', 0), item(2, 'AI', 0)]
+    monkeypatch.setattr(module, 'ask', lambda *a, **k: MergeGroups(groups=[]))
+    stories, _problems = merge_stories(items)
+    assert len(stories) == 2

@@ -289,6 +289,7 @@ pre.params { max-height: none; margin: 0; padding: 6px; }
 .news { margin-top: 24px; display: grid; gap: 16px; }
 .news-bar { display: flex; gap: 16px; align-items: center; }
 .cap input { width: 5em; margin-left: 4px; padding: 4px 6px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+.cap-error { color: var(--error); font-size: 13px; }
 .message.suggestion { display: flex; gap: 12px; align-items: center; }
 .digest h2 { font-size: 20px; margin: 0 0 4px; }
 .digest-subject h3 { margin: 24px 0 8px; font-size: 16px; border-bottom: 1px solid var(--rule); padding-bottom: 4px; }

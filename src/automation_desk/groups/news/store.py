@@ -86,10 +86,13 @@ def sources() -> list[Source]:
                    r['last_result'] or '') for r in rows]
 
 
-def set_source_result(source_id: int, result: str) -> None:
-    """Remember when a site was last read and what happened."""
+def set_source_result(source_id: int, result: str, ok: bool = True) -> None:
+    """Remember what happened when a site was read; `last_checked` is the last good read, so a failed first read stays one."""
     with connect(write=True) as db:
-        db.execute('UPDATE news_sources SET last_checked = ?, last_result = ? WHERE id = ?', (_now(), result, source_id))
+        if ok:
+            db.execute('UPDATE news_sources SET last_checked = ?, last_result = ? WHERE id = ?', (_now(), result, source_id))
+        else:
+            db.execute('UPDATE news_sources SET last_result = ? WHERE id = ?', (result, source_id))
 
 
 def subjects() -> list[str]:
@@ -147,7 +150,7 @@ def save_digest(record: DigestRecord) -> int:
         for name, examples in record.suggestions.items():
             db.execute("INSERT INTO news_suggestions (name, examples, digest_id, status) VALUES (?, ?, ?, 'open') "
                        "ON CONFLICT (name) DO UPDATE SET examples = excluded.examples, digest_id = excluded.digest_id "
-                       "WHERE news_suggestions.status = 'open'", (name, json.dumps(examples[:5], ensure_ascii=False), digest_id))
+                       "WHERE news_suggestions.status = 'open'", (name, json.dumps(examples, ensure_ascii=False), digest_id))
     return digest_id
 
 
@@ -175,9 +178,10 @@ def digest(digest_id: int) -> dict | None:
             {'id': story['id'], 'title': story['title'], 'summary': story['summary'],
              'articles': [{'link': a['link'], 'title': a['title'], 'source': a['source'] or '', 'published': a['published'],
                            'from_teaser': bool(a['from_teaser']), 'reason': a['reason'] or ''}
-                          for a in articles if a['story_id'] == story['id']]})
+                          for a in sorted((a for a in articles if a['story_id'] == story['id']),
+                                          key=lambda a: a['title'] != story['title'])]})
     ranked = sorted(grouped, key=lambda s: (s == 'Other', order.index(s) if s in order else len(order), s))
-    return {**dict(head), 'problems': json.loads(head['problems'] or '[]'),
+    return {**dict(head), 'problems': json.loads(head['problems'] or '[]'), 'cost_usd': _job_cost(head['job_id']),
             'subjects': [{'subject': s, 'stories': grouped[s]} for s in ranked]}
 
 
@@ -186,6 +190,12 @@ def latest_made_at() -> datetime | None:
     with connect() as db:
         row = db.execute('SELECT MAX(made_at) FROM news_digests').fetchone()
     return datetime.fromisoformat(row[0]) if row[0] else None
+
+
+def _job_cost(job_id: str | None) -> float:
+    """What the model calls of a digest's job cost."""
+    with connect() as db:
+        return float(db.execute('SELECT COALESCE(SUM(cost_usd), 0) FROM llm_calls WHERE job_id = ?', (job_id,)).fetchone()[0])
 
 
 def open_suggestions() -> list[dict]:
