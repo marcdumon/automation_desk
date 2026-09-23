@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
 import {
-  answerSuggestion, deleteNewsDigest, deleteNewsStory, deleteNewsSubject, getNewsDigest, getNewsOverview, makeNewsDigest, removeNewsSource, saveBlocked, saveSubjects, setNewsCap,
+  answerSuggestion, deleteNewsDigest, deleteNewsStory, deleteNewsSubject, getNewsDigest, getNewsOverview, makeNewsDigest, saveBlocked, saveNewsSites, saveSubjects, setNewsCap,
   type NewsDigest, type SuggestionAnswer,
 } from './api'
 import { usd, when } from './format'
@@ -88,8 +88,7 @@ function DigestView({ digest, onChange, onDeleted }: { digest: NewsDigest; onCha
       <div className="digest-head">
         <h2>Digest of {when(digest.made_at)}</h2>
         <button type="button" className="quiet" disabled={removeDigest.isPending}
-                onClick={() => window.confirm(`Delete this digest with its ${digest.story_count} stories? Its articles will not come back.`)
-                  && removeDigest.mutate()}>Delete digest</button>
+                onClick={() => removeDigest.mutate()}>Delete digest</button>
       </div>
       <p className="muted">Since {when(digest.covers_from)}: {digest.article_count} articles, {digest.story_count} stories,
         {' '}{digest.source_count} sites; cost {usd(digest.cost_usd)}.</p>
@@ -113,9 +112,7 @@ function DigestView({ digest, onChange, onDeleted }: { digest: NewsDigest; onCha
                     disabled={removeSubject.isPending}
                     onClick={e => {
                       e.preventDefault()
-                      if (window.confirm(`Delete all ${group.stories.length} ${group.subject} stories? Their articles will not come back.`)) {
-                        removeSubject.mutate(group.subject)
-                      }
+                      removeSubject.mutate(group.subject)
                     }}>✕</button>
             <h3>{group.subject} <span className="muted">({group.stories.length})</span></h3>
           </summary>
@@ -179,21 +176,43 @@ function SitesAndSubjects({ sources, subjects, blocked, onChange }: {
   sources: { id: number; name: string; site: string; feed: string; last_result: string }[]
   subjects: string[]; blocked: string[]; onChange: () => void
 }) {
+  // CLAUDE> kept here, outside the keyed editor, so the problems stay visible after the list reloads
+  const [siteProblems, setSiteProblems] = useState<string[]>([])
   return (
     <div className="news-settings">
       <div>
-        <h3>Sites ({sources.length})</h3>
-        <ul>{sources.map(s => (
-          <li key={s.id}><strong>{s.name}</strong> <span className="muted">{s.feed ? 'feed' : 'front page'}
-            {s.last_result ? `, last: ${s.last_result}` : ''}</span>
-            <button type="button" aria-label={`Remove ${s.name}`} className="link"
-                    onClick={() => removeNewsSource(s.id).then(onChange)}>×</button></li>))}</ul>
+        <SiteList key={sources.map(s => s.site).join('\n')} sources={sources}
+                  onSaved={problems => { setSiteProblems(problems); onChange() }} />
+        {siteProblems.map(p => <p key={p} className="cap-error">{p}</p>)}
       </div>
       {/* CLAUDE> keyed so an accepted suggestion or saved list refills the editor */}
       <NameList key={`s:${subjects.join('\n')}`} title="Subjects, one per line, in order" names={subjects} save={saveSubjects}
                 label="Save subjects" onSaved={onChange} />
       <NameList key={`b:${blocked.join('\n')}`} title="Blocked topics, left out of the digest" names={blocked} save={saveBlocked}
                 label="Save blocked topics" onSaved={onChange} />
+    </div>
+  )
+}
+
+const shortSite = (site: string) => site.replace(/^https?:\/\//, '').replace(/\/$/, '')
+
+// CLAUDE> the followed sites as an editable list: add or delete lines, then save; new sites get their feed looked up
+function SiteList({ sources, onSaved }: {
+  sources: { id: number; name: string; site: string; feed: string; last_result: string }[]; onSaved: (problems: string[]) => void
+}) {
+  const initial = sources.map(s => shortSite(s.site)).join('\n')
+  const [text, setText] = useState(initial)
+  const saved = useMutation({ mutationFn: () => saveNewsSites(text.split('\n')), onSuccess: answer => onSaved(answer.problems) })
+  return (
+    <div>
+      <h3>Sites, one per line</h3>
+      <textarea rows={Math.max(4, sources.length + 1)} value={text} onChange={e => setText(e.target.value)} />
+      <button type="button" className="quiet" disabled={text === initial || saved.isPending} onClick={() => saved.mutate()}>
+        {saved.isPending ? 'Saving… (looking up feeds)' : 'Save sites'}</button>
+      {saved.isError && <p className="cap-error">Not saved: {saved.error.message}</p>}
+      <ul className="site-status">{sources.map(s => (
+        <li key={s.id}><strong>{s.name}</strong> <span className="muted">{s.feed ? 'feed' : 'front page'}
+          {s.last_result ? ` · ${s.last_result.split('\n')[0]}` : ''}</span></li>))}</ul>
     </div>
   )
 }
