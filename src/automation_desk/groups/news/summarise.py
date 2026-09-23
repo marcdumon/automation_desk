@@ -1,4 +1,4 @@
-"""Summaries by the model, in batches: 2-4 lines in the article's language, a subject, and same-story marks.
+"""Summaries by the model, in batches: 2-4 lines in the article's language and a subject.
 
 Every answer is checked in code. The daily cost cap is kept by estimating a batch before sending it.
 """
@@ -23,7 +23,6 @@ class ArticleSummary(BaseModel):
     summary: str = Field(description='2-4 lines summarising the article, in the language the article is written in.')
     subject: str = Field(description="One subject from the list, exactly as written; or 'suggest: <new subject>' when none "
                                      'fits; or Other.')
-    same_story: list[int] = Field(description='Numbers of other articles in this batch that report the same story.')
 
 
 class BatchSummary(BaseModel):
@@ -34,8 +33,7 @@ class BatchSummary(BaseModel):
 
 SYSTEM = """You summarise news articles for a personal daily digest.
 For every numbered article: write 2-4 lines in the SAME language as the article (Dutch, French or English; never translate);
-pick one subject from the list exactly as written, or 'suggest: <name>' when none fits well, or Other;
-list the numbers of other articles in this batch that report the same story.
+pick one subject from the list exactly as written, or 'suggest: <name>' when none fits well, or Other.
 Use only what the article says."""
 
 
@@ -50,7 +48,6 @@ class Summarised:
     from_teaser: bool
     reason: str
     batch: int
-    same_story: frozenset[str] = frozenset()
 
 
 def batch_size() -> int:
@@ -92,9 +89,8 @@ def _checked(batch: list[Article], reply: BatchSummary, subjects: list[str], ind
             subject, suggestion = OTHER, subject.split(':', 1)[1].strip()
         elif subject not in subjects and subject != OTHER:
             subject, suggestion = OTHER, subject
-        same = frozenset(batch[m - 1].link for m in answer.same_story if 1 <= m <= len(batch) and m != n)
         items.append(Summarised(article, answer.summary.strip(), subject, suggestion, bool(article.teaser_reason),
-                                article.teaser_reason, index, same))
+                                article.teaser_reason, index))
     return items
 
 

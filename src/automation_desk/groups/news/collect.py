@@ -52,6 +52,8 @@ def _text(item: Item, http: httpx.Client, allow_browser: bool) -> tuple[str, str
             if not allow_browser:
                 return fallback, 'site blocks programs'
             page_html = browser_page(item.link).html
+        elif response.status_code == 402:
+            return fallback, 'paywall: only the teaser is readable'
         elif not response.is_success:
             return fallback, f'page could not be read ({response.status_code})'
         else:
