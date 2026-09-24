@@ -23,6 +23,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 def test_groups_listing(client: TestClient) -> None:
     groups = client.get('/api/groups').json()
     assert [g['id'] for g in groups] == ['calendar', 'tasks', 'gmail', 'news']
+    assert groups[3]['tasks'] == [], 'News is run from its page, not from sentences'
     assert [t['id'] for t in groups[1]['tasks']] == ['change_dates', 'move_tasks', 'complete_tasks', 'delete_tasks', 'add_task']
 
 
@@ -138,7 +139,7 @@ def test_news_endpoints(client: TestClient) -> None:
 
 
 def test_news_site_list_endpoint(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    from automation_desk.groups.news.tasks import sites
+    from automation_desk.groups.news import sites
 
     monkeypatch.setattr(sites, 'find_feed', lambda site, http: ('HLN', 'https://www.hln.be/rss.xml', 'feed'))
     answer = client.post('/api/news/sources', json={'sites': ['hln.be']}).json()

@@ -268,3 +268,27 @@ def test_several_days_sharing_one_month(text: str, marked: str, days: list[date]
 def test_a_time_written_with_a_trailing_u_is_read() -> None:
     spans = marked_text(BeautifulSoup('<p>ZA 3/10/2026 9:30U Athena-lezing</p>', 'lxml'), 'https://x.be', TODAY, TZ)
     assert '[T1: 9:30U]' in spans.text and spans.times[1] == time(9, 30)
+
+
+def test_a_refused_download_is_retried_like_chrome(monkeypatch: pytest.MonkeyPatch) -> None:
+    refused = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(401, text='no programs')))
+    answer = httpx.Response(200, text='<p>Nieuws</p>', request=httpx.Request('GET', 'https://www.wsj.com/world'))
+    monkeypatch.setattr(web_page, 'chrome_like', lambda url: answer)
+    job = jobs.Job(group='news', sentence='test', task_id='t', task_name='t')
+    with jobs.run(job):
+        got = web_page.download('https://wsj.com/world', refused)
+    assert (got.status_code, got.text) == (200, '<p>Nieuws</p>')
+    assert [f.via for f in job.fetches] == ['download', 'Chrome-like download'], 'both tries are recorded on the job'
+
+
+def test_a_retry_that_is_refused_too_keeps_the_first_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    refused = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(403, text='no')))
+    monkeypatch.setattr(web_page, 'chrome_like', lambda url: httpx.Response(403, request=httpx.Request('GET', url)))
+    assert web_page.download('https://bloomberg.com/europe', refused).status_code == 403
+
+
+def test_a_chrome_like_answer_is_not_unpacked_twice() -> None:
+    """The Chrome-like client hands over the page already unpacked, with the header that says it was packed."""
+    got = web_page.as_httpx(200, {'Content-Encoding': 'gzip', 'Content-Length': '99', 'Content-Type': 'text/html'},
+                            b'<p>Nieuws</p>', 'https://www.nytimes.com/')
+    assert (got.text, str(got.url), got.headers['content-type']) == ('<p>Nieuws</p>', 'https://www.nytimes.com/', 'text/html')

@@ -87,6 +87,14 @@ def _respx_active() -> bool:
 
 
 @pytest.fixture(autouse=True)
+def no_real_chrome_like_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A refused download never reaches the real site again in tests; tests of the retry put their own stand-in."""
+    from automation_desk.groups.calendar import web_page
+
+    monkeypatch.setattr(web_page, 'chrome_like', lambda url: None)
+
+
+@pytest.fixture(autouse=True)
 def ledger(tmp_path, monkeypatch: pytest.MonkeyPatch):
     """Keep every test's jobs out of the real ledger."""
     path = tmp_path / 'automation.db'
