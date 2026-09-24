@@ -141,7 +141,7 @@ def status(code: int) -> httpx.HTTPStatusError:
 
 
 @pytest.mark.parametrize(('error', 'said'), [
-    (status(401), "refuses programs (401): it can't be read automatically"),
+    (status(401), "blocks bots (401): it can't be read automatically"),
     (status(404), 'page not found (404)'),
     (status(500), 'answered with error 500'),
     (httpx.ConnectError('no route'), 'did not answer'),
@@ -174,7 +174,7 @@ def test_a_front_page_is_read_through_the_browser_only_when_allowed(web: dict, m
     monkeypatch.setattr(module, 'front_page_links', front)
     got = collect(NOW, httpx.Client(), allow_browser=True)
     assert asked == [True]
-    assert got.problems == ['wsj.com refuses programs, and reading it through your browser failed too '
+    assert got.problems == ['wsj.com blocks bots, and reading it through your browser failed too '
                             '(The Automation desk page is not open in your browser.).']
 
 

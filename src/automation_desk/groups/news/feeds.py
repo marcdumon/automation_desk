@@ -131,7 +131,7 @@ def front_page_links(site: str, http: httpx.Client, allow_browser: bool = False)
         page = browser_page(site)
         url, text = page.url, page.html
     elif is_blocked(response):
-        raise NeedsPerson(f'{site} refuses programs; open it in your browser, then continue the digest.')
+        raise NeedsPerson(f'{site} blocks bots; read it via your browser from the digest.')
     else:
         response.raise_for_status()
         url, text = str(response.url), response.text
