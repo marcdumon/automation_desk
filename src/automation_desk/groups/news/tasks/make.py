@@ -10,7 +10,7 @@ class MakeArgs(TaskArgs):
 
 
 class MakeDigest(StandardTask):
-    """Make the digest now instead of waiting for the morning."""
+    """Make a digest of everything new."""
 
     id = 'make_digest'
     name = 'Make a digest now'

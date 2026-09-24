@@ -473,7 +473,4 @@ if STATIC.exists():
 def main() -> None:
     """Serve the app on localhost only."""
     logging.basicConfig(level=logging.INFO)
-    from automation_desk.groups.news import schedule
-
-    schedule.start()
     uvicorn.run(app, host='127.0.0.1', port=config().port)

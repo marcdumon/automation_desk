@@ -22,7 +22,6 @@ input_per_m = 0.25
 output_per_m = 1.50
 
 [news]
-digest_time = '07:00'
 cap_usd = 0.30
 max_words = 500
 batch_size = 20
