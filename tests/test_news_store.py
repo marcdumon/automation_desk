@@ -130,5 +130,5 @@ def test_deleting_a_digest_keeps_its_articles_seen_and_its_time() -> None:
     assert store.digest(digest_id) is None and store.digests() == []
     assert store.known_links(['https://a.be/1', 'https://a.be/3', 'https://a.be/sport']) == {
         'https://a.be/1', 'https://a.be/3', 'https://a.be/sport'}, 'its articles, left-out ones included, never come back'
-    assert store.latest_made_at() == made, 'the schedule still sees it: no new digest right after deleting'
+    assert store.latest_made_at() == made, 'the next digest starts where the deleted one ended'
     assert store.delete_digest(digest_id) is False

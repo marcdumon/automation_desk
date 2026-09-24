@@ -58,8 +58,8 @@ export default function NewsPanel() {
       )}
       {data.failure && !data.running && (
         <div className="message error">
-          <p>The last digest could not be made: {data.failure}. The morning run tries again an hour later, or press Make digest
-            now. The failed job, with its details, is in the job list below.</p>
+          <p>The last digest could not be made: {data.failure}. Press Make digest now to try again. The failed job, with its
+            details, is in the job list below.</p>
         </div>
       )}
       {data.suggestions.map(s => (
@@ -111,7 +111,7 @@ function DigestView({ digest, onChange, onDeleted }: { digest: NewsDigest; onCha
       {digest.left_out.length > 0 && <LeftOutList articles={digest.left_out} />}
       {digest.problems.length > 0 && <ul className="sheet-notes">{digest.problems.map((p, i) => <li key={i}>{p}</li>)}</ul>}
       {digest.subjects.map(group => (
-        <details key={group.subject} className="digest-subject" open>
+        <details key={group.subject} className="digest-subject">
           <summary>
             {/* CLAUDE> a click on the ✕ must not also fold the section */}
             <button type="button" className="story-delete" aria-label={`Delete all ${group.subject} stories`} title="Delete this whole subject"

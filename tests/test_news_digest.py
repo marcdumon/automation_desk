@@ -139,7 +139,7 @@ def test_a_run_with_nothing_new_saves_no_digest(parts: dict, monkeypatch: pytest
     assert module.make_digest('button', allow_browser=True, now=later) is None
     assert [d['id'] for d in store.digests()] == [first], 'no empty digest in the list'
     assert store.nothing_new() == {'at': later.isoformat(), 'since': NOW.isoformat(), 'problems': []}
-    assert store.latest_made_at() == later, 'the schedule counts the run: no retry every minute'
+    assert store.latest_made_at() == later, 'the next digest starts from this run'
     monkeypatch.setattr(module, 'collect', parts['collect'])
     module.make_digest('button', allow_browser=True, now=later + timedelta(hours=1))
     assert store.nothing_new() is None, 'a real digest replaces the message'

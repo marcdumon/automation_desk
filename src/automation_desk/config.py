@@ -14,9 +14,8 @@ CONFIG_FILE = ROOT / 'automation_desk.toml'
 
 @dataclass(frozen=True)
 class NewsSettings:
-    """Settings of the daily news digest."""
+    """Settings of the news digest."""
 
-    digest_time: str
     cap_usd: float
     max_words: int
     batch_size: int

@@ -261,7 +261,7 @@ def delete_subject(digest_id: int, subject: str) -> int:
 
 
 def delete_digest(digest_id: int) -> bool:
-    """Remove a whole digest; its articles (left-out ones too) never return, and its time still counts for the schedule."""
+    """Remove a whole digest; its articles (left-out ones too) never return, and the next digest still starts where it ended."""
     with connect(write=True) as db:
         head = db.execute('SELECT made_at FROM news_digests WHERE id = ?', (digest_id,)).fetchone()
         if head is None:
@@ -271,19 +271,19 @@ def delete_digest(digest_id: int) -> bool:
                    'SELECT link, source_id, ? FROM news_left_out WHERE digest_id = ?', (_now(), digest_id))
         db.execute('DELETE FROM news_left_out WHERE digest_id = ?', (digest_id,))
         db.execute('DELETE FROM news_digests WHERE id = ?', (digest_id,))
-        # CLAUDE> without this, no digest left means "none yet": the scheduler would make a new one within a minute
+        # CLAUDE> without this, no digest left means "none yet": the next digest would reach back 24 hours again
         _set_last_run(db, head['made_at'])
     return True
 
 
 def _set_last_run(db: sqlite3.Connection, at_iso: str) -> None:
-    """Remember the latest digest run for the schedule, also when its digest is deleted or was never saved."""
+    """Remember the latest digest run, also when its digest is deleted or was never saved: the next one starts there."""
     db.execute("INSERT INTO news_settings (key, value) VALUES ('last_run_at', ?) ON CONFLICT (key) DO UPDATE SET "
                'value = MAX(value, excluded.value)', (at_iso,))
 
 
 def record_nothing_new(at: datetime, since: datetime, problems: list[str]) -> None:
-    """A run that found no new article: no digest is saved, the page says so, and the schedule counts the run."""
+    """A run that found no new article: no digest is saved, the page says so, and the next digest starts from it."""
     note = {'at': at.isoformat(timespec='seconds'), 'since': since.isoformat(timespec='seconds'), 'problems': problems}
     with connect(write=True) as db:
         db.execute("INSERT INTO news_settings (key, value) VALUES ('nothing_new', ?) "

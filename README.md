@@ -63,7 +63,7 @@ Keep the Automation desk page open while a preview runs; it passes the app's pag
 
 ## News digest
 
-Every morning at 07:00 (or when the app starts, if that was missed) the app reads the news feeds of your sites, fetches
+When you press Make digest now (or type `make a digest now`), the app reads the news feeds of your sites, fetches
 each new article (at most ~500 words), and has the model write a 2–4 line summary in the article's language, pick one of
 your subjects (or suggest a new one) and mark articles about the same story. The News page shows the digest grouped by
 subject; earlier digests are kept. A daily cost cap (default $0.30) switches the rest of a day's articles to their feed
