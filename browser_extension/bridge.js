@@ -2,6 +2,8 @@
 document.documentElement.dataset.automationBridge = 'ready'
 // CLAUDE> this version can also open links in a background tab; the page checks this before relying on it
 document.documentElement.dataset.automationOpen = '1'
+// CLAUDE> this version (1.2) never brings a news read's tab forward
+document.documentElement.dataset.automationQuiet = '1'
 
 window.addEventListener('message', event => {
   if (event.source !== window) return
@@ -10,8 +12,8 @@ window.addEventListener('message', event => {
     return
   }
   if (event.data?.type !== 'automation-desk:read') return
-  const { requestId, url } = event.data
-  chrome.runtime.sendMessage({ type: 'read', url }, answer => {
+  const { requestId, url, mayAsk } = event.data
+  chrome.runtime.sendMessage({ type: 'read', url, mayAsk: mayAsk !== false }, answer => {
     const result = answer ?? { error: chrome.runtime.lastError?.message ?? 'The extension did not answer.' }
     window.postMessage({ type: 'automation-desk:page', requestId, ...result }, window.location.origin)
   })

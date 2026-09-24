@@ -1,18 +1,21 @@
 // CLAUDE> while a job runs, hand the app's page requests to the Automation desk extension in this browser
 
-type PageAnswer = { url?: string; html?: string; asked_you?: boolean; error?: string; missing_extension?: boolean }
+type PageAnswer = {
+  url?: string; html?: string; asked_you?: boolean; error?: string; missing_extension?: boolean; needs_person?: boolean
+}
 
-function readThroughExtension(requestId: string, url: string): Promise<PageAnswer> {
+// CLAUDE> `mayAsk` false: the tab stays in the background even when the page asks for a person (news reads)
+function readThroughExtension(requestId: string, url: string, mayAsk: boolean): Promise<PageAnswer> {
   if (document.documentElement.dataset.automationBridge !== 'ready') return Promise.resolve({ missing_extension: true })
   return new Promise(resolve => {
     const listener = (event: MessageEvent) => {
       if (event.source !== window || event.data?.type !== 'automation-desk:page' || event.data.requestId !== requestId) return
       window.removeEventListener('message', listener)
-      const { url: finalUrl, html, asked_you, error } = event.data as PageAnswer
-      resolve({ url: finalUrl, html, asked_you, error })
+      const { url: finalUrl, html, asked_you, error, needs_person } = event.data as PageAnswer
+      resolve({ url: finalUrl, html, asked_you, error, needs_person })
     }
     window.addEventListener('message', listener)
-    window.postMessage({ type: 'automation-desk:read', requestId, url }, window.location.origin)
+    window.postMessage({ type: 'automation-desk:read', requestId, url, mayAsk }, window.location.origin)
   })
 }
 
@@ -21,11 +24,11 @@ function readThroughExtension(requestId: string, url: string): Promise<PageAnswe
 async function takeRequests(inFlight: Set<string>, onReading: (reading: boolean) => void): Promise<void> {
   const response = await fetch('/api/capture/pending')
   if (!response.ok) return
-  const requests: { id: string; url: string }[] = await response.json()
-  for (const { id, url } of requests) {
+  const requests: { id: string; url: string; may_ask?: boolean }[] = await response.json()
+  for (const { id, url, may_ask } of requests) {
     inFlight.add(id)
     onReading(true)
-    readThroughExtension(id, url)
+    readThroughExtension(id, url, may_ask ?? true)
       .then(answer => fetch(`/api/capture/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

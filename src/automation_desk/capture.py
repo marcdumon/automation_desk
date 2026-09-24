@@ -29,6 +29,10 @@ class CaptureError(RuntimeError):
         self.setup = setup
 
 
+class NeedsPerson(CaptureError):
+    """The page shows a human check ("are you a robot?"), and this read may not bring its tab forward for the user."""
+
+
 @dataclass(frozen=True)
 class Captured:
     """A page as the user's browser showed it."""
@@ -49,6 +53,9 @@ class _Request:
     result: Captured | None = None
     error: str = ''
     missing_extension: bool = False
+    # CLAUDE> False: the tab stays in the background even when the page asks for a person (news reads); True: calendar imports
+    may_ask: bool = True
+    needs_person: bool = False
 
 
 class CaptureBroker:
@@ -59,9 +66,12 @@ class CaptureBroker:
         self._requests: dict[str, _Request] = {}
         self._lock = threading.Lock()
 
-    def request(self, url: str, timeout: float = WAIT_S, claim_timeout: float = CLAIM_WAIT_S) -> Captured:
-        """Block until the browser delivered `url`, or fail with a reason the user can act on."""
-        req = _Request(url=url)
+    def request(self, url: str, timeout: float = WAIT_S, claim_timeout: float = CLAIM_WAIT_S, may_ask: bool = True) -> Captured:
+        """Block until the browser delivered `url`, or fail with a reason the user can act on.
+
+        With `may_ask` False the tab never takes the focus; a page that wants a person raises NeedsPerson.
+        """
+        req = _Request(url=url, may_ask=may_ask)
         with self._lock:
             self._requests[req.id] = req
         try:
@@ -75,6 +85,8 @@ class CaptureBroker:
             if req.missing_extension:
                 raise CaptureError(f'{url} has to be read through your browser, and the Automation desk reader is not '
                                    'installed in it yet.', setup='extension')
+            if req.needs_person:
+                raise NeedsPerson(req.error or f'{url} shows a human check.')
             if req.error:
                 raise CaptureError(req.error)
             assert req.result is not None
@@ -89,15 +101,16 @@ class CaptureBroker:
             fresh = [r for r in self._requests.values() if not r.claimed.is_set()]
             for r in fresh:
                 r.claimed.set()
-        return [{'id': r.id, 'url': r.url} for r in fresh]
+        return [{'id': r.id, 'url': r.url, 'may_ask': r.may_ask} for r in fresh]
 
-    def deliver(self, request_id: str, result: Captured | None, error: str = '', missing_extension: bool = False) -> bool:
+    def deliver(self, request_id: str, result: Captured | None, error: str = '', missing_extension: bool = False,
+                needs_person: bool = False) -> bool:
         """The browser's answer; False when nobody is waiting for it any more."""
         with self._lock:
             req = self._requests.get(request_id)
         if req is None:
             return False
-        req.result, req.error, req.missing_extension = result, error, missing_extension
+        req.result, req.error, req.missing_extension, req.needs_person = result, error, missing_extension, needs_person
         req.done.set()
         return True
 
@@ -105,8 +118,8 @@ class CaptureBroker:
 broker = CaptureBroker()
 
 
-def read_in_browser(url: str) -> tuple[Captured, int]:
-    """`url` read through the user's browser, and how long it took in milliseconds."""
+def read_in_browser(url: str, may_ask: bool = True) -> tuple[Captured, int]:
+    """`url` read through the user's browser, and how long it took in milliseconds; `may_ask` as in CaptureBroker.request."""
     started = time.monotonic()
-    captured = broker.request(url)
+    captured = broker.request(url, may_ask=may_ask)
     return captured, int((time.monotonic() - started) * 1000)

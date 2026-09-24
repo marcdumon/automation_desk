@@ -11,6 +11,7 @@ import feedparser
 import httpx
 from bs4 import BeautifulSoup
 
+from automation_desk.capture import NeedsPerson
 from automation_desk.groups.calendar.web_page import browser_page, download, is_blocked
 
 COMMON_FEED_PATHS = ['/feed', '/rss', '/rss.xml', '/feed.xml', '/atom.xml', '/index.xml', '/feeds/posts/default']
@@ -126,8 +127,11 @@ def front_page_links(site: str, http: httpx.Client, allow_browser: bool = False)
     """
     response = download(site, http)
     if is_blocked(response) and allow_browser:
+        # CLAUDE> only the follow-up the user pressed gets here: a site's check may come forward for them to pass
         page = browser_page(site)
         url, text = page.url, page.html
+    elif is_blocked(response):
+        raise NeedsPerson(f'{site} refuses programs; open it in your browser, then continue the digest.')
     else:
         response.raise_for_status()
         url, text = str(response.url), response.text

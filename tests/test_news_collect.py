@@ -5,8 +5,10 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from automation_desk.capture import CaptureError
+from automation_desk.capture import CaptureError, NeedsPerson
+from automation_desk.groups.calendar import web_page
 from automation_desk.groups.news import collect as module
+from automation_desk.groups.news import feeds as feeds_module
 from automation_desk.groups.news import store
 from automation_desk.groups.news.collect import collect
 from automation_desk.groups.news.feeds import Item
@@ -23,12 +25,13 @@ def items(*specs: tuple[str, datetime | None]) -> list[Item]:
 @pytest.fixture
 def web(monkeypatch: pytest.MonkeyPatch) -> dict:
     """Stand-in feeds and article pages; 'blocked' links answer 403."""
-    state = {'feeds': {}, 'blocked': set(), 'browser': []}
+    state = {'feeds': {}, 'blocked': set(), 'browser': [], 'downloads': []}
     monkeypatch.setattr(module, 'feed_items', lambda url, http: state['feeds'][url])
     monkeypatch.setattr(module, 'front_page_links', lambda url, http, allow_browser=False: state['feeds'][url])
 
     def download(url: str, http: object) -> httpx.Response:
         """403 for blocked links, the article page for the rest."""
+        state['downloads'].append(url)
         request = httpx.Request('GET', url)
         return httpx.Response(403 if url in state['blocked'] else 200, text=ARTICLE, request=request)
 
@@ -37,8 +40,10 @@ def web(monkeypatch: pytest.MonkeyPatch) -> dict:
         state['browser'].append(url)
         raise AssertionError('an unattended run must not wait on the browser')
 
-    monkeypatch.setattr(module, 'download', download)
-    monkeypatch.setattr(module, 'browser_page', browser_page)
+    # CLAUDE> the app's one download function: any page read, from anywhere, is recorded
+    monkeypatch.setattr(web_page, 'download', download)
+    # CLAUDE> the only browser read left in News is a front page's, in feeds
+    monkeypatch.setattr(feeds_module, 'browser_page', browser_page)
     return state
 
 
@@ -54,7 +59,7 @@ def test_new_links_only_and_the_first_read_rule(web: dict) -> None:
         'first read of a feed: only items of the last 24 hours; undated and older ones are recorded as seen')
     assert store.known_links(['https://krant.be/a/2', 'https://krant.be/a/3', 'https://blog.org/p/1']) == {
         'https://krant.be/a/2', 'https://krant.be/a/3', 'https://blog.org/p/1'}
-    assert len(got.articles[0].text.split()) == 500, 'at most 500 words go to the model'
+    assert got.articles[0].text == 'Teaser 1', "the feed's teaser is the text shown"
     assert [s.last_result for s in store.sources()] == ['1 new', 'first read: 1 link recorded, new ones from the next digest']
     assert feed and front
     web['feeds']['https://krant.be/rss'] = items(('https://krant.be/a/1', NOW - timedelta(hours=2)), ('https://krant.be/a/4', None))
@@ -90,25 +95,6 @@ def test_a_failed_first_read_stays_a_first_read(web: dict, monkeypatch: pytest.M
     assert got.articles == [], "a front page's links become articles only after one good read"
 
 
-def test_unreadable_pages_use_the_teaser_and_say_why(web: dict, monkeypatch: pytest.MonkeyPatch) -> None:
-    store.add_source('https://k.be', 'K', 'https://k.be/rss', 'feed')
-    web['feeds']['https://k.be/rss'] = items(*((f'https://k.be/x/{n}', NOW - timedelta(hours=1)) for n in (1, 2, 3, 4)))
-
-    def download(url: str, http: object) -> httpx.Response:
-        """A missing page, a page without article text, one that times out, and a paywall (402)."""
-        request = httpx.Request('GET', url)
-        if url.endswith('3'):
-            raise httpx.ReadTimeout('slow', request=request)
-        body = '<html><body><p>Log in to read.</p></body></html>'
-        return httpx.Response({'1': 404, '4': 402}.get(url[-1], 200), text=body, request=request)
-
-    monkeypatch.setattr(module, 'download', download)
-    got = collect(NOW, httpx.Client(), allow_browser=False)
-    assert [(a.text, a.teaser_reason) for a in got.articles] == [
-        ('Teaser 1', 'page could not be read (404)'), ('Teaser 2', 'only the teaser is readable'),
-        ('Teaser 3', 'page could not be read'), ('Teaser 4', 'paywall: only the teaser is readable')]
-
-
 def test_a_link_in_two_feeds_is_taken_once(web: dict) -> None:
     store.add_source('https://a.be', 'A', 'https://a.be/rss', 'feed')
     store.add_source('https://b.be', 'B', 'https://b.be/rss', 'feed')
@@ -117,15 +103,6 @@ def test_a_link_in_two_feeds_is_taken_once(web: dict) -> None:
     web['feeds']['https://b.be/rss'] = items(shared)
     got = collect(NOW, httpx.Client(), allow_browser=False)
     assert [a.link for a in got.articles] == ['https://news.be/shared']
-
-
-def test_blocked_site_uses_the_teaser_at_once_when_unattended(web: dict) -> None:
-    store.add_source('https://k.be', 'K', 'https://k.be/rss', 'feed')
-    web['feeds']['https://k.be/rss'] = items(('https://k.be/x/9', NOW - timedelta(hours=1)))
-    web['blocked'].add('https://k.be/x/9')
-    got = collect(NOW, httpx.Client(), allow_browser=False)
-    article = got.articles[0]
-    assert (article.text, article.teaser_reason) == ('Teaser 9', 'site blocks programs') and web['browser'] == []
 
 
 def test_a_broken_feed_is_a_problem_not_a_failure(web: dict, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -228,3 +205,45 @@ def test_sites_on_one_domain_are_read_one_after_another(web: dict, monkeypatch: 
     collect(NOW, httpx.Client(), allow_browser=False)
     assert most == {'wsj.com': 1, 'lesoir.be': 1}
     assert [s.last_result.startswith('first read') for s in store.sources()] == [True] * 5, 'every site was still read'
+
+
+
+def test_a_teaser_is_the_text_and_the_page_is_not_downloaded(web: dict) -> None:
+    store.add_source('https://krant.be', 'Krant', 'https://krant.be/rss', 'feed')
+    web['feeds']['https://krant.be/rss'] = items(('https://krant.be/a/1', NOW - timedelta(hours=1)))
+    got = collect(NOW, httpx.Client(), allow_browser=False)
+    assert got.articles[0].text == 'Teaser 1' and web['downloads'] == []
+
+
+def test_a_site_that_needs_a_person_is_listed_not_failed(web: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    wsj = store.add_source('https://wsj.com', 'wsj', '', 'frontpage')
+    store.add_source('https://a.be', 'A', 'https://a.be/rss', 'feed')
+    web['feeds']['https://a.be/rss'] = items(('https://a.be/x/1', NOW - timedelta(hours=1)))
+
+    def front(url: str, http: object, allow_browser: bool = False) -> list[Item]:
+        """wsj.com shows a human check."""
+        raise NeedsPerson('wsj.com shows a human check.')
+
+    monkeypatch.setattr(module, 'front_page_links', front)
+    got = collect(NOW, httpx.Client(), allow_browser=True)
+    assert got.needs_check == [wsj] and got.problems == [], 'listed for the user, not a failure'
+    assert [a.link for a in got.articles] == ['https://a.be/x/1'], 'the other sites are read as usual'
+    assert store.sources()[0].last_result == 'needs you to pass a check'
+
+
+def test_a_follow_up_reads_only_the_sites_asked_for(web: dict) -> None:
+    store.add_source('https://a.be', 'A', 'https://a.be/rss', 'feed')
+    b = store.add_source('https://b.be', 'B', 'https://b.be/rss', 'feed')
+    web['feeds']['https://a.be/rss'] = items(('https://a.be/x/1', NOW - timedelta(hours=1)))
+    web['feeds']['https://b.be/rss'] = items(('https://b.be/x/2', NOW - timedelta(hours=1)))
+    got = collect(NOW, httpx.Client(), allow_browser=True, only={b})
+    assert [a.link for a in got.articles] == ['https://b.be/x/2']
+
+
+def test_without_a_teaser_only_the_title_and_no_page_is_read(web: dict) -> None:
+    """No teaser, or one that repeats the title: the story shows its title only; article pages are never downloaded."""
+    store.add_source('https://krant.be', 'Krant', 'https://krant.be/rss', 'feed')
+    web['feeds']['https://krant.be/rss'] = [Item('https://krant.be/a/1', 'Titel 1', NOW - timedelta(hours=1), ''),
+                                            Item('https://krant.be/a/2', 'Titel 2', NOW - timedelta(hours=1), 'Titel 2')]
+    got = collect(NOW, httpx.Client(), allow_browser=True)
+    assert [a.text for a in got.articles] == ['', ''] and web['downloads'] == [] and web['browser'] == []

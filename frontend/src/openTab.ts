@@ -3,6 +3,8 @@ import type { MouseEvent } from 'react'
 // CLAUDE> links opened through the Automation desk reader extension land in a background tab, so this page keeps the focus;
 // a page cannot do that by itself. Without the extension (or with an older one) a link opens the normal way.
 export const canOpenInBackground = () => document.documentElement.dataset.automationOpen === '1'
+// CLAUDE> extension 1.2 or later: its tabs for news reads never take the focus
+export const extensionIsCurrent = () => document.documentElement.dataset.automationQuiet === '1'
 
 export function openInBackground(event: MouseEvent<HTMLAnchorElement>) {
   if (!canOpenInBackground() || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return

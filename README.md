@@ -62,15 +62,16 @@ Keep the Automation desk page open while a preview runs; it passes the app's pag
 
 ## News digest
 
-When you press Make digest now, the app reads the news feeds of your sites, fetches
-each new article (at most ~500 words), and has the model write a 2–4 line summary in the article's language, pick one of
-your subjects (or suggest a new one) and mark articles about the same story. The News page shows the digest grouped by
-subject; earlier digests are kept. A daily cost cap (default $0.30) switches the rest of a day's articles to their feed
-teaser. Article text is not stored.
+When you press Make digest now, the app reads the news feeds (or front pages) of your sites and shows each new article
+as its title with the teaser the site lists for it (at most 60 words); without a teaser, or when it only repeats the
+title, just the title. Article pages are never read. The model writes no text: it only sorts the headlines into
+your subjects (or suggests a new one) and merges articles about the same story, which keeps a digest fast and cheap.
+The News page shows the digest grouped by subject; earlier digests are kept. A daily cost cap (default $0.30) puts the
+rest of a day's articles under Other. Article text is not stored.
 
 Blocked topics (e.g. Sports, Showbiz) are offered to the model like subjects; articles filed under one are left out
 of the digest and only listed, folded away, under "left out", so a wrongly filed article can still be found.
-Subject and topic names are always English; summaries stay in the article's language.
+Subject and topic names are always English; the text under a title stays as the site wrote it.
 
 ## Run it
 

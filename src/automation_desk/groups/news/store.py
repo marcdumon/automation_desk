@@ -68,6 +68,9 @@ class DigestRecord:
     stories: list[StoryRecord]
     suggestions: dict[str, list[str]] = field(default_factory=dict)
     left_out: list[LeftOut] = field(default_factory=list)
+    # CLAUDE> follow-ups the user can continue the digest with: sites that need a human check, articles held back by the cap
+    needs_check: list[int] = field(default_factory=list)
+    held: list[dict] = field(default_factory=list)
 
 
 def _now() -> str:
@@ -152,7 +155,9 @@ def known_links(links: list[str]) -> set[str]:
     with connect() as db:
         rows = db.execute(f'SELECT link FROM news_articles WHERE link IN ({marks}) '
                           f'UNION SELECT link FROM news_seen WHERE link IN ({marks}) '
-                          f'UNION SELECT link FROM news_left_out WHERE link IN ({marks})', [*links, *links, *links])
+                          f'UNION SELECT link FROM news_left_out WHERE link IN ({marks}) '
+                          f"UNION SELECT key FROM news_followups WHERE kind = 'held' AND key IN ({marks})",
+                          [*links, *links, *links, *links])
         return {r[0] for r in rows}
 
 
@@ -174,22 +179,56 @@ def save_digest(record: DigestRecord) -> int:
             (record.made_at.isoformat(timespec='seconds'), record.covers_from.isoformat(timespec='seconds'), record.trigger,
              record.job_id, articles, len(record.stories), source_count, json.dumps(record.problems, ensure_ascii=False)))
         digest_id = cursor.lastrowid
-        for position, story in enumerate(record.stories):
-            story_id = f'{digest_id}-{position}'
-            db.execute('INSERT INTO news_stories (id, digest_id, position, subject, title, summary) VALUES (?, ?, ?, ?, ?, ?)',
-                       (story_id, digest_id, position, story.subject, story.title, story.summary))
-            db.executemany(
-                'INSERT OR REPLACE INTO news_articles (link, source_id, story_id, title, published, teaser, from_teaser, reason) '
-                'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                [(a.link, a.source_id, story_id, a.title, a.published.isoformat(timespec='seconds') if a.published else None,
-                  a.teaser, int(a.from_teaser), a.reason) for a in story.articles])
-        db.executemany('INSERT OR REPLACE INTO news_left_out (link, digest_id, source_id, title, topic) VALUES (?, ?, ?, ?, ?)',
-                       [(a.link, digest_id, a.source_id, a.title, a.topic) for a in record.left_out])
-        for name, examples in record.suggestions.items():
-            db.execute("INSERT INTO news_suggestions (name, examples, digest_id, status) VALUES (?, ?, ?, 'open') "
-                       "ON CONFLICT (name) DO UPDATE SET examples = excluded.examples, digest_id = excluded.digest_id "
-                       "WHERE news_suggestions.status = 'open'", (name, json.dumps(examples, ensure_ascii=False), digest_id))
+        _add(db, digest_id, record)
     return digest_id
+
+
+def add_to_digest(digest_id: int, record: DigestRecord) -> None:
+    """Continue a digest: its new stories, left-out articles and suggestions join it, and `record`'s follow-ups replace the
+    ones it had (what was open is now done, or still open)."""
+    with connect(write=True) as db:
+        db.execute("INSERT OR IGNORE INTO news_followups (digest_id, kind, key) VALUES (?, 'job', ?)", (digest_id, record.job_id))
+        _add(db, digest_id, record)
+        _recount(db, digest_id)
+
+
+def _add(db: sqlite3.Connection, digest_id: int, record: DigestRecord) -> None:
+    """Stories after the digest's existing ones, left-out articles, suggestions, and the follow-ups."""
+    first = db.execute('SELECT COALESCE(MAX(position) + 1, 0) FROM news_stories WHERE digest_id = ?', (digest_id,)).fetchone()[0]
+    for position, story in enumerate(record.stories, first):
+        story_id = f'{digest_id}-{position}'
+        db.execute('INSERT INTO news_stories (id, digest_id, position, subject, title, summary) VALUES (?, ?, ?, ?, ?, ?)',
+                   (story_id, digest_id, position, story.subject, story.title, story.summary))
+        db.executemany(
+            'INSERT OR REPLACE INTO news_articles (link, source_id, story_id, title, published, teaser, from_teaser, reason) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [(a.link, a.source_id, story_id, a.title, a.published.isoformat(timespec='seconds') if a.published else None,
+              a.teaser, int(a.from_teaser), a.reason) for a in story.articles])
+    db.executemany('INSERT OR REPLACE INTO news_left_out (link, digest_id, source_id, title, topic) VALUES (?, ?, ?, ?, ?)',
+                   [(a.link, digest_id, a.source_id, a.title, a.topic) for a in record.left_out])
+    for name, examples in record.suggestions.items():
+        db.execute("INSERT INTO news_suggestions (name, examples, digest_id, status) VALUES (?, ?, ?, 'open') "
+                   "ON CONFLICT (name) DO UPDATE SET examples = excluded.examples, digest_id = excluded.digest_id "
+                   "WHERE news_suggestions.status = 'open'", (name, json.dumps(examples, ensure_ascii=False), digest_id))
+    db.execute("DELETE FROM news_followups WHERE digest_id = ? AND kind IN ('check', 'held')", (digest_id,))
+    db.executemany("INSERT INTO news_followups (digest_id, kind, key) VALUES (?, 'check', ?)",
+                   [(digest_id, str(source_id)) for source_id in record.needs_check])
+    db.executemany("INSERT INTO news_followups (digest_id, kind, key, data) VALUES (?, 'held', ?, ?)",
+                   [(digest_id, a['link'], json.dumps(a, ensure_ascii=False)) for a in record.held])
+
+
+def held(digest_id: int) -> list[dict]:
+    """The articles a digest held back because the daily cap was reached, in the order they came."""
+    with connect() as db:
+        rows = db.execute("SELECT data FROM news_followups WHERE digest_id = ? AND kind = 'held' ORDER BY rowid", (digest_id,))
+        return [json.loads(r[0]) for r in rows]
+
+
+def needs_check(digest_id: int) -> list[Source]:
+    """The sites of a digest that could not be read without the user passing a human check."""
+    with connect() as db:
+        ids = {int(r[0]) for r in db.execute("SELECT key FROM news_followups WHERE digest_id = ? AND kind = 'check'", (digest_id,))}
+    return [s for s in sources() if s.id in ids]
 
 
 def digests() -> list[dict]:
@@ -222,7 +261,12 @@ def digest(digest_id: int) -> dict | None:
                           for a in sorted((a for a in articles if a['story_id'] == story['id']),
                                           key=lambda a: a['title'] != story['title'])]})
     ranked = sorted(grouped, key=lambda s: (s == 'Other', order.index(s) if s in order else len(order), s))
-    return {**dict(head), 'problems': json.loads(head['problems'] or '[]'), 'cost_usd': _job_cost(head['job_id']),
+    with connect() as db:
+        jobs = [head['job_id'], *(r[0] for r in db.execute("SELECT key FROM news_followups WHERE digest_id = ? AND kind = 'job'",
+                                                          (digest_id,)))]
+    return {**dict(head), 'problems': json.loads(head['problems'] or '[]'), 'cost_usd': sum(_job_cost(j) for j in jobs),
+            'needs_check': [{'id': s.id, 'name': s.name, 'site': s.site} for s in needs_check(digest_id)],
+            'unsorted': len(held(digest_id)),
             'subjects': [{'subject': s, 'stories': grouped[s]} for s in ranked],
             'left_out': [{'link': o['link'], 'title': o['title'], 'source': o['source'] or '', 'topic': o['topic']} for o in left_out]}
 
@@ -234,6 +278,11 @@ def _delete_stories(db: sqlite3.Connection, story_ids: list[str], digest_id: int
                    'SELECT link, source_id, ? FROM news_articles WHERE story_id = ?', (_now(), story_id))
         db.execute('DELETE FROM news_articles WHERE story_id = ?', (story_id,))
         db.execute('DELETE FROM news_stories WHERE id = ?', (story_id,))
+    _recount(db, digest_id)
+
+
+def _recount(db: sqlite3.Connection, digest_id: int) -> None:
+    """A digest's story, article and site counts, after stories were added or removed."""
     joined = 'FROM news_articles a JOIN news_stories t ON t.id = a.story_id WHERE t.digest_id = :d'
     db.execute(f'UPDATE news_digests SET story_count = (SELECT COUNT(*) FROM news_stories WHERE digest_id = :d), '
                f'article_count = (SELECT COUNT(*) {joined}), source_count = (SELECT COUNT(DISTINCT a.source_id) {joined}) '
@@ -270,6 +319,9 @@ def delete_digest(digest_id: int) -> bool:
         db.execute('INSERT OR IGNORE INTO news_seen (link, source_id, seen) '
                    'SELECT link, source_id, ? FROM news_left_out WHERE digest_id = ?', (_now(), digest_id))
         db.execute('DELETE FROM news_left_out WHERE digest_id = ?', (digest_id,))
+        db.execute("INSERT OR IGNORE INTO news_seen (link, source_id, seen) SELECT key, NULL, ? FROM news_followups "
+                   "WHERE digest_id = ? AND kind = 'held'", (_now(), digest_id))
+        db.execute('DELETE FROM news_followups WHERE digest_id = ?', (digest_id,))
         db.execute('DELETE FROM news_digests WHERE id = ?', (digest_id,))
         # CLAUDE> without this, no digest left means "none yet": the next digest would reach back 24 hours again
         _set_last_run(db, head['made_at'])
@@ -309,6 +361,14 @@ def latest_made_at() -> datetime | None:
         last_run = db.execute("SELECT value FROM news_settings WHERE key = 'last_run_at'").fetchone()
     times = [datetime.fromisoformat(t) for t in (stored, last_run[0] if last_run else None) if t]
     return max(times) if times else None
+
+
+def digest_cost_since(since_iso: str) -> float:
+    """What digest runs started at or after `since_iso` cost; checks and tests filed under News do not count."""
+    with connect() as db:
+        row = db.execute("SELECT COALESCE(SUM(c.cost_usd), 0) FROM llm_calls c JOIN jobs j ON j.id = c.job_id "
+                         "WHERE j.grp = 'news' AND j.task_id = 'make_digest' AND j.started >= ?", (since_iso,)).fetchone()
+    return float(row[0])
 
 
 def _job_cost(job_id: str | None) -> float:

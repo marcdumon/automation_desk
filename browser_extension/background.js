@@ -1,7 +1,8 @@
 // CLAUDE> opens the page in a background tab of this browser, waits for it, returns its HTML and closes the tab.
 // If the site keeps showing a human check, the tab is brought to the front for the user; this script never clicks it.
 
-const CHALLENGE_TITLES = ['just a moment', 'attention required', 'one moment', 'checking your browser', 'performing security verification']
+const CHALLENGE_TITLES = ['just a moment', 'attention required', 'one moment', 'checking your browser', 'performing security verification',
+  'are you a robot', 'access denied']
 const QUIET_WAIT_MS = 8000
 const HUMAN_WAIT_MS = 180000
 const LOAD_WAIT_MS = 45000
@@ -22,14 +23,18 @@ async function challenged(tabId) {
   return CHALLENGE_TITLES.some(t => title.includes(t))
 }
 
-async function read(url, guiTab) {
+// CLAUDE> `mayAsk` false (news): the tab never comes forward; a human check that does not pass by itself is reported instead
+async function read(url, guiTab, mayAsk) {
   const tab = await chrome.tabs.create({ url, active: false, windowId: guiTab.windowId, index: guiTab.index + 1 })
   let askedYou = false
   try {
     await waitLoaded(tab.id)
     const started = Date.now()
     while (await challenged(tab.id)) {
-      if (!askedYou && Date.now() - started > QUIET_WAIT_MS) {
+      if (!mayAsk && Date.now() - started > QUIET_WAIT_MS) {
+        return { error: `${url} shows a human check. Open it once in this browser and pass it; then continue the digest.`, needs_person: true }
+      }
+      if (mayAsk && !askedYou && Date.now() - started > QUIET_WAIT_MS) {
         askedYou = true
         await chrome.tabs.update(tab.id, { active: true })
       }
@@ -59,6 +64,6 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return false
   }
   if (message?.type !== 'read' || !sender.tab) return false
-  read(message.url, sender.tab).then(reply, error => reply({ error: String(error.message || error) }))
+  read(message.url, sender.tab, message.mayAsk !== false).then(reply, error => reply({ error: String(error.message || error) }))
   return true
 })

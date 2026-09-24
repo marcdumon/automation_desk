@@ -24,5 +24,7 @@ output_per_m = 0.50
 
 [news]
 cap_usd = 0.30
-max_words = 500
-batch_size = 20
+# CLAUDE> words of the site's teaser shown under a title; without a teaser only the title shows
+max_words = 60
+# CLAUDE> headlines per model call; the model only sorts them into subjects
+batch_size = 60

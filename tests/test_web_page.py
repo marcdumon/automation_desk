@@ -128,7 +128,7 @@ def browser_stub(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Replace the user's browser with one that serves AGENDA; returns the URLs it read."""
     loaded: list[str] = []
 
-    def read_in_browser(url: str) -> tuple[Captured, int]:
+    def read_in_browser(url: str, may_ask: bool = True) -> tuple[Captured, int]:
         """Stand-in for capture.read_in_browser."""
         loaded.append(url)
         return Captured(url, AGENDA, asked_you=False), 5

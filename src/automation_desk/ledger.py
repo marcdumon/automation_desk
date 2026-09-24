@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS news_left_out (
     title TEXT, topic TEXT
 );
 CREATE TABLE IF NOT EXISTS news_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS news_followups (
+    digest_id INTEGER NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, data TEXT, PRIMARY KEY (digest_id, kind, key)
+);
 CREATE TABLE IF NOT EXISTS news_digests (
     id INTEGER PRIMARY KEY AUTOINCREMENT, made_at TEXT NOT NULL, covers_from TEXT NOT NULL, trigger TEXT NOT NULL,
     job_id TEXT, article_count INTEGER, story_count INTEGER, source_count INTEGER, problems TEXT

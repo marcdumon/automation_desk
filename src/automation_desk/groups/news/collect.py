@@ -1,4 +1,4 @@
-"""New articles of all sources, with ~500 words of their text, or their teaser."""
+"""New articles of all sources, each with the teaser the site lists for it, or only its title."""
 
 import contextvars
 from collections.abc import Callable
@@ -7,17 +7,17 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 import httpx
-from bs4 import BeautifulSoup
 
-from automation_desk.capture import CaptureError
+from automation_desk.capture import CaptureError, NeedsPerson
 from automation_desk.config import config
-from automation_desk.groups.calendar.web_page import BLOCKED_STATUS, browser_page, download, full_description, is_blocked
+from automation_desk.groups.calendar.web_page import BLOCKED_STATUS
 from automation_desk.groups.news import store
-from automation_desk.groups.news.feeds import Item, feed_items, front_page_links, site_label
+from automation_desk.groups.news.feeds import feed_items, front_page_links, site_label
 
 SOURCE_WORKERS = 4
 FIRST_READ_WINDOW = timedelta(hours=24)
 LATER_READ_WINDOW = timedelta(days=7)
+NEEDS_CHECK = 'needs you to pass a check'
 
 
 @dataclass(frozen=True)
@@ -41,34 +41,14 @@ class Collected:
 
     articles: list[Article] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
+    # CLAUDE> sites that show a human check: listed for the user, who can pass it and continue the digest
+    needs_check: list[int] = field(default_factory=list)
 
 
-def _text(item: Item, http: httpx.Client, allow_browser: bool) -> tuple[str, str]:
-    """About max_words words of the article, or its teaser with the reason the article itself could not be read."""
-    words = config().news.max_words
-    fallback = item.teaser or item.title or item.link
-    try:
-        response = download(item.link, http)
-        if is_blocked(response):
-            if not allow_browser:
-                return fallback, 'site blocks programs'
-            page_html = browser_page(item.link).html
-        elif response.status_code == 402:
-            return fallback, 'paywall: only the teaser is readable'
-        elif not response.is_success:
-            return fallback, f'page could not be read ({response.status_code})'
-        else:
-            page_html = response.text
-    except (httpx.HTTPError, CaptureError):
-        return fallback, 'page could not be read'
-    soup = BeautifulSoup(page_html, 'lxml')
-    for tag in soup(['script', 'style', 'noscript', 'nav', 'header', 'footer']):
-        tag.decompose()
-    text = full_description(soup, item.teaser)
-    # CLAUDE> full_description falls back to the teaser itself when the page holds no article text (paywall, login)
-    if not text or ' '.join(text.split()) == ' '.join(item.teaser.split()):
-        return fallback, 'only the teaser is readable'
-    return ' '.join(text.split()[:words]), ''
+def _usable(teaser: str, title: str) -> bool:
+    """Whether a teaser says something: not empty, and not the title again."""
+    teaser = ' '.join(teaser.split())
+    return bool(teaser) and teaser != ' '.join(title.split())
 
 
 def _one_source(source: store.Source, now: datetime, http: httpx.Client, allow_browser: bool) -> tuple[list[Article], str]:
@@ -92,8 +72,9 @@ def _one_source(source: store.Source, now: datetime, http: httpx.Client, allow_b
     store.mark_seen(source.id, [i.link for i in unseen if i.link not in taken])
     articles = []
     for item in fresh:
-        text, reason = _text(item, http, allow_browser)
-        articles.append(Article(item.link, source.id, source.name, item.title, item.published, item.teaser, text, reason))
+        # CLAUDE> the text shown is the teaser the site lists; without one, the title alone (article pages are never read)
+        text = ' '.join(item.teaser.split()[:config().news.max_words]) if _usable(item.teaser, item.title) else ''
+        articles.append(Article(item.link, source.id, source.name, item.title, item.published, item.teaser, text))
     return articles, f'{len(articles)} new'
 
 
@@ -114,7 +95,7 @@ def _plain(error: Exception) -> str:
 
 
 def collect(now: datetime, http: httpx.Client, allow_browser: bool,
-            report: Callable[[str, str], None] | None = None) -> Collected:
+            report: Callable[[str, str], None] | None = None, only: set[int] | None = None) -> Collected:
     """New articles of every source, four sources at a time; a source that fails becomes a problem, not a failure.
 
     `report(site, status)` hears what each site is doing, for the progress the page shows.
@@ -128,13 +109,16 @@ def collect(now: datetime, http: httpx.Client, allow_browser: bool,
             articles, summary = _one_source(source, now, http, allow_browser)
             tell(site_label(source.site), summary)
             return source, articles, summary
+        except NeedsPerson as error:
+            tell(site_label(source.site), NEEDS_CHECK)
+            return source, error, NEEDS_CHECK
         except (httpx.HTTPError, ValueError, CaptureError) as error:
             tell(site_label(source.site), _plain(error))
             return source, error, _plain(error)
 
     # CLAUDE> sites on one domain run one after another: several reads of wsj.com at once look like a bot and get refused
     by_domain: dict[str, list[store.Source]] = {}
-    for source in store.sources():
+    for source in (s for s in store.sources() if only is None or s.id in only):
         by_domain.setdefault(site_label(source.site).split('/')[0], []).append(source)
 
     def run_domain(sources: list[store.Source]) -> list[tuple[store.Source, list[Article] | Exception, str]]:
@@ -146,6 +130,10 @@ def collect(now: datetime, http: httpx.Client, allow_browser: bool,
         outcomes = [outcome for f in futures for outcome in f.result()]
     seen: set[str] = set()
     for source, articles, summary in outcomes:
+        if isinstance(articles, NeedsPerson):
+            result.needs_check.append(source.id)
+            store.set_source_result(source.id, NEEDS_CHECK, ok=False)
+            continue
         if isinstance(articles, Exception):
             result.problems.append(f'{site_label(source.site)} {summary}.')
             store.set_source_result(source.id, summary, ok=False)

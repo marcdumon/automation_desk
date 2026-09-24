@@ -6,6 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from automation_desk.capture import NeedsPerson
 from automation_desk.groups.calendar.web_page import Page
 from automation_desk.groups.news import feeds
 from automation_desk.groups.news.feeds import feed_items, find_feed, front_page_links
@@ -62,11 +63,11 @@ def test_a_section_without_a_title_is_named_by_its_address() -> None:
 
 def test_a_front_page_that_refuses_programs_is_read_through_the_browser(monkeypatch: pytest.MonkeyPatch) -> None:
     home = (FIX / 'home.html').read_text()
-    monkeypatch.setattr(feeds, 'browser_page', lambda url: Page(url='https://example.org/', html=home, via='browser'))
+    monkeypatch.setattr(feeds, 'browser_page', lambda url, may_ask=True: Page(url='https://example.org/', html=home, via='browser'))
     with serve({'/': (401, '')}) as http:
         items = front_page_links('https://example.org', http, allow_browser=True)
     assert [i.link for i in items] == ['https://example.org/2026/09/24/city-council-approves-new-cycling-plan']
-    with serve({'/': (401, '')}) as http, pytest.raises(httpx.HTTPStatusError):
+    with serve({'/': (401, '')}) as http, pytest.raises(NeedsPerson):
         front_page_links('https://example.org', http)
 
 
@@ -103,3 +104,18 @@ def test_site_names_are_short(title: str, site: str, name: str) -> None:
 def test_the_title_naming_the_site_wins_over_a_generic_feed_title() -> None:
     """The FT feed calls itself 'International homepage'; its page says 'Home - Financial Times' (ft = its initials)."""
     assert feeds._name('https://ft.com', 'International homepage', 'Home - Financial Times') == 'Financial Times'
+
+
+def test_a_browser_read_may_bring_a_check_forward(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only the follow-up the user pressed reads through the browser; a site's check may then come forward to be passed."""
+    asked = []
+    monkeypatch.setattr(feeds, 'browser_page',
+                        lambda url, may_ask=True: asked.append(may_ask) or Page(url=url, html='', via='browser'))
+    with serve({'/': (401, '')}) as http:
+        front_page_links('https://example.org', http, allow_browser=True)
+    assert asked == [True]
+
+
+def test_a_refusing_front_page_needs_the_user_when_the_browser_is_not_allowed() -> None:
+    with serve({'/': (401, '')}) as http, pytest.raises(NeedsPerson):
+        front_page_links('https://wsj.com', http)

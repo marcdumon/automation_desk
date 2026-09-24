@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
-  answerSuggestion, deleteNewsDigest, deleteNewsStory, deleteNewsSubject, getNewsDigest, getNewsOverview, makeNewsDigest, saveBlocked, saveNewsSites, saveSubjects, setNewsCap,
+  answerSuggestion, continueNewsDigest, deleteNewsDigest, deleteNewsStory, deleteNewsSubject, getNewsDigest, getNewsOverview, makeNewsDigest, saveBlocked, saveNewsSites, saveSubjects, setNewsCap,
   type NewsDigest, type SuggestionAnswer,
 } from './api'
 import { servePageRequests } from './capture'
 import { usd, when } from './format'
-import { canOpenInBackground, openInBackground } from './openTab'
+import { extensionIsCurrent, openInBackground } from './openTab'
 
 const shortWhen = (iso: string) =>
   new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
@@ -30,6 +30,12 @@ export default function NewsPanel() {
   // CLAUDE> while a digest runs, sites that refuse programs are read through this browser: this page must hand them over
   const running = Boolean(overview.data?.running)
   useEffect(() => (running ? servePageRequests(() => {}) : undefined), [running])
+  // CLAUDE> when a run ends, reload the digest too: its stories and follow-ups changed
+  const wasRunning = useRef(false)
+  useEffect(() => {
+    if (wasRunning.current && !running) client.invalidateQueries({ queryKey: ['news'] })
+    wasRunning.current = running
+  }, [running, client])
   if (!overview.data) return null
   const data = overview.data
   return (
@@ -95,11 +101,6 @@ function DigestView({ digest, onChange, onDeleted }: { digest: NewsDigest; onCha
   const removeSubject = useMutation({ mutationFn: (subject: string) => deleteNewsSubject(digest.id, subject), onSuccess: onChange })
   const removeDigest = useMutation({ mutationFn: () => deleteNewsDigest(digest.id), onSuccess: onDeleted })
   const failed = remove.error ?? removeSubject.error ?? removeDigest.error
-  const reasons = new Map<string, number>()
-  for (const a of digest.subjects.flatMap(g => g.stories.flatMap(s => s.articles)).filter(a => a.from_teaser)) {
-    reasons.set(a.reason || 'no reason given', (reasons.get(a.reason || 'no reason given') ?? 0) + 1)
-  }
-  const teasers = [...reasons.values()].reduce((sum, n) => sum + n, 0)
   return (
     <section className="digest">
       <div className="digest-head">
@@ -109,15 +110,11 @@ function DigestView({ digest, onChange, onDeleted }: { digest: NewsDigest; onCha
       </div>
       <p className="muted">Since {when(digest.covers_from)}: {digest.article_count} articles, {digest.story_count} stories,
         {' '}{digest.source_count} sites; cost {usd(digest.cost_usd)}.</p>
-      {teasers > 0 && (
-        <p className="muted">{teasers} article{teasers === 1 ? '' : 's'} summarised from the feed teaser:
-          {' '}{[...reasons].map(([reason, n]) => `${reason} (${n})`).join(', ')}.</p>
+      {!extensionIsCurrent() && (
+        <p className="muted open-hint">Reload the Automation desk reader extension, so links open behind this page and its reads
+          never take the focus: go to vivaldi://extensions and press the reload arrow (↻) on its card, then reload this page.</p>
       )}
-      {!canOpenInBackground() && (
-        <p className="muted open-hint">Links open in a tab in front of this page. To open them behind it instead, reload the
-          Automation desk reader extension: go to vivaldi://extensions and press the reload arrow (↻) on its card, then reload
-          this page.</p>
-      )}
+      <FollowUps digest={digest} onStarted={onChange} />
       {failed && <p className="cap-error">{failed.message}</p>}
       {digest.left_out.length > 0 && <LeftOutList articles={digest.left_out} />}
       {digest.problems.length > 0 && <ul className="sheet-notes">{digest.problems.map((p, i) => <li key={i}>{p}</li>)}</ul>}
@@ -145,9 +142,8 @@ function DigestView({ digest, onChange, onDeleted }: { digest: NewsDigest; onCha
               {story.summary && <p className="story-summary">{story.summary}</p>}
               <p className="story-sources">
                 {story.articles.map((a, i) => (
-                  <span key={a.link}>{i > 0 && ' · '}<a href={a.link} target="_blank" rel="noreferrer" onClick={openInBackground}>{a.source || 'source'}</a>
-                    {a.published && <span className="muted"> {shortWhen(a.published)}</span>}
-                    {a.from_teaser && <span className="muted"> (from teaser{a.reason ? `: ${a.reason}` : ''})</span>}</span>
+                  <span key={a.link}>{i > 0 && ' · '}
+                    <a href={a.link} target="_blank" rel="noreferrer" onClick={openInBackground}>{a.source || 'source'}</a></span>
                 ))}
               </p>
             </article>
@@ -170,6 +166,28 @@ function LeftOutList({ articles }: { articles: NewsDigest['left_out'] }) {
         <li key={a.link}><a href={a.link} target="_blank" rel="noreferrer" onClick={openInBackground}>{a.title}</a>
           <span className="muted"> {a.source} · {a.topic}</span></li>))}</ul>
     </details>
+  )
+}
+
+// CLAUDE> what the digest could not do without the user: sites behind a human check, and articles past the daily cap
+function FollowUps({ digest, onStarted }: { digest: NewsDigest; onStarted: () => void }) {
+  const go = useMutation({ mutationFn: (raiseCap: boolean) => continueNewsDigest(digest.id, raiseCap), onSuccess: onStarted })
+  return (
+    <>
+      {digest.needs_check.length > 0 && (
+        <p className="follow-up">Not read: {digest.needs_check.map(s => s.name).join(', ')}
+          <button type="button" className="quiet" disabled={go.isPending} onClick={() => go.mutate(false)}>Read via browser</button>
+        </p>
+      )}
+      {digest.unsorted > 0 && digest.cap_to_sort !== null && (
+        <p className="follow-up">{digest.unsorted} not sorted (cost cap)
+          <button type="button" className="quiet" disabled={go.isPending} onClick={() => go.mutate(true)}>
+            {digest.cap_to_sort > digest.cap_usd ? `Raise cap to $${digest.cap_to_sort.toFixed(2)} and sort` : 'Sort'}
+          </button>
+        </p>
+      )}
+      {go.isError && <p className="cap-error">Not started: {go.error.message}</p>}
+    </>
   )
 }
 
