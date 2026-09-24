@@ -187,7 +187,7 @@ function FollowUps({ digest, onStarted }: { digest: NewsDigest; onStarted: () =>
       {blocked && (
         <li>
           <span><strong>{digest.needs_check.map(s => s.name).join(', ')}</strong> {digest.needs_check.length === 1 ? 'blocks' : 'block'}
-            {' '}programs</span>
+            {' '}bots</span>
           <button type="button" className="primary" disabled={go.isPending} onClick={() => go.mutate(false)}>Read via browser</button>
         </li>
       )}

@@ -83,10 +83,10 @@ def _plain(error: Exception) -> str:
     if isinstance(error, httpx.HTTPStatusError):
         status = error.response.status_code
         if status in BLOCKED_STATUS:
-            return f"refuses programs ({status}): it can't be read automatically"
+            return f"blocks bots ({status}): it can't be read automatically"
         return f'page not found ({status})' if status in (404, 410) else f'answered with error {status}'
     if isinstance(error, CaptureError):
-        return f'refuses programs, and reading it through your browser failed too ({error})'
+        return f'blocks bots, and reading it through your browser failed too ({error})'
     if isinstance(error, httpx.TooManyRedirects):
         return 'keeps redirecting'
     if isinstance(error, httpx.TransportError):
