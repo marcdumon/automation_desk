@@ -1,6 +1,7 @@
 """New articles of all sources, with ~500 words of their text, or their teaser."""
 
 import contextvars
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -96,15 +97,28 @@ def _one_source(source: store.Source, now: datetime, http: httpx.Client, allow_b
     return articles, f'{len(articles)} new'
 
 
-def collect(now: datetime, http: httpx.Client, allow_browser: bool) -> Collected:
-    """New articles of every source, four sources at a time; a source that fails becomes a problem, not a failure."""
+def site_label(site: str) -> str:
+    """A site as people write it: tijd.be, not https://www.tijd.be/."""
+    return site.removeprefix('https://').removeprefix('http://').removeprefix('www.').rstrip('/')
+
+
+def collect(now: datetime, http: httpx.Client, allow_browser: bool,
+            report: Callable[[str, str], None] | None = None) -> Collected:
+    """New articles of every source, four sources at a time; a source that fails becomes a problem, not a failure.
+
+    `report(site, status)` hears what each site is doing, for the progress the page shows.
+    """
     result = Collected()
+    tell = report or (lambda site, status: None)
 
     def run(source: store.Source) -> tuple[store.Source, list[Article] | Exception, str]:
+        tell(site_label(source.site), 'reading…')
         try:
             articles, summary = _one_source(source, now, http, allow_browser)
+            tell(site_label(source.site), summary)
             return source, articles, summary
         except (httpx.HTTPError, ValueError) as error:
+            tell(site_label(source.site), 'could not be read')
             return source, error, str(error)
 
     with ThreadPoolExecutor(SOURCE_WORKERS) as pool:

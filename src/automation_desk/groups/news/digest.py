@@ -17,11 +17,33 @@ _lock = threading.Lock()
 _active = threading.Event()
 # CLAUDE> why the latest run failed, shown on the News page until a run succeeds
 _failure: dict[str, str] = {}
+# CLAUDE> what the running digest is doing, for the page: {'step': ..., 'sites': {site: status}}
+_progress: dict = {}
+_progress_lock = threading.Lock()
 
 
 def running() -> bool:
     """Whether a digest is being made right now."""
     return _active.is_set()
+
+
+def progress() -> dict:
+    """What the running digest is doing: its step, and each site's status; empty when none runs."""
+    with _progress_lock:
+        return {'step': _progress['step'], 'sites': dict(_progress['sites'])} if _progress else {}
+
+
+def _step(step: str) -> None:
+    """Enter a step of the run."""
+    with _progress_lock:
+        _progress.setdefault('sites', {})
+        _progress['step'] = step
+
+
+def _site(site: str, status: str) -> None:
+    """A site's status; the sites are read four at a time, so from several threads."""
+    with _progress_lock:
+        _progress.setdefault('sites', {})[site] = status
 
 
 def failure() -> str:
@@ -43,6 +65,8 @@ def make_digest(trigger: str, allow_browser: bool, now: datetime | None = None) 
             raise
         finally:
             _active.clear()
+            with _progress_lock:
+                _progress.clear()
         _failure.clear()
         return digest_id
 
@@ -52,7 +76,8 @@ def _make(trigger: str, allow_browser: bool, now: datetime) -> int | None:
     since = store.latest_made_at() or now - timedelta(hours=24)
     job = jobs.Job(group=GROUP, sentence=f'News digest ({trigger})', task_id='make_digest', task_name='Make a digest')
     with jobs.run(job), httpx.Client(timeout=30.0) as http:
-        found = collect(now, http, allow_browser)
+        _step('Reading sites')
+        found = collect(now, http, allow_browser, report=_site)
         if not found.articles:
             store.record_nothing_new(now, since, found.problems)
             job.message = f"Nothing new since {since.strftime('%d %b %H:%M')}"
@@ -62,10 +87,12 @@ def _make(trigger: str, allow_browser: bool, now: datetime) -> int | None:
         budget = max(0.0, store.cap() - ledger.cost_since(GROUP, today))
         # CLAUDE> model calls use their own client with its long timeout; `http` (30 s) is for page reads only
         blocked = store.blocked()
-        summarised, summary_problems = summarise(found.articles, store.subjects(), budget, blocked=blocked)
+        summarised, summary_problems = summarise(found.articles, store.subjects(), budget, blocked=blocked,
+                                                 report=lambda n, total: _step(f'Summarising: batch {n} of {total}'))
         items = [i for i in summarised if i.subject not in blocked]
         left_out = [LeftOut(i.article.link, i.article.source_id, i.article.title, i.subject)
                     for i in summarised if i.subject in blocked]
+        _step('Merging stories')
         stories, merge_problems = merge_stories(items)
         suggestions: dict[str, list[str]] = {}
         for i in items:

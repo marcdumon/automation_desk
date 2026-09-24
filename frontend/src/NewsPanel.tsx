@@ -15,7 +15,7 @@ const shortWhen = (iso: string) =>
 export default function NewsPanel() {
   const client = useQueryClient()
   const overview = useQuery({ queryKey: ['news', 'overview'], queryFn: getNewsOverview,
-                              refetchInterval: q => (q.state.data?.running ? 3000 : false) })
+                              refetchInterval: q => (q.state.data?.running ? 2000 : false) })
   const [chosen, setChosen] = useState<number | null>(null)
   const digestId = chosen ?? overview.data?.digests[0]?.id ?? null
   const digest = useQuery({ queryKey: ['news', 'digest', digestId], queryFn: () => getNewsDigest(digestId!), enabled: digestId !== null })
@@ -36,6 +36,13 @@ export default function NewsPanel() {
         </button>
         <CapField key={data.cap_usd} value={data.cap_usd} onSaved={refresh} />
       </div>
+      {data.running && data.progress.step && (
+        <div className="message digest-progress">
+          <p><strong>{data.progress.step}</strong></p>
+          <ul>{Object.entries(data.progress.sites ?? {}).map(([site, status]) => (
+            <li key={site}><span>{site}</span> <span className="muted">{status}</span></li>))}</ul>
+        </div>
+      )}
       {/* CLAUDE> settings and history sit above the digest: below it they were ten screens down */}
       <details className="news-settings-box" open={data.subjects.length === 0 && data.blocked.length === 0}>
         <summary>Settings: {data.sources.length} site{data.sources.length === 1 ? '' : 's'}, {data.subjects.length} subject

@@ -137,3 +137,21 @@ def test_a_broken_feed_is_a_problem_not_a_failure(web: dict, monkeypatch: pytest
     monkeypatch.setattr(module, 'feed_items', broken)
     got = collect(NOW, httpx.Client(), allow_browser=False)
     assert got.articles == [] and got.problems == ['Down could not be read: no route']
+
+
+def test_each_site_reports_what_it_is_doing(web: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    store.add_source('https://www.tijd.be', 'De Tijd', 'https://www.tijd.be/rss', 'feed')
+    store.add_source('https://down.be', 'Down', 'https://down.be/rss', 'feed')
+    web['feeds']['https://www.tijd.be/rss'] = items(('https://www.tijd.be/a/1', NOW - timedelta(hours=1)))
+
+    def feed(url: str, http: object) -> list[Item]:
+        """Down does not answer."""
+        if 'down' in url:
+            raise httpx.ConnectError('no route')
+        return web['feeds'][url]
+
+    monkeypatch.setattr(module, 'feed_items', feed)
+    reports: list[tuple[str, str]] = []
+    collect(NOW, httpx.Client(), allow_browser=False, report=lambda site, status: reports.append((site, status)))
+    assert sorted(reports) == [('down.be', 'could not be read'), ('down.be', 'reading…'),
+                               ('tijd.be', '1 new'), ('tijd.be', 'reading…')]

@@ -3,6 +3,7 @@
 Every answer is checked in code. The daily cost cap is kept by estimating a batch before sending it.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import httpx
@@ -108,15 +109,20 @@ def _checked(batch: list[Article], reply: BatchSummary, subjects: list[str], ind
 
 
 def summarise(articles: list[Article], subjects: list[str], budget_usd: float, http: httpx.Client | None = None,
-              blocked: list[str] | None = None) -> tuple[list[Summarised], list[str]]:
+              blocked: list[str] | None = None,
+              report: Callable[[int, int], None] | None = None) -> tuple[list[Summarised], list[str]]:
     """Summaries of all articles, in batches; articles past the budget, or of failed batches, keep their teaser.
 
     Blocked topics are offered to the model as subjects like any other; the digest leaves their articles out.
+    `report(batch, batches)` hears which batch starts, for the progress the page shows.
     """
     subjects = [*subjects, *(blocked or [])]
     items: list[Summarised] = []
     size, spent, capped, failed, failure = batch_size(), 0.0, 0, 0, ''
+    batches = -(-len(articles) // size)
     for index, start in enumerate(range(0, len(articles), size)):
+        if report:
+            report(index + 1, batches)
         batch = articles[start:start + size]
         cost = estimate(batch)
         if spent + cost > budget_usd:
