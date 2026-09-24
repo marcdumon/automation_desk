@@ -143,3 +143,9 @@ def test_news_site_list_endpoint(client: TestClient, monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(sites, 'find_feed', lambda site, http: ('HLN', 'https://www.hln.be/rss.xml', 'feed'))
     answer = client.post('/api/news/sources', json={'sites': ['hln.be']}).json()
     assert answer['problems'] == [] and [s['name'] for s in answer['sources']] == ['HLN']
+
+
+def test_a_server_older_than_its_code_asks_for_a_restart(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert client.get('/api/version').json()['restart_needed'] is False
+    monkeypatch.setattr(api, 'code_stamp', lambda: api.STARTED_STAMP + 1)
+    assert client.get('/api/version').json()['restart_needed'] is True, 'code changed on disk after the server started'

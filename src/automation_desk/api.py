@@ -147,11 +147,20 @@ def reminder_done(reminder_id: str) -> dict:
     return {'ok': True}
 
 
+def code_stamp() -> float:
+    """When the app's Python code last changed on disk (GUI files are served fresh, so they need no restart)."""
+    return max((f.stat().st_mtime for f in Path(__file__).parent.rglob('*.py')), default=0.0)
+
+
+# CLAUDE> the running server's own code; newer code on disk only takes effect after a restart
+STARTED_STAMP = code_stamp()
+
+
 @app.get('/api/version')
 def version() -> dict:
-    """Which GUI build the server serves, so an open page can tell it is outdated."""
+    """Which GUI build the server serves, so an open page can tell it is outdated, and whether the server itself is."""
     index = STATIC / 'index.html'
-    return {'build': str(int(index.stat().st_mtime)) if index.exists() else ''}
+    return {'build': str(int(index.stat().st_mtime)) if index.exists() else '', 'restart_needed': code_stamp() > STARTED_STAMP}
 
 
 @app.get('/api/auth')
