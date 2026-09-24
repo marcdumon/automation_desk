@@ -132,3 +132,53 @@ def test_deleting_a_digest_keeps_its_articles_seen_and_its_time() -> None:
         'https://a.be/1', 'https://a.be/3', 'https://a.be/sport'}, 'its articles, left-out ones included, never come back'
     assert store.latest_made_at() == made, 'the next digest starts where the deleted one ended'
     assert store.delete_digest(digest_id) is False
+
+
+def test_only_digests_count_against_the_daily_cap() -> None:
+    """Test runs and checks filed under News ate the user's cap: 171 articles went under Other, nothing was blocked."""
+    with ledger.connect(write=True) as db:
+        for job_id, task in (('d1', 'make_digest'), ('c1', 'check'), ('m1', 'compare')):
+            db.execute("INSERT INTO jobs (id, grp, sentence, task_id, started) "
+                       "VALUES (?, 'news', 'x', ?, '2026-09-24T10:00:00+02:00')", (job_id, task))
+            db.execute('INSERT INTO llm_calls (job_id, seq, cost_usd) VALUES (?, 0, 0.1)', (job_id,))
+    assert store.digest_cost_since('2026-09-24T00:00:00+02:00') == 0.1
+
+
+def _held(n: int) -> dict:
+    """An article held back because the daily cap was reached."""
+    return {'link': f'https://a.be/held/{n}', 'source_id': 1, 'source_name': 'A', 'title': f'Wacht {n}', 'published': None,
+            'teaser': 't', 'text': f'Tekst {n}'}
+
+
+def test_a_digest_keeps_its_follow_ups() -> None:
+    """Sites that need a human check, and articles held back by the cap, wait on the digest until the user continues it."""
+    source = store.add_source('https://wsj.com/world', 'wsj', '', 'frontpage')
+    made = datetime(2026, 9, 24, 7, 0, tzinfo=TZ)
+    digest_id = store.save_digest(DigestRecord(made_at=made, covers_from=made.replace(day=23), trigger='button', job_id='j1',
+                                               problems=[], stories=[], needs_check=[source], held=[_held(1), _held(2)]))
+    stored = store.digest(digest_id)
+    assert stored['needs_check'] == [{'id': source, 'name': 'wsj', 'site': 'https://wsj.com/world'}]
+    assert stored['unsorted'] == 2
+    assert store.held(digest_id) == [_held(1), _held(2)]
+    assert store.known_links(['https://a.be/held/1']) == {'https://a.be/held/1'}, 'a held-back article is not collected again'
+
+
+def test_continuing_a_digest_adds_to_it() -> None:
+    source = store.add_source('https://a.be', 'A', 'https://a.be/feed', 'feed')
+    made = datetime(2026, 9, 24, 7, 0, tzinfo=TZ)
+    art = lambda link: ArticleRecord(link, source, 'T', made, 't', False, '')  # noqa: E731
+    first = DigestRecord(made_at=made, covers_from=made.replace(day=23), trigger='button', job_id='j1', problems=[],
+                         stories=[StoryRecord('AI', 'Een', 'S.', [art('https://a.be/1')])], needs_check=[source], held=[_held(1)])
+    digest_id = store.save_digest(first)
+    more = DigestRecord(made_at=made, covers_from=made, trigger='continue', job_id='j2', problems=[],
+                        stories=[StoryRecord('War', 'Twee', 'S.', [art('https://a.be/2')])],
+                        left_out=[LeftOut('https://a.be/3', source, 'Goal', 'Sports')])
+    with ledger.connect(write=True) as db:
+        for job_id in ('j1', 'j2'):
+            db.execute("INSERT INTO jobs (id, grp, sentence, started) VALUES (?, 'news', 'x', '2026-09-24T07:00:00')", (job_id,))
+            db.execute('INSERT INTO llm_calls (job_id, seq, cost_usd) VALUES (?, 0, 0.01)', (job_id,))
+    store.add_to_digest(digest_id, more)
+    stored = store.digest(digest_id)
+    assert [g['subject'] for g in stored['subjects']] == ['AI', 'War'] and (stored['story_count'], stored['article_count']) == (2, 2)
+    assert (stored['needs_check'], stored['unsorted']) == ([], 0), 'what was open is now done'
+    assert [a['topic'] for a in stored['left_out']] == ['Sports'] and stored['cost_usd'] == 0.02

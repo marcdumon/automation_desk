@@ -128,9 +128,10 @@ def fetch(url: str, http: httpx.Client, use_browser: bool = False) -> Page:
     return browser_page(url)
 
 
-def browser_page(url: str) -> Page:
-    """Read a page through the user's own browser, recorded on the current job."""
-    captured, elapsed = read_in_browser(url)
+def browser_page(url: str, may_ask: bool = True) -> Page:
+    """Read a page through the user's own browser, recorded on the current job; with `may_ask` False its tab never comes
+    forward, and a page that wants a person raises NeedsPerson."""
+    captured, elapsed = read_in_browser(url, may_ask)
     via = 'your browser, after you completed the site check' if captured.asked_you else 'your browser'
     record_fetch(url, 0, len(captured.html.encode()), elapsed, via=via)
     return Page(url=captured.url, html=captured.html, via='browser')

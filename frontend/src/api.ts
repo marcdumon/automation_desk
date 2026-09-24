@@ -137,6 +137,7 @@ export type NewsDigestHead = {
 export type NewsLeftOut = { link: string; title: string; source: string; topic: string }
 export type NewsDigest = NewsDigestHead & {
   cost_usd: number; subjects: { subject: string; stories: NewsStory[] }[]; left_out: NewsLeftOut[]
+  needs_check: { id: number; name: string; site: string }[]; unsorted: number; cap_to_sort: number | null; cap_usd: number
 }
 export type NewsSource = { id: number; site: string; name: string; feed: string; kind: string; last_checked: string; last_result: string }
 export type NewsOverview = {
@@ -158,6 +159,8 @@ export async function deleteNewsStory(id: string): Promise<void> {
   const response = await fetch(`/api/news/stories/${encodeURIComponent(id)}`, { method: 'DELETE' })
   if (!response.ok) throw new Error(`The story could not be deleted (${response.status}). Reload the page.`)
 }
+export const continueNewsDigest = (id: number, raiseCap: boolean) =>
+  call<{ started: boolean }>(`/api/news/digests/${id}/continue`, { raise_cap: raiseCap })
 export async function deleteNewsDigest(id: number): Promise<void> {
   const response = await fetch(`/api/news/digests/${id}`, { method: 'DELETE' })
   if (!response.ok) throw new Error(`The digest could not be deleted (${response.status}). Reload the page.`)

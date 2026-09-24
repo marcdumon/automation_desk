@@ -302,6 +302,7 @@ pre.params { max-height: none; margin: 0; padding: 6px; }
                 background: none; color: var(--muted); font-size: 12px; line-height: 1; cursor: pointer; }
 .story-delete:hover { color: var(--error); border-color: var(--error); }
 .open-hint { font-size: 13px; }
+.follow-up { display: flex; align-items: center; gap: 12px; margin: 0; font-size: 14px; }
 .story-title { font-weight: 600; color: var(--ink); text-decoration: none; }
 .story-title:hover { text-decoration: underline; }
 .story-summary { margin: 4px 0; }

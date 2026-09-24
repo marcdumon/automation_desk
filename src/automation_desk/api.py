@@ -333,13 +333,14 @@ class CaptureResult(BaseModel):
     asked_you: bool = False
     error: str = ''
     missing_extension: bool = False
+    needs_person: bool = False
 
 
 @app.post('/api/capture/{request_id}')
 def capture_deliver(request_id: str, result: CaptureResult) -> dict:
     """The browser's answer to one page request."""
     captured = None if result.error else Captured(url=result.url, html=result.html, asked_you=result.asked_you)
-    return {'accepted': broker.deliver(request_id, captured, result.error, result.missing_extension)}
+    return {'accepted': broker.deliver(request_id, captured, result.error, result.missing_extension, result.needs_person)}
 
 
 @app.get('/api/setup/extension')
@@ -363,7 +364,20 @@ def news_digest_detail(digest_id: int) -> dict:
     found = news.digest(digest_id)
     if found is None:
         raise HTTPException(404, f'No digest {digest_id}')
-    return found
+    return {**found, 'cap_to_sort': news_digest.cap_to_sort(digest_id), 'cap_usd': news.cap()}
+
+
+class ContinueDigest(BaseModel):
+    """Whether to raise the daily cap to what the held-back articles need."""
+
+    raise_cap: bool = False
+
+
+@app.post('/api/news/digests/{digest_id}/continue')
+def news_continue(digest_id: int, request: ContinueDigest) -> dict:
+    """Continue a digest in the background: the sites the user passed a check on, and the articles held back at the cap."""
+    threading.Thread(target=news_digest.continue_digest, args=(digest_id, request.raise_cap), daemon=True).start()
+    return {'started': True}
 
 
 class SuggestionAnswer(BaseModel):
@@ -465,7 +479,7 @@ def news_cap(setting: CapSetting) -> dict:
 @app.post('/api/news/make')
 def news_make() -> dict:
     """Make a digest now, in the background; the panel polls the overview until it is done."""
-    threading.Thread(target=news_digest.make_digest, args=('button', True), daemon=True).start()
+    threading.Thread(target=news_digest.make_digest, args=('button',), daemon=True).start()
     return {'started': True}
 
 

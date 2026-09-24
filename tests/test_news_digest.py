@@ -42,13 +42,13 @@ def parts(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(module, 'collect', collect)
     monkeypatch.setattr(module, 'summarise', summarise)
     monkeypatch.setattr(module, 'merge_stories', merge)
-    monkeypatch.setattr(ledger, 'cost_since', lambda group, since: 0.05)
+    monkeypatch.setattr(store, 'digest_cost_since', lambda since: 0.05)
     seen['collect'] = collect
     return seen
 
 
 def test_a_digest_is_one_job_and_is_stored(parts: dict) -> None:
-    digest_id = module.make_digest('button', allow_browser=True, now=NOW)
+    digest_id = module.make_digest('button', now=NOW)
     stored = store.digest(digest_id)
     assert stored['problems'] == ['B could not be read: 500'] and stored['trigger'] == 'button'
     assert stored['covers_from'] == (NOW - timedelta(hours=24)).isoformat(), 'the first digest looks back 24 hours'
@@ -60,7 +60,7 @@ def test_a_digest_is_one_job_and_is_stored(parts: dict) -> None:
     assert (job['group'], job['task_name']) == ('news', 'Make a digest')
 
     later = NOW + timedelta(days=1)
-    later_id = module.make_digest('scheduled', allow_browser=False, now=later)
+    later_id = module.make_digest('button', now=later)
     assert store.digest(later_id)['covers_from'] == NOW.isoformat() and parts['allow_browser'] is False, (
         'the next digest starts where the last one ended')
 
@@ -76,12 +76,12 @@ def test_never_two_runs_at_once(parts: dict, monkeypatch: pytest.MonkeyPatch) ->
         return original(*args, **kwargs)
 
     monkeypatch.setattr(module, 'collect', slow)
-    first = threading.Thread(target=module.make_digest, args=('button', True), kwargs={'now': NOW})
+    first = threading.Thread(target=module.make_digest, args=('button',), kwargs={'now': NOW})
     first.start()
     started.wait(5)
     assert module.running()
     second_done = []
-    second = threading.Thread(target=lambda: second_done.append(module.make_digest('button', True, now=NOW + timedelta(hours=1))))
+    second = threading.Thread(target=lambda: second_done.append(module.make_digest('button', now=NOW + timedelta(hours=1))))
     second.start()
     assert not second_done, 'the second request waits'
     gate.set()
@@ -99,10 +99,10 @@ def test_a_failed_digest_is_reported_until_one_succeeds(parts: dict, monkeypatch
 
     monkeypatch.setattr(module, 'collect', broken)
     with pytest.raises(RuntimeError):
-        module.make_digest('button', allow_browser=True, now=NOW)
+        module.make_digest('button', now=NOW)
     assert module.failure() == 'disk full'
     monkeypatch.setattr(module, 'collect', good)
-    module.make_digest('button', allow_browser=True, now=NOW)
+    module.make_digest('button', now=NOW)
     assert module.failure() == ''
 
 
@@ -128,22 +128,22 @@ def test_articles_on_a_blocked_topic_are_left_out(parts: dict, monkeypatch: pyte
 
     monkeypatch.setattr(module, 'summarise', summarise)
     monkeypatch.setattr(module, 'merge_stories', merge)
-    stored = store.digest(module.make_digest('button', allow_browser=True, now=NOW))
+    stored = store.digest(module.make_digest('button', now=NOW))
     assert given == {'blocked': ['Sports'], 'merged': ['https://k.be/3']}
     assert [(a['link'], a['topic']) for a in stored['left_out']] == [('https://k.be/2', 'Sports')]
     assert stored['article_count'] == 1
 
 
 def test_a_run_with_nothing_new_saves_no_digest(parts: dict, monkeypatch: pytest.MonkeyPatch) -> None:
-    first = module.make_digest('button', allow_browser=True, now=NOW)
+    first = module.make_digest('button', now=NOW)
     monkeypatch.setattr(module, 'collect', lambda now, http, allow_browser, report=None: Collected([], []))
     later = NOW + timedelta(minutes=20)
-    assert module.make_digest('button', allow_browser=True, now=later) is None
+    assert module.make_digest('button', now=later) is None
     assert [d['id'] for d in store.digests()] == [first], 'no empty digest in the list'
     assert store.nothing_new() == {'at': later.isoformat(), 'since': NOW.isoformat(), 'problems': []}
     assert store.latest_made_at() == later, 'the next digest starts from this run'
     monkeypatch.setattr(module, 'collect', parts['collect'])
-    module.make_digest('button', allow_browser=True, now=later + timedelta(hours=1))
+    module.make_digest('button', now=later + timedelta(hours=1))
     assert store.nothing_new() is None, 'a real digest replaces the message'
 
 
@@ -158,6 +158,79 @@ def test_a_running_digest_shows_its_progress(parts: dict, monkeypatch: pytest.Mo
         return good(now, http, allow_browser)
 
     monkeypatch.setattr(module, 'collect', collect)
-    module.make_digest('button', allow_browser=True, now=NOW)
+    module.make_digest('button', now=NOW)
     assert seen_during == {'step': 'Reading sites', 'sites': {'tijd.be': '3 new'}}
     assert module.progress() == {}, 'nothing shown once the digest is done'
+
+
+def test_a_digest_holds_back_what_the_cap_stopped_and_lists_sites_that_need_a_check(parts: dict,
+                                                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    wsj = store.add_source('https://wsj.com', 'wsj', '', 'frontpage')
+    kept = Article('https://k.be/1', 1, 'Krant', 'Titel', NOW, 'Teaser', 'Tekst')
+    late = Article('https://k.be/2', 1, 'Krant', 'Laat', NOW, 'Teaser', 'Later')
+    monkeypatch.setattr(module, 'collect', lambda now, http, allow_browser, report=None, only=None: Collected(
+        [kept, late], [], needs_check=[wsj]))
+    monkeypatch.setattr(module, 'summarise', lambda articles, subjects, budget, http=None, blocked=None, report=None: (
+        [Summarised(kept, 'Tekst', 'Other', '', False, '', 0),
+         Summarised(late, 'Later', 'Other', '', False, '', 0, sorted=False)], []))
+    merged = []
+    monkeypatch.setattr(module, 'merge_stories', lambda items, http=None: merged.extend(i.article.link for i in items) or (
+        [StoryRecord('Other', 'Titel', 'Tekst', [ArticleRecord(kept.link, 1, 'Titel', NOW, 'Teaser', False, '')])], []))
+    stored = store.digest(module.make_digest('button', now=NOW))
+    assert merged == ['https://k.be/1'], 'a held-back article is not shown yet'
+    assert (stored['unsorted'], [s['id'] for s in stored['needs_check']]) == (1, [wsj])
+
+
+def test_continuing_reads_the_check_sites_and_sorts_what_was_held_back(parts: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    wsj = store.add_source('https://wsj.com', 'wsj', '', 'frontpage')
+    kept = Article('https://k.be/1', 1, 'Krant', 'Titel', NOW, 'Teaser', 'Tekst')
+    late = Article('https://k.be/2', 1, 'Krant', 'Laat', NOW, 'Teaser', 'Later')
+    news = Article('https://wsj.com/a', wsj, 'wsj', 'Markets', NOW, '', 'Stocks fell.')
+    seen: dict = {}
+
+    def collect(now: datetime, http: object, allow_browser: bool, report: object = None, only: set | None = None) -> Collected:
+        """The first run: wsj needs a check; the follow-up (only wsj) reads it."""
+        seen.setdefault('only', []).append(only)
+        return Collected([news], []) if only else Collected([kept, late], [], needs_check=[wsj])
+
+    def summarise(articles: list, subjects: list, budget: float, http: object = None, blocked: list | None = None,
+                  report: object = None) -> tuple:
+        """The first run hits the cap after one article; the follow-up sorts everything."""
+        seen.setdefault('sorted', []).append([a.link for a in articles])
+        first = len(seen['sorted']) == 1
+        return [Summarised(a, a.text, 'Economy', '', False, '', 0, sorted=not (first and a is late)) for a in articles], []
+
+    def merge(items: list, http: object = None) -> tuple:
+        """One story per article."""
+        return [StoryRecord(i.subject, i.article.title, i.summary,
+                            [ArticleRecord(i.article.link, i.article.source_id, i.article.title, NOW, '', False, '')])
+                for i in items], []
+
+    monkeypatch.setattr(module, 'collect', collect)
+    monkeypatch.setattr(module, 'summarise', summarise)
+    monkeypatch.setattr(module, 'merge_stories', merge)
+    digest_id = module.make_digest('button', now=NOW)
+    needed = module.cap_to_sort(digest_id)
+    assert needed is not None and needed > 0.05, 'what is spent today plus what the held-back articles need'
+    before = store.cap()
+    module.continue_digest(digest_id, raise_cap=True, now=NOW + timedelta(minutes=5))
+    stored = store.digest(digest_id)
+    assert seen['only'] == [None, {wsj}] and seen['sorted'][1] == ['https://k.be/2', 'https://wsj.com/a']
+    assert sorted(s['title'] for g in stored['subjects'] for s in g['stories']) == ['Laat', 'Markets', 'Titel']
+    assert (stored['unsorted'], stored['needs_check']) == (0, []) and store.cap() == max(needed, before), 'never lowered'
+
+
+def test_a_digest_never_reads_through_the_browser_only_its_follow_up_does(parts: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every tab the extension opens brings the user's browser to the front: a digest opens none."""
+    wsj = store.add_source('https://wsj.com', 'wsj', '', 'frontpage')
+    browser: list = []
+
+    def collect(now: datetime, http: object, allow_browser: bool, report: object = None, only: set | None = None) -> Collected:
+        """Record whether this read may use the browser."""
+        browser.append(allow_browser)
+        return Collected([], [], needs_check=[] if only else [wsj])
+
+    monkeypatch.setattr(module, 'collect', collect)
+    digest_id = module.make_digest('button', now=NOW)
+    module.continue_digest(digest_id, raise_cap=False, now=NOW)
+    assert browser == [False, True], 'the digest: never; the follow-up the user asked for: yes'

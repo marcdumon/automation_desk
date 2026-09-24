@@ -1,5 +1,7 @@
 """The generic interpret -> preview -> execute flow over HTTP."""
 
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -150,3 +152,16 @@ def test_a_server_older_than_its_code_asks_for_a_restart(client: TestClient, mon
     assert client.get('/api/version').json()['restart_needed'] is False
     monkeypatch.setattr(api, 'code_stamp', lambda: api.STARTED_STAMP + 1)
     assert client.get('/api/version').json()['restart_needed'] is True, 'code changed on disk after the server started'
+
+
+def test_continuing_a_digest_starts_in_the_background(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from automation_desk.groups.news import digest as news_digest
+
+    started = []
+    monkeypatch.setattr(news_digest, 'continue_digest', lambda digest_id, raise_cap: started.append((digest_id, raise_cap)))
+    assert client.post('/api/news/digests/3/continue', json={'raise_cap': True}).json() == {'started': True}
+    for _ in range(100):
+        if started:
+            break
+        time.sleep(0.01)
+    assert started == [(3, True)]
