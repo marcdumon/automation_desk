@@ -142,7 +142,7 @@ function DigestView({ digest, onChange, onDeleted }: { digest: NewsDigest; onCha
                 <a className="story-title" href={story.articles[0]?.link} target="_blank" rel="noreferrer"
                    onClick={openInBackground}>{story.title}</a>
               </div>
-              <p className="story-summary">{story.summary}</p>
+              {story.summary && <p className="story-summary">{story.summary}</p>}
               <p className="story-sources">
                 {story.articles.map((a, i) => (
                   <span key={a.link}>{i > 0 && ' · '}<a href={a.link} target="_blank" rel="noreferrer" onClick={openInBackground}>{a.source || 'source'}</a>

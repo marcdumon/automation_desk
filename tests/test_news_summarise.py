@@ -71,7 +71,7 @@ def test_articles_read_from_their_teaser_are_marked(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(module, 'ask', lambda *a, **k: replies.pop(0))
     items, _problems = summarise([unreadable, bare], ['AI'], 1.0)
     assert (items[0].from_teaser, items[0].reason) == (True, 'page could not be read (404)')
-    assert items[1].summary == 'https://k.be/8', 'an item with no teaser and no title still shows something'
+    assert items[1].summary == '', 'nothing to summarise: no summary line, never the web address'
 
 
 def test_the_batch_call_asks_for_no_same_story_numbers() -> None:
@@ -129,3 +129,25 @@ def test_each_batch_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     reports = []
     summarise([article(n) for n in range(1, 6)], ['AI'], 1.0, report=lambda n, total: reports.append((n, total)))
     assert reports == [(1, 3), (2, 3), (3, 3)]
+
+
+
+def test_an_empty_answer_means_nothing_beyond_the_title(monkeypatch: pytest.MonkeyPatch) -> None:
+    """'The Financial Times features an article titled ...' is not information: the model answers empty instead."""
+    calls = []
+    monkeypatch.setattr(module, 'ask', lambda *a, **k: calls.append(1) or answer((1, '', 'War'), (2, 'Echte feiten.', 'War')))
+    items, problems = summarise([article(1), article(2)], ['War'], 1.0)
+    assert [(i.summary, i.subject, i.from_teaser) for i in items] == [('', 'War', False), ('Echte feiten.', 'War', False)]
+    assert len(calls) == 1 and problems == [], 'an empty answer is an answer: not asked again'
+
+
+def test_the_model_is_told_to_state_facts_or_nothing() -> None:
+    assert 'Never describe the article itself' in module.SYSTEM
+    assert 'empty summary' in module.SYSTEM
+
+
+def test_a_teaser_that_only_repeats_the_title_gives_no_summary(monkeypatch: pytest.MonkeyPatch) -> None:
+    same = Article('https://k.be/9', 1, 'Krant', "Syria's unfinished reckoning", None, "Syria's unfinished reckoning", '')
+    monkeypatch.setattr(module, 'ask', lambda *a, **k: answer())
+    items, _problems = summarise([same], [], 1.0)
+    assert items[0].summary == ''

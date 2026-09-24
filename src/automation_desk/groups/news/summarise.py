@@ -22,7 +22,8 @@ class ArticleSummary(BaseModel):
     """The model's answer for one article."""
 
     number: int = Field(description='The number of the article.')
-    summary: str = Field(description='2-4 lines summarising the article, in the language the article is written in.')
+    summary: str = Field(description='2-4 lines with the facts of the article, in its language; empty when the text says '
+                                     'nothing beyond the title.')
     subject: str = Field(description="One subject from the list, exactly as written; or 'suggest: <new subject in English>' when none "
                                      'fits; or Other.')
 
@@ -34,13 +35,15 @@ class BatchSummary(BaseModel):
 
 
 SYSTEM = """You summarise news articles for a personal daily digest.
-For every numbered article: write 2-4 lines in the SAME language as the article (Dutch, French or English; never translate);
-pick the closest subject from the list, exactly as written, when the article is mainly about it (e.g. a stock index,
+For every numbered article: write 2-4 lines with the facts it gives, in the SAME language as the article (Dutch, French or
+English; never translate). Never describe the article itself (not 'the article discusses', not '<paper> features an article
+titled') and never say that details are missing: when the text holds nothing beyond its title, give an empty summary.
+Then pick the closest subject from the list, exactly as written, when the article is mainly about it (e.g. a stock index,
 company results or interest rates are finance or economy);
 when no subject fits, answer 'suggest: <name in English>' with a short, broad topic (e.g. Technology, War, Education);
 use Other only for items that are not really an article, such as a daily cartoon or a column heading.
 Subject names are always English (e.g. Health, not Santé or Gezondheid), whatever the article's language.
-Use only what the article says."""
+Use only what the article says; do not repeat the title."""
 
 
 @dataclass(frozen=True)
@@ -70,8 +73,10 @@ def estimate(batch: list[Article]) -> float:
 
 
 def _teaser(article: Article, batch: int, reason: str) -> Summarised:
-    """An article summarised by its teaser."""
-    return Summarised(article, article.teaser or article.title or article.link, OTHER, '', True, reason, batch)
+    """An article summarised by its teaser; no summary line when the teaser is missing or only repeats the title."""
+    teaser = article.teaser.strip()
+    summary = teaser if teaser and ' '.join(teaser.split()) != ' '.join(article.title.split()) else ''
+    return Summarised(article, summary, OTHER, '', True, reason, batch)
 
 
 def _prompt(batch: list[Article], subjects: list[str]) -> str:
@@ -91,9 +96,10 @@ def _checked(batch: list[Article], reply: BatchSummary, subjects: list[str], ind
     items = []
     for n, article in enumerate(batch, 1):
         answer = answers.get(n)
-        if answer is None or not answer.summary.strip():
+        if answer is None:
             items.append(_teaser(article, index, NO_SUMMARY))
             continue
+        # CLAUDE> an empty summary is an answer: the text held nothing beyond its title, so the digest shows the title alone
         subject, suggestion = answer.subject.strip(), ''
         if subject.casefold().startswith('suggest:'):
             subject = subject.split(':', 1)[1].strip()
