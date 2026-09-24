@@ -291,18 +291,15 @@ pre.params { max-height: none; margin: 0; padding: 6px; }
 .cap input { width: 5em; margin-left: 4px; padding: 4px 6px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
 .cap-error { color: var(--error); font-size: 13px; }
 .message.suggestion { display: flex; gap: 12px; align-items: center; }
-.digest h2 { font-size: 20px; margin: 0 0 4px; }
 .digest-subject > summary { margin: 24px 0 8px; border-bottom: 1px solid var(--rule); padding-bottom: 4px; cursor: pointer; }
 .digest-subject h3 { display: inline; margin: 0; font-size: 16px; }
 .digest-subject > summary .story-delete { margin: 0 8px 0 6px; vertical-align: middle; }
-.digest-head { display: flex; align-items: baseline; gap: 16px; }
 .story { padding: 10px 0; border-bottom: 1px solid var(--rule); max-width: 80ch; }
 .story-head { display: flex; align-items: baseline; gap: 8px; }
 .story-delete { flex: none; width: 24px; height: 24px; padding: 0; border: 1px solid var(--rule); border-radius: 6px;
                 background: none; color: var(--muted); font-size: 12px; line-height: 1; cursor: pointer; }
 .story-delete:hover { color: var(--error); border-color: var(--error); }
 .open-hint { font-size: 13px; }
-.follow-up { display: flex; align-items: center; gap: 12px; margin: 0; font-size: 14px; }
 .story-title { font-weight: 600; color: var(--ink); text-decoration: none; }
 .story-title:hover { text-decoration: underline; }
 .story-summary { margin: 4px 0; }
@@ -320,3 +317,16 @@ pre.params { max-height: none; margin: 0; padding: 6px; }
 .site-status { margin-top: 10px !important; font-size: 13px; }
 .news-settings textarea { width: 100%; padding: 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); }
 @media (max-width: 760px) { .news-settings { grid-template-columns: 1fr; } }
+
+/* CLAUDE> digest header: one card with the title, a summary line, and what needs the user */
+.digest-card { display: grid; gap: 6px; padding: 16px 20px; border: 1px solid var(--rule); border-radius: 10px; background: var(--surface); }
+.digest-title { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.digest-title h2 { margin: 0; font-size: 20px; }
+.digest-meta { margin: 0; color: var(--muted); font-size: 14px; }
+.digest-actions { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.digest-actions li { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 10px 14px;
+  border-left: 4px solid var(--accent); border-radius: 6px; background: var(--accent-wash); }
+.digest-problems { margin: 4px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+.digest-hint { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.digest .left-out { margin: 12px 0 0 4px; }
+@media (max-width: 760px) { .digest-actions li { flex-direction: column; align-items: flex-start; } }

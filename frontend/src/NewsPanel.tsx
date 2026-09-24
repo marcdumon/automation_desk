@@ -6,8 +6,11 @@ import {
   type NewsDigest, type SuggestionAnswer,
 } from './api'
 import { servePageRequests } from './capture'
-import { usd, when } from './format'
+import { when } from './format'
 import { extensionIsCurrent, openInBackground } from './openTab'
+
+// CLAUDE> a digest costs fractions of a cent: four decimals below a cent, two above
+const cost = (dollars: number) => `$${dollars < 0.01 ? dollars.toFixed(4) : dollars.toFixed(2)}`
 
 const shortWhen = (iso: string) =>
   new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
@@ -103,21 +106,24 @@ function DigestView({ digest, onChange, onDeleted }: { digest: NewsDigest; onCha
   const failed = remove.error ?? removeSubject.error ?? removeDigest.error
   return (
     <section className="digest">
-      <div className="digest-head">
-        <h2>Digest of {when(digest.made_at)}</h2>
-        <button type="button" className="quiet" disabled={removeDigest.isPending}
-                onClick={() => removeDigest.mutate()}>Delete digest</button>
-      </div>
-      <p className="muted">Since {when(digest.covers_from)}: {digest.article_count} articles, {digest.story_count} stories,
-        {' '}{digest.source_count} sites; cost {usd(digest.cost_usd)}.</p>
-      {!extensionIsCurrent() && (
-        <p className="muted open-hint">Reload the Automation desk reader extension, so links open behind this page and its reads
-          never take the focus: go to vivaldi://extensions and press the reload arrow (↻) on its card, then reload this page.</p>
-      )}
-      <FollowUps digest={digest} onStarted={onChange} />
-      {failed && <p className="cap-error">{failed.message}</p>}
+      <header className="digest-card">
+        <div className="digest-title">
+          <h2>Digest · {shortWhen(digest.made_at)}</h2>
+          <button type="button" className="quiet" disabled={removeDigest.isPending} onClick={() => removeDigest.mutate()}>Delete</button>
+        </div>
+        <p className="digest-meta">
+          {digest.story_count} {digest.story_count === 1 ? 'story' : 'stories'} from {digest.source_count}
+          {' '}{digest.source_count === 1 ? 'site' : 'sites'} · since {shortWhen(digest.covers_from)} · {cost(digest.cost_usd)}
+        </p>
+        <FollowUps digest={digest} onStarted={onChange} />
+        {failed && <p className="cap-error">{failed.message}</p>}
+        {digest.problems.length > 0 && <ul className="digest-problems">{digest.problems.map((p, i) => <li key={i}>{p}</li>)}</ul>}
+        {!extensionIsCurrent() && (
+          <p className="digest-hint">Reload the Automation desk reader extension (vivaldi://extensions, ↻ on its card), then this
+            page, so links open behind this page.</p>
+        )}
+      </header>
       {digest.left_out.length > 0 && <LeftOutList articles={digest.left_out} />}
-      {digest.problems.length > 0 && <ul className="sheet-notes">{digest.problems.map((p, i) => <li key={i}>{p}</li>)}</ul>}
       {digest.subjects.map(group => (
         <details key={group.subject} className="digest-subject">
           <summary>
@@ -170,24 +176,31 @@ function LeftOutList({ articles }: { articles: NewsDigest['left_out'] }) {
 }
 
 // CLAUDE> what the digest could not do without the user: sites behind a human check, and articles past the daily cap
+// CLAUDE> what the digest could not do without the user: sites that block programs, and headlines past the daily cap
 function FollowUps({ digest, onStarted }: { digest: NewsDigest; onStarted: () => void }) {
   const go = useMutation({ mutationFn: (raiseCap: boolean) => continueNewsDigest(digest.id, raiseCap), onSuccess: onStarted })
+  const blocked = digest.needs_check.length > 0
+  const unsorted = digest.unsorted > 0 && digest.cap_to_sort !== null
+  if (!blocked && !unsorted && !go.isError) return null
   return (
-    <>
-      {digest.needs_check.length > 0 && (
-        <p className="follow-up">Not read: {digest.needs_check.map(s => s.name).join(', ')}
-          <button type="button" className="quiet" disabled={go.isPending} onClick={() => go.mutate(false)}>Read via browser</button>
-        </p>
+    <ul className="digest-actions">
+      {blocked && (
+        <li>
+          <span><strong>{digest.needs_check.map(s => s.name).join(', ')}</strong> {digest.needs_check.length === 1 ? 'blocks' : 'block'}
+            {' '}programs</span>
+          <button type="button" className="primary" disabled={go.isPending} onClick={() => go.mutate(false)}>Read via browser</button>
+        </li>
       )}
-      {digest.unsorted > 0 && digest.cap_to_sort !== null && (
-        <p className="follow-up">{digest.unsorted} not sorted (cost cap)
-          <button type="button" className="quiet" disabled={go.isPending} onClick={() => go.mutate(true)}>
-            {digest.cap_to_sort > digest.cap_usd ? `Raise cap to $${digest.cap_to_sort.toFixed(2)} and sort` : 'Sort'}
+      {unsorted && (
+        <li>
+          <span><strong>{digest.unsorted} {digest.unsorted === 1 ? 'headline' : 'headlines'}</strong> not sorted: cost cap reached</span>
+          <button type="button" className="primary" disabled={go.isPending} onClick={() => go.mutate(true)}>
+            {digest.cap_to_sort! > digest.cap_usd ? `Raise cap to $${digest.cap_to_sort!.toFixed(2)} and sort` : 'Sort'}
           </button>
-        </p>
+        </li>
       )}
-      {go.isError && <p className="cap-error">Not started: {go.error.message}</p>}
-    </>
+      {go.isError && <li className="cap-error">Not started: {go.error.message}</li>}
+    </ul>
   )
 }
 
