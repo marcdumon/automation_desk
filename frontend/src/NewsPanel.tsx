@@ -85,7 +85,7 @@ export default function NewsPanel() {
                   onClick={() => suggest.mutate({ name: s.name, answer: 'reject' })}>Reject</button>
         </div>
       ))}
-      {digest.data ? <DigestView digest={digest.data} onChange={refresh} onDeleted={() => { setChosen(null); refresh() }} /> : <p className="muted">No digest yet. Add sites, then make one.</p>}
+      {digest.data && <DigestView digest={digest.data} onChange={refresh} onDeleted={() => { setChosen(null); refresh() }} />}
     </div>
   )
 }
