@@ -109,7 +109,7 @@ export type Reminder = { id: string; title: string; steps: string[]; created: st
 export const getReminders = () => call<Reminder[]>('/api/reminders')
 export const snoozeReminder = (id: string, days: number) => call<{ ok: boolean }>(`/api/reminders/${id}/snooze`, { days })
 export const reminderDone = (id: string) => call<{ ok: boolean }>(`/api/reminders/${id}/done`, {})
-export const getVersion = () => call<{ build: string }>('/api/version')
+export const getVersion = () => call<{ build: string; restart_needed?: boolean }>('/api/version')
 export const getAuth = () => call<{ ok: boolean; message: string }>('/api/auth')
 export const login = () => call<{ ok: boolean; message: string }>('/api/auth/login', {})
 export const interpret = (group: string, text: string, taskId: string | null, uploadIds: string[] = []) =>
@@ -143,7 +143,7 @@ export type NewsOverview = {
   sources: NewsSource[]; subjects: string[]; suggestions: { name: string; examples: string[] }[]
   blocked: string[]; digests: NewsDigestHead[]; cap_usd: number; running: boolean; failure: string
   nothing_new: { at: string; since: string; problems: string[] } | null
-  progress: { step?: string; sites?: Record<string, string> }
+  progress?: { step?: string; sites?: Record<string, string> }
 }
 export const getNewsOverview = () => call<NewsOverview>('/api/news/overview')
 export const getNewsDigest = (id: number) => call<NewsDigest>(`/api/news/digests/${id}`)

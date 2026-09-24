@@ -36,7 +36,7 @@ export default function NewsPanel() {
         </button>
         <CapField key={data.cap_usd} value={data.cap_usd} onSaved={refresh} />
       </div>
-      {data.running && data.progress.step && (
+      {data.running && data.progress?.step && (
         <div className="message digest-progress">
           <p><strong>{data.progress.step}</strong></p>
           <ul>{Object.entries(data.progress.sites ?? {}).map(([site, status]) => (

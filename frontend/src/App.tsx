@@ -27,6 +27,12 @@ export default function App() {
     <div className="shell">
       <Sidebar groups={groups.data} />
       <main className="main">
+        {version.data?.restart_needed && (
+          <div className="message outdated" role="alert">
+            <p>The app was updated while it was running, and the running app still has the old code. Restart it: press Ctrl+C in
+              the terminal where it runs, then type <code>run_automation_desk</code>.</p>
+          </div>
+        )}
         {outdated && (
           <div className="message outdated" role="alert">
             <p>The app was updated. Reload this page to use the new version.</p>
