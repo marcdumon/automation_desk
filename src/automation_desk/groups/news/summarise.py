@@ -34,16 +34,15 @@ class BatchSummary(BaseModel):
     articles: list[ArticleSummary]
 
 
-SYSTEM = """You summarise news articles for a personal daily digest.
-For every numbered article: write 2-4 lines with the facts it gives, in the SAME language as the article (Dutch, French or
-English; never translate). Never describe the article itself (not 'the article discusses', not '<paper> features an article
-titled') and never say that details are missing: when the text holds nothing beyond its title, give an empty summary.
-Then pick the closest subject from the list, exactly as written, when the article is mainly about it (e.g. a stock index,
-company results or interest rates are finance or economy);
-when no subject fits, answer 'suggest: <name in English>' with a short, broad topic (e.g. Technology, War, Education);
-use Other only for items that are not really an article, such as a daily cartoon or a column heading.
-Subject names are always English (e.g. Health, not Santé or Gezondheid), whatever the article's language.
-Use only what the article says; do not repeat the title."""
+SYSTEM = """You summarise news articles for a personal daily digest. For every numbered article: write 2-4 lines with the facts it
+gives, in the article's own language when that is Dutch, French or English (never translate those); for an article in
+any other language, write it in English. Never describe the article itself (not 'the article discusses', not '<paper>
+features an article titled') and never say that details are missing: when the text holds nothing beyond its title, give
+an empty summary. Then pick the closest subject from the list, exactly as written, when the article is mainly about it
+(e.g. a stock index, company results or interest rates are finance or economy); when no subject fits, answer 'suggest:
+<name in English>' with a short, broad topic (e.g. Technology, War, Education); use Other only for items that are not
+really an article, such as a daily cartoon or a column heading. Subject names are always English (e.g. Health, not Santé
+or Gezondheid), whatever the article's language. Use only what the article says; do not repeat the title."""
 
 
 @dataclass(frozen=True)

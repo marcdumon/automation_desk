@@ -24,7 +24,8 @@ def serve(routes: dict[str, tuple[int, str]]) -> httpx.Client:
 def test_find_feed_from_the_page_then_common_paths_then_front_page() -> None:
     home = (FIX / 'home.html').read_text()
     with serve({'/': (200, home), '/feed.xml': (200, (FIX / 'rss.xml').read_text())}) as http:
-        assert find_feed('https://example.org', http) == ('De Voorbeeldkrant', 'https://example.org/feed.xml', 'feed')
+        assert find_feed('https://example.org', http) == ('Example News', 'https://example.org/feed.xml', 'feed'), (
+            'the title naming the site itself (example.org) wins over the feed title')
     with serve({'/': (200, '<html><title>Blog</title></html>'), '/rss': (200, (FIX / 'rss.xml').read_text())}) as http:
         assert find_feed('https://example.org', http)[1:] == ('https://example.org/rss', 'feed')
     with serve({'/': (200, '<html><head><title>No Feed Site</title></head></html>')}) as http:
@@ -54,9 +55,9 @@ def test_a_feed_address_given_as_the_site_is_the_feed() -> None:
 
 
 def test_a_section_without_a_title_is_named_by_its_address() -> None:
-    """A site that refuses programs gives no title: 'wsj.com/world', not 'wsj.com' for every section."""
+    """A site that refuses programs gives no title: named after its domain (the site list shows each address)."""
     with serve({'/world': (401, '')}) as http:
-        assert find_feed('https://www.wsj.com/world/', http) == ('wsj.com/world', '', 'frontpage')
+        assert find_feed('https://www.wsj.com/world/', http) == ('wsj', '', 'frontpage')
 
 
 def test_a_front_page_that_refuses_programs_is_read_through_the_browser(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -67,3 +68,38 @@ def test_a_front_page_that_refuses_programs_is_read_through_the_browser(monkeypa
     assert [i.link for i in items] == ['https://example.org/2026/09/24/city-council-approves-new-cycling-plan']
     with serve({'/': (401, '')}) as http, pytest.raises(httpx.HTTPStatusError):
         front_page_links('https://example.org', http)
+
+
+def test_a_sections_own_feed_comes_before_the_sites_root_feed() -> None:
+    """theins.press/en has its English feed at /en/feed; the root /feed is the Russian one."""
+    with serve({'/en': (200, '<html><title>THE INSIDER</title></html>'), '/en/feed': (200, (FIX / 'rss.xml').read_text()),
+                '/feed': (200, (FIX / 'atom.xml').read_text())}) as http:
+        assert find_feed('https://theins.press/en', http)[1] == 'https://theins.press/en/feed'
+
+
+def test_a_bot_check_page_never_names_a_site() -> None:
+    with serve({'/': (403, '<html><title>Just a moment...</title></html>')}) as http:
+        assert find_feed('https://politico.com', http)[0] == 'politico'
+
+
+@pytest.mark.parametrize(('title', 'site', 'name'), [
+    ('The Jerusalem Post - All News from the Middle East, Israel, and the Jewish World', 'https://jpost.com', 'The Jerusalem Post'),
+    ('Breaking News, Latest News and Videos | CNN', 'https://cnn.com', 'CNN'),
+    ('BBC Home - Breaking News, World News, US News, Sports, Business, Innovation', 'https://bbc.com', 'BBC Home'),
+    ('De Tijd - Financieel, economisch, en politiek nieuws', 'https://www.tijd.be', 'De Tijd'),
+    ('VRT NWS Nieuws | Betrouwbaar Nieuws uit België & de Wereld', 'https://vrt.be/vrtnws/nl', 'VRT NWS Nieuws'),
+    ('HLN:home', 'https://hln.be', 'HLN'),
+    ('DM: homepage', 'https://demorgen.be', 'DM'),
+    ('Just a moment...', 'https://politico.com', 'politico'),
+    ('', 'https://wsj.com/world', 'wsj'),
+    ('De Standaard', 'https://standaard.be', 'De Standaard'),
+    ('Home - Financial Times', 'https://ft.com', 'Financial Times'),
+])
+def test_site_names_are_short(title: str, site: str, name: str) -> None:
+    assert feeds.short_name(title, site) == name
+
+
+
+def test_the_title_naming_the_site_wins_over_a_generic_feed_title() -> None:
+    """The FT feed calls itself 'International homepage'; its page says 'Home - Financial Times' (ft = its initials)."""
+    assert feeds._name('https://ft.com', 'International homepage', 'Home - Financial Times') == 'Financial Times'

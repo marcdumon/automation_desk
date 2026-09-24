@@ -11,6 +11,11 @@ from automation_desk.groups.news.summarise import ArticleSummary, BatchSummary, 
 from automation_desk.llm import LLMError
 
 
+def said() -> str:
+    """The model's instructions as one line: where they wrap does not matter."""
+    return ' '.join(module.SYSTEM.split())
+
+
 def article(n: int, text: str = 'Tekst van het artikel.') -> Article:
     """A collected article number n."""
     return Article(f'https://k.be/{n}', 1, 'Krant', f'Titel {n}', datetime(2026, 9, 24, tzinfo=UTC), f'Teaser {n}', text)
@@ -77,7 +82,7 @@ def test_articles_read_from_their_teaser_are_marked(monkeypatch: pytest.MonkeyPa
 def test_the_batch_call_asks_for_no_same_story_numbers() -> None:
     """A cheap model marked whole batches as one story; merging is the story merger's job alone (and saves output tokens)."""
     assert 'same_story' not in json.dumps(BatchSummary.model_json_schema())
-    assert 'same story' not in module.SYSTEM
+    assert 'same story' not in said()
 
 
 def test_skipped_articles_are_asked_again_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -98,7 +103,7 @@ def test_skipped_articles_are_asked_again_once(monkeypatch: pytest.MonkeyPatch) 
 
 def test_suggested_subjects_are_asked_in_english() -> None:
     """Summaries stay in the article's language; subject names are always English ('Health', never 'Santé')."""
-    assert 'suggest: <name in English>' in module.SYSTEM
+    assert 'suggest: <name in English>' in said()
     assert 'in English' in ArticleSummary.model_fields['subject'].description
 
 
@@ -118,9 +123,9 @@ def test_blocked_topics_are_offered_as_subjects_and_matched_in_any_case(monkeypa
 
 def test_the_model_is_told_to_prefer_a_subject_or_a_suggestion_over_other() -> None:
     """The model filed 47 of 77 articles under Other, a stock index included, and suggested nothing."""
-    assert 'closest subject' in module.SYSTEM
-    assert 'stock index' in module.SYSTEM
-    assert 'Other only' in module.SYSTEM
+    assert 'closest subject' in said()
+    assert 'stock index' in said()
+    assert 'Other only' in said()
 
 
 def test_each_batch_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -142,8 +147,8 @@ def test_an_empty_answer_means_nothing_beyond_the_title(monkeypatch: pytest.Monk
 
 
 def test_the_model_is_told_to_state_facts_or_nothing() -> None:
-    assert 'Never describe the article itself' in module.SYSTEM
-    assert 'empty summary' in module.SYSTEM
+    assert 'Never describe the article itself' in said()
+    assert 'empty summary' in said()
 
 
 def test_a_teaser_that_only_repeats_the_title_gives_no_summary(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -151,3 +156,8 @@ def test_a_teaser_that_only_repeats_the_title_gives_no_summary(monkeypatch: pyte
     monkeypatch.setattr(module, 'ask', lambda *a, **k: answer())
     items, _problems = summarise([same], [], 1.0)
     assert items[0].summary == ''
+
+
+def test_summaries_are_dutch_french_or_english() -> None:
+    """A Russian article from The Insider got a Russian summary; the user reads Dutch, French and English."""
+    assert 'in any other language, write it in English' in said()
