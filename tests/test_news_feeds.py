@@ -4,7 +4,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+import pytest
 
+from automation_desk.groups.calendar.web_page import Page
+from automation_desk.groups.news import feeds
 from automation_desk.groups.news.feeds import feed_items, find_feed, front_page_links
 
 FIX = Path(__file__).parent / 'fixtures' / 'news'
@@ -42,3 +45,25 @@ def test_front_page_links_are_long_titled_same_site_links() -> None:
     with serve({'/': (200, (FIX / 'home.html').read_text())}) as http:
         items = front_page_links('https://example.org', http)
     assert [i.link for i in items] == ['https://example.org/2026/09/24/city-council-approves-new-cycling-plan']
+
+
+def test_a_feed_address_given_as_the_site_is_the_feed() -> None:
+    with serve({'/services/xml/rss/nyt/World.xml': (200, (FIX / 'rss.xml').read_text())}) as http:
+        name, feed, kind = find_feed('https://rss.nytimes.com/services/xml/rss/nyt/World.xml', http)
+    assert (feed, kind) == ('https://rss.nytimes.com/services/xml/rss/nyt/World.xml', 'feed') and name
+
+
+def test_a_section_without_a_title_is_named_by_its_address() -> None:
+    """A site that refuses programs gives no title: 'wsj.com/world', not 'wsj.com' for every section."""
+    with serve({'/world': (401, '')}) as http:
+        assert find_feed('https://www.wsj.com/world/', http) == ('wsj.com/world', '', 'frontpage')
+
+
+def test_a_front_page_that_refuses_programs_is_read_through_the_browser(monkeypatch: pytest.MonkeyPatch) -> None:
+    home = (FIX / 'home.html').read_text()
+    monkeypatch.setattr(feeds, 'browser_page', lambda url: Page(url='https://example.org/', html=home, via='browser'))
+    with serve({'/': (401, '')}) as http:
+        items = front_page_links('https://example.org', http, allow_browser=True)
+    assert [i.link for i in items] == ['https://example.org/2026/09/24/city-council-approves-new-cycling-plan']
+    with serve({'/': (401, '')}) as http, pytest.raises(httpx.HTTPStatusError):
+        front_page_links('https://example.org', http)

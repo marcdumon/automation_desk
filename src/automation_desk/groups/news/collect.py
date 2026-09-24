@@ -11,9 +11,9 @@ from bs4 import BeautifulSoup
 
 from automation_desk.capture import CaptureError
 from automation_desk.config import config
-from automation_desk.groups.calendar.web_page import browser_page, download, full_description, is_blocked
+from automation_desk.groups.calendar.web_page import BLOCKED_STATUS, browser_page, download, full_description, is_blocked
 from automation_desk.groups.news import store
-from automation_desk.groups.news.feeds import Item, feed_items, front_page_links
+from automation_desk.groups.news.feeds import Item, feed_items, front_page_links, site_label
 
 SOURCE_WORKERS = 4
 FIRST_READ_WINDOW = timedelta(hours=24)
@@ -79,7 +79,7 @@ def _one_source(source: store.Source, now: datetime, http: httpx.Client, allow_b
     previous digest, so an item listed late or a day the site was down loses nothing.
     """
     first_read = not source.last_checked
-    found = feed_items(source.feed, http) if source.kind == 'feed' else front_page_links(source.site, http)
+    found = feed_items(source.feed, http) if source.kind == 'feed' else front_page_links(source.site, http, allow_browser)
     listed = list({i.link: i for i in found}.values())
     known = store.known_links([i.link for i in listed])
     unseen = [i for i in listed if i.link not in known]
@@ -97,9 +97,20 @@ def _one_source(source: store.Source, now: datetime, http: httpx.Client, allow_b
     return articles, f'{len(articles)} new'
 
 
-def site_label(site: str) -> str:
-    """A site as people write it: tijd.be, not https://www.tijd.be/."""
-    return site.removeprefix('https://').removeprefix('http://').removeprefix('www.').rstrip('/')
+def _plain(error: Exception) -> str:
+    """Why a site could not be read, as a person would say it."""
+    if isinstance(error, httpx.HTTPStatusError):
+        status = error.response.status_code
+        if status in BLOCKED_STATUS:
+            return f"refuses programs ({status}): it can't be read automatically"
+        return f'page not found ({status})' if status in (404, 410) else f'answered with error {status}'
+    if isinstance(error, CaptureError):
+        return f'refuses programs, and reading it through your browser failed too ({error})'
+    if isinstance(error, httpx.TooManyRedirects):
+        return 'keeps redirecting'
+    if isinstance(error, httpx.TransportError):
+        return 'did not answer'
+    return f'could not be read ({error})'
 
 
 def collect(now: datetime, http: httpx.Client, allow_browser: bool,
@@ -117,9 +128,9 @@ def collect(now: datetime, http: httpx.Client, allow_browser: bool,
             articles, summary = _one_source(source, now, http, allow_browser)
             tell(site_label(source.site), summary)
             return source, articles, summary
-        except (httpx.HTTPError, ValueError) as error:
-            tell(site_label(source.site), 'could not be read')
-            return source, error, str(error)
+        except (httpx.HTTPError, ValueError, CaptureError) as error:
+            tell(site_label(source.site), _plain(error))
+            return source, error, _plain(error)
 
     with ThreadPoolExecutor(SOURCE_WORKERS) as pool:
         futures = [pool.submit(contextvars.copy_context().run, run, s) for s in store.sources()]
@@ -127,8 +138,8 @@ def collect(now: datetime, http: httpx.Client, allow_browser: bool,
     seen: set[str] = set()
     for source, articles, summary in outcomes:
         if isinstance(articles, Exception):
-            result.problems.append(f'{source.name} could not be read: {summary}')
-            store.set_source_result(source.id, f'could not be read: {summary}', ok=False)
+            result.problems.append(f'{site_label(source.site)} {summary}.')
+            store.set_source_result(source.id, summary, ok=False)
             continue
         store.set_source_result(source.id, summary)
         for article in articles:

@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
+from automation_desk.capture import CaptureError
 from automation_desk.groups.news import collect as module
 from automation_desk.groups.news import store
 from automation_desk.groups.news.collect import collect
@@ -24,7 +25,7 @@ def web(monkeypatch: pytest.MonkeyPatch) -> dict:
     """Stand-in feeds and article pages; 'blocked' links answer 403."""
     state = {'feeds': {}, 'blocked': set(), 'browser': []}
     monkeypatch.setattr(module, 'feed_items', lambda url, http: state['feeds'][url])
-    monkeypatch.setattr(module, 'front_page_links', lambda url, http: state['feeds'][url])
+    monkeypatch.setattr(module, 'front_page_links', lambda url, http, allow_browser=False: state['feeds'][url])
 
     def download(url: str, http: object) -> httpx.Response:
         """403 for blocked links, the article page for the rest."""
@@ -78,13 +79,13 @@ def test_later_reads_keep_unseen_items_whatever_the_previous_digest(web: dict) -
 def test_a_failed_first_read_stays_a_first_read(web: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     store.add_source('https://blog.org', 'Blog', '', 'frontpage')
 
-    def down(url: str, http: object) -> list[Item]:
+    def down(url: str, http: object, allow_browser: bool = False) -> list[Item]:
         """The site does not answer."""
         raise httpx.ConnectError('no route')
 
     monkeypatch.setattr(module, 'front_page_links', down)
     collect(NOW, httpx.Client(), allow_browser=False)
-    monkeypatch.setattr(module, 'front_page_links', lambda url, http: items(('https://blog.org/p/1', None)))
+    monkeypatch.setattr(module, 'front_page_links', lambda url, http, allow_browser=False: items(('https://blog.org/p/1', None)))
     got = collect(NOW + timedelta(days=1), httpx.Client(), allow_browser=False)
     assert got.articles == [], "a front page's links become articles only after one good read"
 
@@ -136,7 +137,7 @@ def test_a_broken_feed_is_a_problem_not_a_failure(web: dict, monkeypatch: pytest
 
     monkeypatch.setattr(module, 'feed_items', broken)
     got = collect(NOW, httpx.Client(), allow_browser=False)
-    assert got.articles == [] and got.problems == ['Down could not be read: no route']
+    assert got.articles == [] and got.problems == ['down.be did not answer.']
 
 
 def test_each_site_reports_what_it_is_doing(web: dict, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -153,5 +154,48 @@ def test_each_site_reports_what_it_is_doing(web: dict, monkeypatch: pytest.Monke
     monkeypatch.setattr(module, 'feed_items', feed)
     reports: list[tuple[str, str]] = []
     collect(NOW, httpx.Client(), allow_browser=False, report=lambda site, status: reports.append((site, status)))
-    assert sorted(reports) == [('down.be', 'could not be read'), ('down.be', 'reading…'),
+    assert sorted(reports) == [('down.be', 'did not answer'), ('down.be', 'reading…'),
                                ('tijd.be', '1 new'), ('tijd.be', 'reading…')]
+
+
+def status(code: int) -> httpx.HTTPStatusError:
+    """The error a site answering `code` raises."""
+    return httpx.HTTPStatusError('x', request=httpx.Request('GET', 'https://wsj.com/'), response=httpx.Response(code))
+
+
+@pytest.mark.parametrize(('error', 'said'), [
+    (status(401), "refuses programs (401): it can't be read automatically"),
+    (status(404), 'page not found (404)'),
+    (status(500), 'answered with error 500'),
+    (httpx.ConnectError('no route'), 'did not answer'),
+    (httpx.TooManyRedirects('loop'), 'keeps redirecting'),
+])
+def test_a_site_that_cannot_be_read_is_said_plainly(web: dict, monkeypatch: pytest.MonkeyPatch, error: Exception,
+                                                     said: str) -> None:
+    store.add_source('https://wsj.com', 'wsj.com', '', 'frontpage')
+
+    def fail(url: str, http: object, allow_browser: bool = False) -> list[Item]:
+        """The site cannot be read."""
+        raise error
+
+    monkeypatch.setattr(module, 'front_page_links', fail)
+    got = collect(NOW, httpx.Client(), allow_browser=False)
+    assert got.problems == [f'wsj.com {said}.']
+    assert store.sources()[0].last_result == said
+
+
+
+def test_a_front_page_is_read_through_the_browser_only_when_allowed(web: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    store.add_source('https://wsj.com', 'wsj.com', '', 'frontpage')
+    asked = []
+
+    def front(url: str, http: object, allow_browser: bool = False) -> list[Item]:
+        """Refuses programs; the browser read fails as well."""
+        asked.append(allow_browser)
+        raise CaptureError('The Automation desk page is not open in your browser.')
+
+    monkeypatch.setattr(module, 'front_page_links', front)
+    got = collect(NOW, httpx.Client(), allow_browser=True)
+    assert asked == [True]
+    assert got.problems == ['wsj.com refuses programs, and reading it through your browser failed too '
+                            '(The Automation desk page is not open in your browser.).']
