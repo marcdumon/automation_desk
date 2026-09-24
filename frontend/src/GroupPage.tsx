@@ -110,7 +110,8 @@ export default function GroupPage({ group, log, onLog }: Props) {
         <h1 id="page-title">{group.name}</h1>
       </header>
 
-      {group.tasks.length === 0 ? (
+      {/* CLAUDE> News is run from its own page controls; other groups work through sentences */}
+      {group.id === 'news' ? <NewsPanel /> : group.tasks.length === 0 ? (
         <p className="empty">{group.name} has no standard tasks yet. Describe the one you want and it can be added.</p>
       ) : (
         <>
@@ -209,8 +210,6 @@ export default function GroupPage({ group, log, onLog }: Props) {
               adjusting={tune.isPending}
             />
           )}
-
-          {group.id === 'news' && <NewsPanel />}
 
           <div className="tasks">
             <h2>Standard tasks</h2>

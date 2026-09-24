@@ -132,9 +132,18 @@ def collect(now: datetime, http: httpx.Client, allow_browser: bool,
             tell(site_label(source.site), _plain(error))
             return source, error, _plain(error)
 
+    # CLAUDE> sites on one domain run one after another: several reads of wsj.com at once look like a bot and get refused
+    by_domain: dict[str, list[store.Source]] = {}
+    for source in store.sources():
+        by_domain.setdefault(site_label(source.site).split('/')[0], []).append(source)
+
+    def run_domain(sources: list[store.Source]) -> list[tuple[store.Source, list[Article] | Exception, str]]:
+        """One domain's sites, in order."""
+        return [run(source) for source in sources]
+
     with ThreadPoolExecutor(SOURCE_WORKERS) as pool:
-        futures = [pool.submit(contextvars.copy_context().run, run, s) for s in store.sources()]
-        outcomes = [f.result() for f in futures]
+        futures = [pool.submit(contextvars.copy_context().run, run_domain, group) for group in by_domain.values()]
+        outcomes = [outcome for f in futures for outcome in f.result()]
     seen: set[str] = set()
     for source, articles, summary in outcomes:
         if isinstance(articles, Exception):

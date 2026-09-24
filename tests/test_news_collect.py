@@ -199,3 +199,32 @@ def test_a_front_page_is_read_through_the_browser_only_when_allowed(web: dict, m
     assert asked == [True]
     assert got.problems == ['wsj.com refuses programs, and reading it through your browser failed too '
                             '(The Automation desk page is not open in your browser.).']
+
+
+def test_sites_on_one_domain_are_read_one_after_another(web: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Four wsj.com sections read at the same moment look like a bot: WSJ let one through and refused three."""
+    import threading
+    import time
+
+    for section in ('world', 'business', 'economy', 'finance'):
+        store.add_source(f'https://wsj.com/{section}', f'WSJ {section}', '', 'frontpage')
+    store.add_source('https://lesoir.be', 'Le Soir', '', 'frontpage')
+    busy: dict[str, int] = {}
+    most: dict[str, int] = {}
+    lock = threading.Lock()
+
+    def front(url: str, http: object, allow_browser: bool = False) -> list[Item]:
+        """Count how many reads of each domain run at once."""
+        host = url.split('/')[2]
+        with lock:
+            busy[host] = busy.get(host, 0) + 1
+            most[host] = max(most.get(host, 0), busy[host])
+        time.sleep(0.05)
+        with lock:
+            busy[host] -= 1
+        return []
+
+    monkeypatch.setattr(module, 'front_page_links', front)
+    collect(NOW, httpx.Client(), allow_browser=False)
+    assert most == {'wsj.com': 1, 'lesoir.be': 1}
+    assert [s.last_result.startswith('first read') for s in store.sources()] == [True] * 5, 'every site was still read'

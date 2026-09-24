@@ -16,30 +16,37 @@ function readThroughExtension(requestId: string, url: string): Promise<PageAnswe
   })
 }
 
-async function serveOnce(onReading: (reading: boolean) => void): Promise<void> {
+// CLAUDE> each request is read on its own: while one site loads in the browser, new ones are taken at once (the app gives up
+// on a request nobody takes within 15 s)
+async function takeRequests(inFlight: Set<string>, onReading: (reading: boolean) => void): Promise<void> {
   const response = await fetch('/api/capture/pending')
   if (!response.ok) return
   const requests: { id: string; url: string }[] = await response.json()
-  if (requests.length === 0) return
-  onReading(true)
-  await Promise.all(requests.map(async ({ id, url }) => {
-    const answer = await readThroughExtension(id, url)
-    await fetch(`/api/capture/${id}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(answer),
-    })
-  }))
-  onReading(false)
+  for (const { id, url } of requests) {
+    inFlight.add(id)
+    onReading(true)
+    readThroughExtension(id, url)
+      .then(answer => fetch(`/api/capture/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(answer),
+      }))
+      .catch(() => undefined)
+      .finally(() => {
+        inFlight.delete(id)
+        if (inFlight.size === 0) onReading(false)
+      })
+  }
 }
 
 // CLAUDE> returns a stop function; polling is cheap, it only talks to the local app. `onReading` says when a page is
 // being read through this browser, so the page can explain the tab that opens.
 export function servePageRequests(onReading: (reading: boolean) => void): () => void {
   let stopped = false
+  const inFlight = new Set<string>()
   const loop = async () => {
     while (!stopped) {
-      await serveOnce(onReading).catch(() => onReading(false))
+      await takeRequests(inFlight, onReading).catch(() => undefined)
       await new Promise(resolve => setTimeout(resolve, 1000))
     }
   }

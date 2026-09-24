@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from bs4 import BeautifulSoup, Tag
+from curl_cffi import requests as curl_requests
 from icalendar import Calendar
 from pydantic import BaseModel, Field
 
@@ -135,12 +136,38 @@ def browser_page(url: str) -> Page:
     return Page(url=captured.url, html=captured.html, via='browser')
 
 
+def chrome_like(url: str) -> httpx.Response | None:
+    """GET with a client that looks like Chrome down to the network handshake, which many sites check to turn programs away.
+
+    None when the site cannot be reached this way either.
+    """
+    try:
+        answer = curl_requests.get(url, impersonate='chrome', timeout=30, allow_redirects=True)
+    except curl_requests.RequestsError:
+        return None
+    return as_httpx(answer.status_code, dict(answer.headers), answer.content, str(answer.url))
+
+
+def as_httpx(status: int, headers: dict[str, str], content: bytes, url: str) -> httpx.Response:
+    """A Chrome-like answer as the response the rest of the app reads."""
+    # CLAUDE> the content arrives unpacked already; its packing headers would make httpx unpack it a second time
+    kept = {k: v for k, v in headers.items() if k.lower() not in ('content-encoding', 'content-length', 'transfer-encoding')}
+    return httpx.Response(status, headers=kept, content=content, request=httpx.Request('GET', url))
+
+
 def download(url: str, http: httpx.Client) -> httpx.Response:
-    """GET with a browser user agent, recorded on the current job."""
+    """GET with a browser user agent, recorded on the current job; a site that refuses it gets one Chrome-like try."""
     started = monotonic()
     response = http.get(url, headers={'User-Agent': USER_AGENT}, follow_redirects=True)
     record_fetch(url, response.status_code, len(response.content), int((monotonic() - started) * 1000))
-    return response
+    if not is_blocked(response):
+        return response
+    started = monotonic()
+    retried = chrome_like(url)
+    if retried is None:
+        return response
+    record_fetch(url, retried.status_code, len(retried.content), int((monotonic() - started) * 1000), via='Chrome-like download')
+    return response if is_blocked(retried) else retried
 
 
 def is_blocked(response: httpx.Response) -> bool:

@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import {
   answerSuggestion, deleteNewsDigest, deleteNewsStory, deleteNewsSubject, getNewsDigest, getNewsOverview, makeNewsDigest, saveBlocked, saveNewsSites, saveSubjects, setNewsCap,
   type NewsDigest, type SuggestionAnswer,
 } from './api'
+import { servePageRequests } from './capture'
 import { usd, when } from './format'
 import { canOpenInBackground, openInBackground } from './openTab'
 
@@ -26,6 +27,9 @@ export default function NewsPanel() {
   const make = useMutation({ mutationFn: makeNewsDigest, onSuccess: refresh })
   const suggest = useMutation({ mutationFn: ({ name, answer }: { name: string; answer: SuggestionAnswer }) => answerSuggestion(name, answer),
                                 onSuccess: refresh })
+  // CLAUDE> while a digest runs, sites that refuse programs are read through this browser: this page must hand them over
+  const running = Boolean(overview.data?.running)
+  useEffect(() => (running ? servePageRequests(() => {}) : undefined), [running])
   if (!overview.data) return null
   const data = overview.data
   return (

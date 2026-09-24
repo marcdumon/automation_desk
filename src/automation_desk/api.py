@@ -31,7 +31,7 @@ from automation_desk.groups.base import Context, Preview, TaskGroup, UserError
 from automation_desk.groups.calendar.client import timezone
 from automation_desk.groups.news import digest as news_digest
 from automation_desk.groups.news import store as news
-from automation_desk.groups.news.tasks.sites import save_site_list
+from automation_desk.groups.news.sites import save_site_list
 from automation_desk.interpret import fill_args, route
 from automation_desk.llm import LLMError
 from automation_desk.plans import Plan, PlanStore
