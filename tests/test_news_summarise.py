@@ -121,3 +121,11 @@ def test_the_model_is_told_to_prefer_a_subject_or_a_suggestion_over_other() -> N
     assert 'closest subject' in module.SYSTEM
     assert 'stock index' in module.SYSTEM
     assert 'Other only' in module.SYSTEM
+
+
+def test_each_batch_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(module, 'ask', lambda *a, **k: answer((1, 'S.', 'AI'), (2, 'S.', 'AI')))
+    monkeypatch.setattr(module, 'batch_size', lambda: 2)
+    reports = []
+    summarise([article(n) for n in range(1, 6)], ['AI'], 1.0, report=lambda n, total: reports.append((n, total)))
+    assert reports == [(1, 3), (2, 3), (3, 3)]

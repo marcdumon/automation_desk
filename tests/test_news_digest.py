@@ -23,12 +23,13 @@ def parts(monkeypatch: pytest.MonkeyPatch) -> dict:
     seen: dict = {}
     art = Article('https://k.be/1', 1, 'Krant', 'Titel', NOW, 'Teaser', 'Tekst')
 
-    def collect(now: datetime, http: object, allow_browser: bool) -> Collected:
+    def collect(now: datetime, http: object, allow_browser: bool, report: object = None) -> Collected:
         """One article and one problem."""
         seen.update(allow_browser=allow_browser)
         return Collected([art], ['B could not be read: 500'])
 
-    def summarise(articles: list, subjects: list, budget: float, http: object = None, blocked: list | None = None) -> tuple:
+    def summarise(articles: list, subjects: list, budget: float, http: object = None, blocked: list | None = None,
+                  report: object = None) -> tuple:
         """One summary with a suggestion."""
         seen.update(budget=budget, summarise_http=http)
         return [Summarised(art, 'Samenvatting.', 'Other', 'Housing', False, '', 0)], []
@@ -92,7 +93,7 @@ def test_never_two_runs_at_once(parts: dict, monkeypatch: pytest.MonkeyPatch) ->
 def test_a_failed_digest_is_reported_until_one_succeeds(parts: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     good = module.collect
 
-    def broken(now: datetime, http: object, allow_browser: bool) -> Collected:
+    def broken(now: datetime, http: object, allow_browser: bool, report: object = None) -> Collected:
         """Collection breaks."""
         raise RuntimeError('disk full')
 
@@ -111,9 +112,10 @@ def test_articles_on_a_blocked_topic_are_left_out(parts: dict, monkeypatch: pyte
     store.add_source('https://k.be', 'Krant', 'https://k.be/rss', 'feed')
     store.set_blocked(['Sports'])
     given = {}
-    monkeypatch.setattr(module, 'collect', lambda now, http, allow_browser: Collected([sport, news], []))
+    monkeypatch.setattr(module, 'collect', lambda now, http, allow_browser, report=None: Collected([sport, news], []))
 
-    def summarise(articles: list, subjects: list, budget: float, http: object = None, blocked: list | None = None) -> tuple:
+    def summarise(articles: list, subjects: list, budget: float, http: object = None, blocked: list | None = None,
+                  report: object = None) -> tuple:
         """The model files the goal under the blocked topic."""
         given['blocked'] = blocked
         return [Summarised(sport, 'Doelpunt.', 'Sports', '', False, '', 0),
@@ -134,7 +136,7 @@ def test_articles_on_a_blocked_topic_are_left_out(parts: dict, monkeypatch: pyte
 
 def test_a_run_with_nothing_new_saves_no_digest(parts: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     first = module.make_digest('button', allow_browser=True, now=NOW)
-    monkeypatch.setattr(module, 'collect', lambda now, http, allow_browser: Collected([], []))
+    monkeypatch.setattr(module, 'collect', lambda now, http, allow_browser, report=None: Collected([], []))
     later = NOW + timedelta(minutes=20)
     assert module.make_digest('button', allow_browser=True, now=later) is None
     assert [d['id'] for d in store.digests()] == [first], 'no empty digest in the list'
@@ -143,3 +145,19 @@ def test_a_run_with_nothing_new_saves_no_digest(parts: dict, monkeypatch: pytest
     monkeypatch.setattr(module, 'collect', parts['collect'])
     module.make_digest('button', allow_browser=True, now=later + timedelta(hours=1))
     assert store.nothing_new() is None, 'a real digest replaces the message'
+
+
+def test_a_running_digest_shows_its_progress(parts: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen_during = {}
+    good = parts['collect']
+
+    def collect(now: datetime, http: object, allow_browser: bool, report: object = None) -> Collected:
+        """Report one site, then look at what the page would see."""
+        report('tijd.be', '3 new')
+        seen_during.update(module.progress())
+        return good(now, http, allow_browser)
+
+    monkeypatch.setattr(module, 'collect', collect)
+    module.make_digest('button', allow_browser=True, now=NOW)
+    assert seen_during == {'step': 'Reading sites', 'sites': {'tijd.be': '3 new'}}
+    assert module.progress() == {}, 'nothing shown once the digest is done'

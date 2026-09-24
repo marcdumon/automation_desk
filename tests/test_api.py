@@ -119,6 +119,7 @@ def test_news_endpoints(client: TestClient) -> None:
     overview = client.get('/api/news/overview').json()
     assert [s['name'] for s in overview['sources']] == ['A']
     assert overview['running'] is False and overview['failure'] == '' and overview['nothing_new'] is None
+    assert overview['progress'] == {}
     assert client.post('/api/news/cap', json={'usd': 11}).status_code == 422
     assert client.post('/api/news/cap', json={'usd': 0.5}).json() == {'cap_usd': 0.5}
     assert client.post('/api/news/subjects', json={'names': ['AI', 'Tech']}).json() == {'subjects': ['AI', 'Tech']}
