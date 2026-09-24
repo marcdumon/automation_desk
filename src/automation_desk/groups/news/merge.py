@@ -90,7 +90,8 @@ def merge_stories(items: list[Summarised], http: httpx.Client | None = None) -> 
         subjects = Counter(i.subject for i in group if i.subject != OTHER)
         lead = max(group, key=lambda i: (not i.from_teaser, len(i.article.text)))
         stories.append(StoryRecord(
-            subject=subjects.most_common(1)[0][0] if subjects else OTHER, title=lead.article.title, summary=lead.summary,
+            subject=subjects.most_common(1)[0][0] if subjects else OTHER, title=lead.article.title,
+            summary=lead.summary or next((i.summary for i in group if i.summary), ''),
             articles=[ArticleRecord(i.article.link, i.article.source_id, i.article.title, i.article.published, i.article.teaser,
                                     i.from_teaser, i.reason) for i in group]))
     return stories, problems

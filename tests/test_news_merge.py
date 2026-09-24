@@ -54,3 +54,12 @@ def test_an_empty_summary_does_not_break_the_merger(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(module, 'ask', lambda *a, **k: MergeGroups(groups=[]))
     stories, _problems = merge_stories(items)
     assert len(stories) == 2
+
+
+
+def test_a_story_takes_a_real_summary_when_its_lead_has_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    long_but_empty = item(1, 'War', 0, text_words=80)
+    empty = Summarised(long_but_empty.article, '', 'War', '', False, '', 0)
+    monkeypatch.setattr(module, 'ask', lambda *a, **k: MergeGroups(groups=[[1, 2]]))
+    stories, _problems = merge_stories([empty, item(2, 'War', 0)])
+    assert stories[0].summary == 'Samenvatting 2'
