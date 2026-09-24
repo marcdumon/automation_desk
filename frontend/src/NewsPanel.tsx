@@ -224,7 +224,7 @@ function SiteList({ sources, onSaved }: {
         {saved.isPending ? 'Saving… (looking up feeds)' : 'Save sites'}</button>
       {saved.isError && <p className="cap-error">Not saved: {saved.error.message}</p>}
       <ul className="site-status">{sources.map(s => (
-        <li key={s.id}><strong>{s.name}</strong> <span className="muted">{s.feed ? 'feed' : 'front page'}
+        <li key={s.id}><strong>{shortSite(s.site)}</strong> <span className="muted">{s.feed ? 'feed' : 'front page'}
           {s.last_result ? ` · ${s.last_result.split('\n')[0]}` : ''}</span></li>))}</ul>
     </div>
   )
