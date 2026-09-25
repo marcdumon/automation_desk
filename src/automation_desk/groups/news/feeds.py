@@ -22,6 +22,10 @@ NAME_SEPARATORS = re.compile('\\s+[-|\u2013\u2014]\\s+|\\s*:\\s*')
 MAX_NAME = 30
 TEASER_CHARS = 600
 MIN_LINK_TITLE = 25
+# CLAUDE> front-page links to videos are not news to read: '/video/' or '/videos/' in the address, or a label such as
+# '• Video 15:00' instead of a headline
+VIDEO_PATH = re.compile(r'/videos?/', re.IGNORECASE)
+VIDEO_LABEL = re.compile(r'^\W*video\b|\b\d{1,2}:\d{2}\b', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -142,6 +146,7 @@ def front_page_links(site: str, http: httpx.Client, allow_browser: bool = False)
     for anchor in BeautifulSoup(text, 'lxml').find_all('a', href=True):
         link = urljoin(url, anchor['href']).split('#')[0]
         title = ' '.join(anchor.get_text(' ').split())
-        if urlparse(link).netloc == host and len(title) >= MIN_LINK_TITLE and link not in items:
+        if (urlparse(link).netloc == host and len(title) >= MIN_LINK_TITLE and link not in items
+                and not VIDEO_PATH.search(urlparse(link).path) and not VIDEO_LABEL.search(title)):
             items[link] = Item(link, title, None, '')
     return list(items.values())

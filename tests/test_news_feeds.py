@@ -127,3 +127,16 @@ def test_a_check_page_read_through_the_browser_keeps_the_site_listed(monkeypatch
     monkeypatch.setattr(feeds, 'browser_page', lambda url, may_ask=True: Page(url=url, html=check, via='browser'))
     with serve({'/': (403, '')}) as http, pytest.raises(NeedsPerson):
         front_page_links('https://economist.com', http, allow_browser=True)
+
+
+def test_video_links_and_labels_are_not_headlines() -> None:
+    """CNN's front page links videos as '• Video 15:00 Video 15:00': no headline, and not news to read."""
+    page = ('<html><body>'
+            '<a href="/2026/09/25/politics/budget-deal">Congress reaches a budget deal after weeks of talks</a>'
+            '<a href="/videos/world/2026/09/25/un-speech">• Video 15:00 Video 15:00 CNN</a>'
+            '<a href="/2026/09/25/world/un">• Video 1:21 Video 1:21 UNTV and some more words</a>'
+            '<a href="/video/2026/09/25/markets-today-explained">Markets today explained in three minutes</a>'
+            '</body></html>')
+    with serve({'/': (200, page)}) as http:
+        items = front_page_links('https://edition.cnn.com', http)
+    assert [i.title for i in items] == ['Congress reaches a budget deal after weeks of talks']
