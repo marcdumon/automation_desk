@@ -135,9 +135,10 @@ def _record(articles: list[Article], found: Collected, now: datetime, since: dat
             suggestions.setdefault(i.suggestion, []).append(i.article.title)
     record = DigestRecord(made_at=now, covers_from=since, trigger=trigger, job_id=job.id,
                           problems=[*found.problems, *summary_problems, *merge_problems], stories=stories, suggestions=suggestions,
-                          left_out=left_out, needs_check=found.needs_check, held=held)
+                          left_out=left_out, needs_check=found.needs_check, held=held, failed=found.failed)
     job.message = (f'{len(articles)} article(s), {len(stories)} stor(y/ies), {len(left_out)} left out (blocked topics), '
-                   f'{len(held)} held back (cost cap), {len(found.needs_check)} site(s) need a check')
+                   f'{len(held)} held back (cost cap), {len(found.needs_check)} site(s) block bots, '
+                   f'{len(found.failed)} could not be read')
     job.preview = {'summary': job.message, 'columns': [], 'rows': [], 'notes': record.problems, 'read_only': True}
     return record
 
@@ -149,7 +150,7 @@ def _make(trigger: str, now: datetime) -> int | None:
     with jobs.run(job), httpx.Client(timeout=30.0) as http:
         _step('Reading sites')
         found = collect(now, http, False, report=_site)
-        if not found.articles and not found.needs_check:
+        if not found.articles and not found.needs_check and not found.failed:
             store.record_nothing_new(now, since, found.problems)
             job.message = f"Nothing new since {since.strftime('%d %b %H:%M')}"
             job.preview = {'summary': job.message, 'columns': [], 'rows': [], 'notes': found.problems, 'read_only': True}
@@ -161,12 +162,12 @@ def _continue(digest_id: int, raise_cap: bool, now: datetime) -> None:
     """The follow-up run, as one job whose cost counts with the digest."""
     if raise_cap and (needed := cap_to_sort(digest_id, now)) is not None:
         store.set_cap(max(needed, store.cap()))
-    check = {s.id for s in store.needs_check(digest_id)}
+    check = {s.id for s in [*store.needs_check(digest_id), *store.failed_sites(digest_id)]}
     held = [_article(kept) for kept in store.held(digest_id)]
     job = jobs.Job(group=GROUP, sentence='News digest (continued)', task_id='make_digest', task_name='Continue a digest')
     with jobs.run(job), httpx.Client(timeout=30.0) as http:
         found = Collected()
         if check:
-            _step('Reading the sites you checked')
+            _step('Reading those sites again')
             found = collect(now, http, True, report=_site, only=check)
         store.add_to_digest(digest_id, _record(held + found.articles, found, now, now, 'continued', job))

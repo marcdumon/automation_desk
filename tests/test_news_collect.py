@@ -114,7 +114,8 @@ def test_a_broken_feed_is_a_problem_not_a_failure(web: dict, monkeypatch: pytest
 
     monkeypatch.setattr(module, 'feed_items', broken)
     got = collect(NOW, httpx.Client(), allow_browser=False)
-    assert got.articles == [] and got.problems == ['down.be did not answer.']
+    assert got.articles == [] and got.failed == [store.sources()[0].id] and got.problems == [], (
+        'kept for the digest to offer Try again, not a line of text')
 
 
 def test_each_site_reports_what_it_is_doing(web: dict, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -157,7 +158,7 @@ def test_a_site_that_cannot_be_read_is_said_plainly(web: dict, monkeypatch: pyte
 
     monkeypatch.setattr(module, 'front_page_links', fail)
     got = collect(NOW, httpx.Client(), allow_browser=False)
-    assert got.problems == [f'wsj.com {said}.']
+    assert got.failed == [store.sources()[0].id]
     assert store.sources()[0].last_result == said
 
 
@@ -174,8 +175,9 @@ def test_a_front_page_is_read_through_the_browser_only_when_allowed(web: dict, m
     monkeypatch.setattr(module, 'front_page_links', front)
     got = collect(NOW, httpx.Client(), allow_browser=True)
     assert asked == [True]
-    assert got.problems == ['wsj.com blocks bots, and reading it through your browser failed too '
-                            '(The Automation desk page is not open in your browser.).']
+    assert got.failed == [store.sources()[0].id]
+    assert store.sources()[0].last_result == ('blocks bots, and reading it through your browser failed too '
+                                              '(The Automation desk page is not open in your browser.)')
 
 
 def test_sites_on_one_domain_are_read_one_after_another(web: dict, monkeypatch: pytest.MonkeyPatch) -> None:

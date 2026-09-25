@@ -43,6 +43,8 @@ class Collected:
     problems: list[str] = field(default_factory=list)
     # CLAUDE> sites that show a human check: listed for the user, who can pass it and continue the digest
     needs_check: list[int] = field(default_factory=list)
+    # CLAUDE> sites that could not be read (no answer, an error): the digest offers to try them again
+    failed: list[int] = field(default_factory=list)
 
 
 def _usable(teaser: str, title: str) -> bool:
@@ -135,7 +137,7 @@ def collect(now: datetime, http: httpx.Client, allow_browser: bool,
             store.set_source_result(source.id, NEEDS_CHECK, ok=False)
             continue
         if isinstance(articles, Exception):
-            result.problems.append(f'{site_label(source.site)} {summary}.')
+            result.failed.append(source.id)
             store.set_source_result(source.id, summary, ok=False)
             continue
         store.set_source_result(source.id, summary)

@@ -43,57 +43,61 @@ export default function NewsPanel() {
   const data = overview.data
   return (
     <div className="news">
-      <div className="news-bar">
+      <div className="news-toolbar">
         <button type="button" className="primary" disabled={data.running || make.isPending} onClick={() => make.mutate()}>
           {data.running ? 'Being made…' : 'Make digest now'}
         </button>
         <CapField key={data.cap_usd} value={data.cap_usd} onSaved={refresh} />
       </div>
+      {!extensionIsCurrent() && (
+        <p className="news-notice">Reload the Automation desk reader extension once: vivaldi://extensions, then ↻ on its card, then
+          this page.</p>
+      )}
       {data.running && data.progress?.step && (
-        <div className="message digest-progress">
-          <p><strong>{data.progress.step}</strong></p>
+        <section className="news-card digest-progress">
+          <h3>{data.progress.step}</h3>
           <ul>{Object.entries(data.progress.sites ?? {}).map(([site, status]) => (
             <li key={site}><span>{site}</span> <span className="muted">{status}</span></li>))}</ul>
-        </div>
+        </section>
       )}
-      {/* CLAUDE> settings and history sit above the digest: below it they were ten screens down */}
-      <details className="news-settings-box" open={data.subjects.length === 0 && data.blocked.length === 0}>
-        <summary>Settings: {data.sources.length} site{data.sources.length === 1 ? '' : 's'}, {data.subjects.length} subject
-          {data.subjects.length === 1 ? '' : 's'}, {data.blocked.length} blocked topic{data.blocked.length === 1 ? '' : 's'}</summary>
+      {data.failure && !data.running && (
+        <p className="news-card news-error">The last digest could not be made: {data.failure}. Press Make digest now to try again.</p>
+      )}
+      {data.nothing_new && !data.running && (
+        <p className="news-card news-quiet">Nothing new since {shortWhen(data.nothing_new.since)}
+          {' '}(checked {shortWhen(data.nothing_new.at)}).</p>
+      )}
+      {data.suggestions.length > 0 && (
+        <section className="news-card">
+          <h3>Suggested subjects</h3>
+          <ul className="suggestions">{data.suggestions.map(s => (
+            <li key={s.name}>
+              <span className="suggestion-name">{s.name}</span>
+              <span className="muted suggestion-examples">{s.examples.length} · {s.examples.slice(0, 2).join(' · ')}</span>
+              <span className="suggestion-buttons">
+                <button type="button" className="quiet" title="Add as a subject" onClick={() => suggest.mutate({ name: s.name, answer: 'accept' })}>
+                  Accept</button>
+                <button type="button" className="quiet" title="Add to the blocked topics"
+                        onClick={() => suggest.mutate({ name: s.name, answer: 'block' })}>Block</button>
+                <button type="button" className="quiet" title="Do not suggest it again"
+                        onClick={() => suggest.mutate({ name: s.name, answer: 'reject' })}>Reject</button>
+              </span>
+            </li>))}</ul>
+        </section>
+      )}
+      <details className="news-card news-settings-box" open={data.subjects.length === 0 && data.blocked.length === 0}>
+        <summary><span>Settings</span> <span className="muted">{data.sources.length} sites · {data.subjects.length} subjects
+          {' · '}{data.blocked.length} blocked topics</span></summary>
         <SitesAndSubjects sources={data.sources} subjects={data.subjects} blocked={data.blocked} onChange={refresh} />
       </details>
       {data.digests.length > 1 && (
-        <details className="news-history">
-          <summary>Earlier digests ({data.digests.length - 1})</summary>
+        <details className="news-card news-history">
+          <summary><span>Earlier digests</span> <span className="muted">{data.digests.length - 1}</span></summary>
           <ul>{data.digests.map(d => (
             <li key={d.id}><button type="button" className="link" onClick={() => setChosen(d.id)}>
-              {when(d.made_at)}: {d.story_count} stories from {d.source_count} sites</button></li>))}</ul>
+              {shortWhen(d.made_at)}</button> <span className="muted">{d.story_count} stories from {d.source_count} sites</span></li>))}</ul>
         </details>
       )}
-      {data.nothing_new && !data.running && (
-        <div className="message">
-          <p>Nothing new since {shortWhen(data.nothing_new.since)} (checked {shortWhen(data.nothing_new.at)}).</p>
-          {data.nothing_new.problems.map(p => <p key={p} className="muted">{p}</p>)}
-        </div>
-      )}
-      {data.failure && !data.running && (
-        <div className="message error">
-          <p>The last digest could not be made: {data.failure}. Press Make digest now to try again. The failed job, with its
-            details, is in the job list below.</p>
-        </div>
-      )}
-      {data.suggestions.map(s => (
-        <div key={s.name} className="message suggestion">
-          <p>Suggested subject <strong>{s.name}</strong> ({s.examples.length} headline{s.examples.length === 1 ? '' : 's'}):
-            {' '}{s.examples.slice(0, 3).join(' · ')}</p>
-          <button type="button" className="quiet" title="Add as a subject" onClick={() => suggest.mutate({ name: s.name, answer: 'accept' })}>
-            Accept</button>
-          <button type="button" className="quiet" title="Add to the blocked topics: its articles are left out"
-                  onClick={() => suggest.mutate({ name: s.name, answer: 'block' })}>Block</button>
-          <button type="button" className="quiet" title="Not a subject; do not suggest it again"
-                  onClick={() => suggest.mutate({ name: s.name, answer: 'reject' })}>Reject</button>
-        </div>
-      ))}
       {digest.data && <DigestView digest={digest.data} onChange={refresh} onDeleted={() => { setChosen(null); refresh() }} />}
     </div>
   )
@@ -118,10 +122,6 @@ function DigestView({ digest, onChange, onDeleted }: { digest: NewsDigest; onCha
         <FollowUps digest={digest} onStarted={onChange} />
         {failed && <p className="cap-error">{failed.message}</p>}
         {digest.problems.length > 0 && <ul className="digest-problems">{digest.problems.map((p, i) => <li key={i}>{p}</li>)}</ul>}
-        {!extensionIsCurrent() && (
-          <p className="digest-hint">Reload the Automation desk reader extension (vivaldi://extensions, ↻ on its card), then this
-            page, so links open behind this page.</p>
-        )}
       </header>
       {digest.left_out.length > 0 && <LeftOutList articles={digest.left_out} />}
       {digest.subjects.map(group => (
@@ -180,8 +180,9 @@ function LeftOutList({ articles }: { articles: NewsDigest['left_out'] }) {
 function FollowUps({ digest, onStarted }: { digest: NewsDigest; onStarted: () => void }) {
   const go = useMutation({ mutationFn: (raiseCap: boolean) => continueNewsDigest(digest.id, raiseCap), onSuccess: onStarted })
   const blocked = digest.needs_check.length > 0
+  const failed = digest.failed.length > 0
   const unsorted = digest.unsorted > 0 && digest.cap_to_sort !== null
-  if (!blocked && !unsorted && !go.isError) return null
+  if (!blocked && !failed && !unsorted && !go.isError) return null
   return (
     <ul className="digest-actions">
       {blocked && (
@@ -189,6 +190,15 @@ function FollowUps({ digest, onStarted }: { digest: NewsDigest; onStarted: () =>
           <span><strong>{digest.needs_check.map(s => s.name).join(', ')}</strong> {digest.needs_check.length === 1 ? 'blocks' : 'block'}
             {' '}bots</span>
           <button type="button" className="primary" disabled={go.isPending} onClick={() => go.mutate(false)}>Read via browser</button>
+        </li>
+      )}
+      {failed && (
+        <li>
+          <details>
+            <summary><strong>{digest.failed.length} {digest.failed.length === 1 ? 'site' : 'sites'}</strong> didn't answer</summary>
+            <p className="muted">{digest.failed.map(s => s.name).join(', ')}</p>
+          </details>
+          <button type="button" className="primary" disabled={go.isPending} onClick={() => go.mutate(false)}>Try again</button>
         </li>
       )}
       {unsorted && (
@@ -234,10 +244,10 @@ function SitesAndSubjects({ sources, subjects, blocked, onChange }: {
         {siteProblems.map(p => <p key={p} className="cap-error">{p}</p>)}
       </div>
       {/* CLAUDE> keyed so an accepted suggestion or saved list refills the editor */}
-      <NameList key={`s:${subjects.join('\n')}`} title="Subjects, one per line, in order" names={subjects} save={saveSubjects}
-                label="Save subjects" onSaved={onChange} />
-      <NameList key={`b:${blocked.join('\n')}`} title="Blocked topics, left out of the digest" names={blocked} save={saveBlocked}
-                label="Save blocked topics" onSaved={onChange} />
+      <NameList key={`s:${subjects.join('\n')}`} title="Subjects" names={subjects} save={saveSubjects}
+                label="Save" onSaved={onChange} />
+      <NameList key={`b:${blocked.join('\n')}`} title="Blocked topics" names={blocked} save={saveBlocked}
+                label="Save" onSaved={onChange} />
     </div>
   )
 }
@@ -251,16 +261,21 @@ function SiteList({ sources, onSaved }: {
   const initial = sources.map(s => shortSite(s.site)).join('\n')
   const [text, setText] = useState(initial)
   const saved = useMutation({ mutationFn: () => saveNewsSites(text.split('\n')), onSuccess: answer => onSaved(answer.problems) })
+  // CLAUDE> only sites whose last read went wrong; '31 new' and first reads are fine
+  const troubled = sources.filter(s => s.last_result && !/^(\d+ new|first read)/.test(s.last_result))
   return (
     <div>
-      <h3>Sites, one per line</h3>
-      <textarea rows={Math.max(4, sources.length + 1)} value={text} onChange={e => setText(e.target.value)} />
+      <h3>Sites <span className="muted">one per line</span></h3>
+      <textarea rows={12} value={text} onChange={e => setText(e.target.value)} />
       <button type="button" className="quiet" disabled={text === initial || saved.isPending} onClick={() => saved.mutate()}>
-        {saved.isPending ? 'Saving… (looking up feeds)' : 'Save sites'}</button>
+        {saved.isPending ? 'Saving… (looking up feeds)' : 'Save'}</button>
       {saved.isError && <p className="cap-error">Not saved: {saved.error.message}</p>}
-      <ul className="site-status">{sources.map(s => (
-        <li key={s.id}><strong>{shortSite(s.site)}</strong> <span className="muted">{s.feed ? 'feed' : 'front page'}
-          {s.last_result ? ` · ${s.last_result.split('\n')[0]}` : ''}</span></li>))}</ul>
+      {troubled.length > 0 && (
+        <details className="site-problems">
+          <summary>{troubled.length} {troubled.length === 1 ? 'site has' : 'sites have'} a problem</summary>
+          <ul>{troubled.map(s => <li key={s.id}><strong>{shortSite(s.site)}</strong> <span className="muted">{s.last_result.split('\n')[0]}</span></li>)}</ul>
+        </details>
+      )}
     </div>
   )
 }
@@ -273,7 +288,7 @@ function NameList({ title, names, save, label, onSaved }: {
   return (
     <div>
       <h3>{title}</h3>
-      <textarea rows={Math.max(4, names.length + 1)} value={text} onChange={e => setText(e.target.value)} />
+      <textarea rows={12} value={text} onChange={e => setText(e.target.value)} />
       <button type="button" className="quiet" disabled={text === names.join('\n') || saved.isPending}
               onClick={() => saved.mutate()}>{label}</button>
     </div>

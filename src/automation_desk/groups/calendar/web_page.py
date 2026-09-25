@@ -13,7 +13,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
-from time import monotonic
+from time import monotonic, sleep
 from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo
 
@@ -137,6 +137,9 @@ def browser_page(url: str, may_ask: bool = True) -> Page:
     return Page(url=captured.url, html=captured.html, via='browser')
 
 
+RETRY_AFTER_S = 2
+
+
 def chrome_like(url: str) -> httpx.Response | None:
     """GET with a client that looks like Chrome down to the network handshake, which many sites check to turn programs away.
 
@@ -159,7 +162,12 @@ def as_httpx(status: int, headers: dict[str, str], content: bytes, url: str) -> 
 def download(url: str, http: httpx.Client) -> httpx.Response:
     """GET with a browser user agent, recorded on the current job; a site that refuses it gets one Chrome-like try."""
     started = monotonic()
-    response = http.get(url, headers={'User-Agent': USER_AGENT}, follow_redirects=True)
+    try:
+        response = http.get(url, headers={'User-Agent': USER_AGENT}, follow_redirects=True)
+    except httpx.TransportError:
+        # CLAUDE> a connection hiccup: 34 sites failed at once and all answered a minute later; one more try rides it out
+        sleep(RETRY_AFTER_S)
+        response = http.get(url, headers={'User-Agent': USER_AGENT}, follow_redirects=True)
     record_fetch(url, response.status_code, len(response.content), int((monotonic() - started) * 1000))
     if not is_blocked(response):
         return response

@@ -285,12 +285,41 @@ pre.params { max-height: none; margin: 0; padding: 6px; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
-/* CLAUDE> news panel */
-.news { margin-top: 24px; display: grid; gap: 16px; }
-.news-bar { display: flex; gap: 16px; align-items: center; }
+/* CLAUDE> news page: a toolbar, then cards; every card has the same frame */
+.news { margin-top: 24px; display: grid; gap: 14px; }
+.news-toolbar { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.news-notice { margin: 0; font-size: 13px; color: var(--muted); }
+.news-card { margin: 0; padding: 14px 18px; border: 1px solid var(--rule); border-radius: 10px; background: var(--surface); }
+.news-card h3 { margin: 0 0 8px; font-size: 15px; }
+.news-error { border-color: var(--error); color: var(--error); }
+.news-quiet { color: var(--muted); }
+details.news-card > summary { cursor: pointer; display: flex; gap: 10px; align-items: baseline; font-weight: 600; }
+details.news-card > summary .muted { font-weight: 400; font-size: 14px; }
+details.news-card[open] > summary { margin-bottom: 14px; }
+.news-history ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 14px; }
+.digest-progress ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 2px 16px; font-size: 14px; }
+.suggestions { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.suggestions li { display: grid; grid-template-columns: minmax(120px, auto) 1fr auto; gap: 12px; align-items: center; }
+.suggestion-name { font-weight: 600; }
+.suggestion-examples { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.suggestion-buttons { display: flex; gap: 6px; }
+.suggestion-buttons button { padding: 4px 10px; font-size: 13px; }
+.news-settings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.news-settings h3 { margin: 0 0 6px; font-size: 14px; }
+.news-settings h3 .muted { font-weight: 400; font-size: 12px; }
+.news-settings textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--paper); font: inherit; font-size: 14px; line-height: 1.5; resize: vertical; white-space: pre; overflow-x: auto; }
+.news-settings button.quiet { margin-top: 6px; }
+.site-problems { margin-top: 10px; font-size: 13px; }
+.site-problems summary { cursor: pointer; color: var(--error); }
+.site-problems ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 2px; }
+@media (max-width: 760px) {
+  .news-settings { grid-template-columns: 1fr; }
+  .suggestions li { grid-template-columns: 1fr; gap: 4px; }
+}
 .cap input { width: 5em; margin-left: 4px; padding: 4px 6px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
 .cap-error { color: var(--error); font-size: 13px; }
-.message.suggestion { display: flex; gap: 12px; align-items: center; }
 .digest-subject > summary { margin: 24px 0 8px; border-bottom: 1px solid var(--rule); padding-bottom: 4px; cursor: pointer; }
 .digest-subject h3 { display: inline; margin: 0; font-size: 16px; }
 .digest-subject > summary .story-delete { margin: 0 8px 0 6px; vertical-align: middle; }
@@ -299,24 +328,14 @@ pre.params { max-height: none; margin: 0; padding: 6px; }
 .story-delete { flex: none; width: 24px; height: 24px; padding: 0; border: 1px solid var(--rule); border-radius: 6px;
                 background: none; color: var(--muted); font-size: 12px; line-height: 1; cursor: pointer; }
 .story-delete:hover { color: var(--error); border-color: var(--error); }
-.open-hint { font-size: 13px; }
 .story-title { font-weight: 600; color: var(--ink); text-decoration: none; }
 .story-title:hover { text-decoration: underline; }
 .story-summary { margin: 4px 0; }
 .story-sources { margin: 0; font-size: 13px; color: var(--muted); }
 .story-sources a { color: var(--accent); }
-.news-settings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
-.news-settings-box, .news-history { border: 1px solid var(--rule); border-radius: 8px; padding: 10px 14px; }
-.news-settings-box summary, .news-history summary { cursor: pointer; font-weight: 600; }
-.news-settings-box[open] .news-settings { margin-top: 12px; }
-.digest-progress ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 2px 16px; font-size: 14px; }
 .left-out { font-size: 14px; }
 .left-out summary { cursor: pointer; color: var(--muted); }
 .left-out ul { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 2px; }
-.news-settings ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
-.site-status { margin-top: 10px !important; font-size: 13px; }
-.news-settings textarea { width: 100%; padding: 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); }
-@media (max-width: 760px) { .news-settings { grid-template-columns: 1fr; } }
 
 /* CLAUDE> digest header: one card with the title, a summary line, and what needs the user */
 .digest-card { display: grid; gap: 6px; padding: 16px 20px; border: 1px solid var(--rule); border-radius: 10px; background: var(--surface); }
@@ -324,9 +343,10 @@ pre.params { max-height: none; margin: 0; padding: 6px; }
 .digest-title h2 { margin: 0; font-size: 20px; }
 .digest-meta { margin: 0; color: var(--muted); font-size: 14px; }
 .digest-actions { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.digest-actions details summary { cursor: pointer; }
+.digest-actions details p { margin: 4px 0 0; font-size: 13px; }
 .digest-actions li { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 10px 14px;
   border-left: 4px solid var(--accent); border-radius: 6px; background: var(--accent-wash); }
 .digest-problems { margin: 4px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
-.digest-hint { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
 .digest .left-out { margin: 12px 0 0 4px; }
 @media (max-width: 760px) { .digest-actions li { flex-direction: column; align-items: flex-start; } }

@@ -71,6 +71,7 @@ class DigestRecord:
     # CLAUDE> follow-ups the user can continue the digest with: sites that need a human check, articles held back by the cap
     needs_check: list[int] = field(default_factory=list)
     held: list[dict] = field(default_factory=list)
+    failed: list[int] = field(default_factory=list)
 
 
 def _now() -> str:
@@ -210,9 +211,9 @@ def _add(db: sqlite3.Connection, digest_id: int, record: DigestRecord) -> None:
         db.execute("INSERT INTO news_suggestions (name, examples, digest_id, status) VALUES (?, ?, ?, 'open') "
                    "ON CONFLICT (name) DO UPDATE SET examples = excluded.examples, digest_id = excluded.digest_id "
                    "WHERE news_suggestions.status = 'open'", (name, json.dumps(examples, ensure_ascii=False), digest_id))
-    db.execute("DELETE FROM news_followups WHERE digest_id = ? AND kind IN ('check', 'held')", (digest_id,))
-    db.executemany("INSERT INTO news_followups (digest_id, kind, key) VALUES (?, 'check', ?)",
-                   [(digest_id, str(source_id)) for source_id in record.needs_check])
+    db.execute("DELETE FROM news_followups WHERE digest_id = ? AND kind IN ('check', 'held', 'failed')", (digest_id,))
+    db.executemany('INSERT INTO news_followups (digest_id, kind, key) VALUES (?, ?, ?)',
+                   [(digest_id, 'check', str(i)) for i in record.needs_check] + [(digest_id, 'failed', str(i)) for i in record.failed])
     db.executemany("INSERT INTO news_followups (digest_id, kind, key, data) VALUES (?, 'held', ?, ?)",
                    [(digest_id, a['link'], json.dumps(a, ensure_ascii=False)) for a in record.held])
 
@@ -224,11 +225,21 @@ def held(digest_id: int) -> list[dict]:
         return [json.loads(r[0]) for r in rows]
 
 
-def needs_check(digest_id: int) -> list[Source]:
-    """The sites of a digest that could not be read without the user passing a human check."""
+def _followup_sites(digest_id: int, kind: str) -> list[Source]:
+    """The sites a digest keeps for a follow-up of this kind."""
     with connect() as db:
-        ids = {int(r[0]) for r in db.execute("SELECT key FROM news_followups WHERE digest_id = ? AND kind = 'check'", (digest_id,))}
+        ids = {int(r[0]) for r in db.execute('SELECT key FROM news_followups WHERE digest_id = ? AND kind = ?', (digest_id, kind))}
     return [s for s in sources() if s.id in ids]
+
+
+def needs_check(digest_id: int) -> list[Source]:
+    """The sites of a digest that block bots: the user reads them through the browser."""
+    return _followup_sites(digest_id, 'check')
+
+
+def failed_sites(digest_id: int) -> list[Source]:
+    """The sites of a digest that could not be read (no answer, an error): the user can try them again."""
+    return _followup_sites(digest_id, 'failed')
 
 
 def digests() -> list[dict]:
@@ -266,6 +277,7 @@ def digest(digest_id: int) -> dict | None:
                                                           (digest_id,)))]
     return {**dict(head), 'problems': json.loads(head['problems'] or '[]'), 'cost_usd': sum(_job_cost(j) for j in jobs),
             'needs_check': [{'id': s.id, 'name': s.name, 'site': s.site} for s in needs_check(digest_id)],
+            'failed': [{'id': s.id, 'name': s.name, 'site': s.site} for s in failed_sites(digest_id)],
             'unsorted': len(held(digest_id)),
             'subjects': [{'subject': s, 'stories': grouped[s]} for s in ranked],
             'left_out': [{'link': o['link'], 'title': o['title'], 'source': o['source'] or '', 'topic': o['topic']} for o in left_out]}

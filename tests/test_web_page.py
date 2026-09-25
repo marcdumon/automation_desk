@@ -309,3 +309,19 @@ DATADOME = ("<html><head><title>economist.com</title></head><body><p>Please enab
 def test_a_check_page_is_recognised_by_what_it_loads(html: str, check: bool) -> None:
     """The Economist's DataDome check has no telling title: a small page loading a check service is a check."""
     assert web_page.looks_like_check(html) is check
+
+
+def test_a_connection_that_fails_once_is_tried_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    """34 sites 'did not answer' at the same moment, and all answered a minute later: one retry rides out a hiccup."""
+    tries = []
+
+    def flaky(request: httpx.Request) -> httpx.Response:
+        """Fails the first time, answers the second."""
+        tries.append(1)
+        if len(tries) == 1:
+            raise httpx.ConnectError('no route', request=request)
+        return httpx.Response(200, text='ok')
+
+    monkeypatch.setattr(web_page, 'RETRY_AFTER_S', 0)
+    assert web_page.download('https://a.be', httpx.Client(transport=httpx.MockTransport(flaky))).text == 'ok'
+    assert len(tries) == 2

@@ -137,7 +137,7 @@ export type NewsDigestHead = {
 export type NewsLeftOut = { link: string; title: string; source: string; topic: string }
 export type NewsDigest = NewsDigestHead & {
   cost_usd: number; subjects: { subject: string; stories: NewsStory[] }[]; left_out: NewsLeftOut[]
-  needs_check: { id: number; name: string; site: string }[]; unsorted: number; cap_to_sort: number | null; cap_usd: number
+  needs_check: { id: number; name: string; site: string }[]; failed: { id: number; name: string; site: string }[]; unsorted: number; cap_to_sort: number | null; cap_usd: number
 }
 export type NewsSource = { id: number; site: string; name: string; feed: string; kind: string; last_checked: string; last_result: string }
 export type NewsOverview = {
