@@ -23,8 +23,9 @@ NO_PERIOD = {'', 'all', 'any', 'any time', 'anytime', 'always', 'ever'}
 class SelectionArgs(TaskArgs):
     """Which tasks: list, state, words in the title and due period, all as the user said them."""
 
-    list_name: str = Field(description="The task list as the user named it, e.g. 'Today' in 'in list Today' (a list NAME, "
-                                       "even when it looks like a date). 'all' when the user names no list or says all lists.")
+    list_names: list[str] = Field(description="One entry per task list the user names, as named, e.g. ['Today'] for 'in list "
+                                              "Today', ['Today', 'This week'] for 'in the today and this week lists' (list NAMES, "
+                                              "even when they look like dates). Empty when the user names no list or says all lists.")
     which: Literal['open', 'overdue', 'completed', 'all'] = Field(
         description="'open' = not completed (the default; also what 'all tasks' means); 'overdue' = open and due before "
                     "today; 'completed' = done tasks; 'all' only when the user explicitly includes both open and completed.")
@@ -51,10 +52,14 @@ def _norm(text: str) -> str:
     return ' '.join(text.split()).casefold()
 
 
-def lists_for(svc: Resource, name: str) -> list[dict]:
-    """The lists a selection covers: one named list, or all of them."""
+def lists_for(svc: Resource, names: list[str]) -> list[dict]:
+    """The lists a selection covers: the named ones, in the order of the user's lists, or all of them."""
     lists = tasklists(svc)
-    return lists if _norm(name) in ALL_LISTS else [match_name(name, lists, 'title', 'task list')]
+    named = [n for n in names if _norm(n) not in ALL_LISTS]
+    if not named:
+        return lists
+    wanted = {match_name(n, lists, 'title', 'task list')['id'] for n in named}
+    return [tasklist for tasklist in lists if tasklist['id'] in wanted]
 
 
 def select(args: SelectionArgs, ctx: Context, exclude_list_id: str = '') -> list[Selected]:
@@ -67,7 +72,7 @@ def select(args: SelectionArgs, ctx: Context, exclude_list_id: str = '') -> list
     with_completed = args.which in ('completed', 'all')
 
     found = []
-    for tasklist in lists_for(svc, args.list_name):
+    for tasklist in lists_for(svc, args.list_names):
         if tasklist['id'] == exclude_list_id:
             continue
         for task in tasks_in(svc, tasklist['id'], with_completed=with_completed):
@@ -91,7 +96,9 @@ def describe(args: SelectionArgs) -> str:
     """The selection in words, for summaries and messages."""
     parts = [{'open': 'open', 'overdue': 'overdue', 'completed': 'completed', 'all': 'open and completed'}[args.which]
              + ' tasks']
-    parts.append('in all lists' if _norm(args.list_name) in ALL_LISTS else f"in list '{args.list_name}'")
+    named = [n.strip() for n in args.list_names if _norm(n) not in ALL_LISTS]
+    lists = ' and '.join(f"'{n}'" for n in named)
+    parts.append(f"in {'lists' if len(named) > 1 else 'list'} {lists}" if named else 'in all lists')
     names = [t.strip() for t in args.title_contains if t.strip()]
     if names:
         parts.append('with ' + ' or '.join(f"'{n}'" for n in names) + ' in the title')

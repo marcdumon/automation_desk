@@ -325,3 +325,9 @@ def test_a_connection_that_fails_once_is_tried_again(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(web_page, 'RETRY_AFTER_S', 0)
     assert web_page.download('https://a.be', httpx.Client(transport=httpx.MockTransport(flaky))).text == 'ok'
     assert len(tries) == 2
+
+
+def test_day_and_month_without_a_year() -> None:
+    """'Zaterdag 26/9- Zondag 27/9' is two dates; '/2026/09/25/' in an address is not a date."""
+    assert web_page.read_dates('Zaterdag 26/9- Zondag 27/9', date(2026, 9, 23)) == [date(2026, 9, 26), date(2026, 9, 27)]
+    assert web_page.read_dates('zie https://site.be/2026/09/25/expo en /09/25/', date(2026, 9, 23)) == []

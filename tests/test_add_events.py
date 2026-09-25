@@ -233,3 +233,14 @@ def test_every_field_can_be_edited(make_ctx, pages: dict) -> None:
     assert payload['bodies'][expo.id]['start'] == {'date': '2026-10-01'}
     with pytest.raises(UserError, match="Could not read the date 'soon' of 'Jazz!'"):
         AddEventsFromWeb().adjust(payload, {f'Date:{concert.id}': 'soon'}, ctx)
+
+
+def test_hours_on_several_days_are_those_hours_each_day() -> None:
+    """'Zaterdag 26/9 - Zondag 27/9, van 14u tot 22u' is 14:00-22:00 on both days, not one 32-hour block."""
+    expo = event('Expo', date(2026, 9, 26), end=date(2026, 9, 27), start_time=time(14), end_time=time(22))
+    body = module.event_body(expo, 'Europe/Brussels', 'k', 't')
+    assert (body['start']['dateTime'], body['end']['dateTime']) == ('2026-09-26T14:00:00', '2026-09-26T22:00:00')
+    assert body['recurrence'] == ['RRULE:FREQ=DAILY;UNTIL=20260927T235959Z']
+    night = event('Party', date(2026, 9, 26), end=date(2026, 9, 27), start_time=time(22), end_time=time(2))
+    body = module.event_body(night, 'Europe/Brussels', 'k', 't')
+    assert body['end']['dateTime'] == '2026-09-27T02:00:00' and 'recurrence' not in body, 'past midnight: one event'
