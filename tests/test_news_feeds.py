@@ -119,3 +119,11 @@ def test_a_browser_read_may_bring_a_check_forward(monkeypatch: pytest.MonkeyPatc
 def test_a_refusing_front_page_needs_the_user_when_the_browser_is_not_allowed() -> None:
     with serve({'/': (401, '')}) as http, pytest.raises(NeedsPerson):
         front_page_links('https://wsj.com', http)
+
+
+def test_a_check_page_read_through_the_browser_keeps_the_site_listed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Economist's tab closed on its check page and gave 0 headlines, silently: now the site stays listed."""
+    check = "<html><title>economist.com</title><script src='https://ct.captcha-delivery.com/c.js'></script></html>"
+    monkeypatch.setattr(feeds, 'browser_page', lambda url, may_ask=True: Page(url=url, html=check, via='browser'))
+    with serve({'/': (403, '')}) as http, pytest.raises(NeedsPerson):
+        front_page_links('https://economist.com', http, allow_browser=True)
