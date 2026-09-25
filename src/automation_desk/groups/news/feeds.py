@@ -12,7 +12,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from automation_desk.capture import NeedsPerson
-from automation_desk.groups.calendar.web_page import browser_page, download, is_blocked
+from automation_desk.groups.calendar.web_page import browser_page, download, is_blocked, looks_like_check
 
 COMMON_FEED_PATHS = ['/feed', '/rss', '/rss.xml', '/feed.xml', '/atom.xml', '/index.xml', '/feeds/posts/default']
 # CLAUDE> page titles of bot checks, never a site's name
@@ -129,6 +129,8 @@ def front_page_links(site: str, http: httpx.Client, allow_browser: bool = False)
     if is_blocked(response) and allow_browser:
         # CLAUDE> only the follow-up the user pressed gets here: a site's check may come forward for them to pass
         page = browser_page(site)
+        if looks_like_check(page.html):
+            raise NeedsPerson(f'{site} still shows its check in your browser.')
         url, text = page.url, page.html
     elif is_blocked(response):
         raise NeedsPerson(f'{site} blocks bots; read it via your browser from the digest.')

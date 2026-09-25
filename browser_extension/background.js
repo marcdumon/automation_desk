@@ -18,9 +18,21 @@ async function waitLoaded(tabId) {
   }
 }
 
+// CLAUDE> services whose check pages ask for a person; DataDome's page has no telling title (the Economist's is 'economist.com').
+// A real page may load one of them too (a form's reCaptcha), but is large.
+const CHECK_SERVICES = ['captcha-delivery.com', 'challenges.cloudflare.com', 'hcaptcha.com', 'recaptcha', 'px-captcha', 'perimeterx']
+const CHECK_PAGE_MAX = 60000
+
 async function challenged(tabId) {
   const title = ((await chrome.tabs.get(tabId)).title || '').toLowerCase()
-  return CHALLENGE_TITLES.some(t => title.includes(t))
+  if (CHALLENGE_TITLES.some(t => title.includes(t))) return true
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({ target: { tabId }, func: () => document.documentElement.outerHTML })
+    const html = (result || '').toLowerCase()
+    return html.length < CHECK_PAGE_MAX && CHECK_SERVICES.some(service => html.includes(service))
+  } catch {
+    return false
+  }
 }
 
 // CLAUDE> `mayAsk` false (news): the tab never comes forward; a human check that does not pass by itself is reported instead

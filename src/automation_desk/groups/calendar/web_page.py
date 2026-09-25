@@ -171,6 +171,17 @@ def download(url: str, http: httpx.Client) -> httpx.Response:
     return response if is_blocked(retried) else retried
 
 
+# CLAUDE> services whose check pages ask for a person; a real page may load one of them too (a form's reCaptcha), but is large
+CHECK_SERVICES = ('captcha-delivery.com', 'challenges.cloudflare.com', 'hcaptcha.com', 'recaptcha', 'px-captcha', 'perimeterx')
+CHECK_PAGE_MAX = 60_000
+
+
+def looks_like_check(html: str) -> bool:
+    """Whether a page is a bot check asking for a person: small, and loading a check service (DataDome shows no telling
+    title: the Economist's check is titled just 'economist.com')."""
+    return len(html) < CHECK_PAGE_MAX and any(service in html.casefold() for service in CHECK_SERVICES)
+
+
 def is_blocked(response: httpx.Response) -> bool:
     """Whether a site refused a program (bot check or 401/403/429/503) rather than answering 'not here'."""
     return response.headers.get('cf-mitigated') == 'challenge' or response.status_code in BLOCKED_STATUS

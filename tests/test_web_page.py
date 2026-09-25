@@ -292,3 +292,20 @@ def test_a_chrome_like_answer_is_not_unpacked_twice() -> None:
     got = web_page.as_httpx(200, {'Content-Encoding': 'gzip', 'Content-Length': '99', 'Content-Type': 'text/html'},
                             b'<p>Nieuws</p>', 'https://www.nytimes.com/')
     assert (got.text, str(got.url), got.headers['content-type']) == ('<p>Nieuws</p>', 'https://www.nytimes.com/', 'text/html')
+
+
+DATADOME = ("<html><head><title>economist.com</title></head><body><p>Please enable JS and disable any ad blocker</p>"
+            "<script>var dd={'rt':'i','host':'geo.captcha-delivery.com'}</script>"
+            "<script src='https://ct.captcha-delivery.com/c.js'></script></body></html>")
+
+
+@pytest.mark.parametrize(('html', 'check'), [
+    (DATADOME, True),
+    ("<html><title>Just a moment...</title><script src='https://challenges.cloudflare.com/x.js'></script></html>", True),
+    ('<html><title>News</title><p>' + 'Nieuws ' * 20000 + "</p><script src='https://www.google.com/recaptcha/api.js'></script></html>",
+     False),
+    ('<html><title>Blog</title><p>Kort bericht.</p></html>', False),
+], ids=['datadome', 'cloudflare', 'news page with a recaptcha form', 'small page'])
+def test_a_check_page_is_recognised_by_what_it_loads(html: str, check: bool) -> None:
+    """The Economist's DataDome check has no telling title: a small page loading a check service is a check."""
+    assert web_page.looks_like_check(html) is check
