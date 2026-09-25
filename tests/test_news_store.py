@@ -182,3 +182,14 @@ def test_continuing_a_digest_adds_to_it() -> None:
     assert [g['subject'] for g in stored['subjects']] == ['AI', 'War'] and (stored['story_count'], stored['article_count']) == (2, 2)
     assert (stored['needs_check'], stored['unsorted']) == ([], 0), 'what was open is now done'
     assert [a['topic'] for a in stored['left_out']] == ['Sports'] and stored['cost_usd'] == 0.02
+
+
+def test_sites_that_failed_wait_on_the_digest_for_a_retry() -> None:
+    down = store.add_source('https://down.be', 'Down', 'https://down.be/rss', 'feed')
+    made = datetime(2026, 9, 24, 7, 0, tzinfo=TZ)
+    digest_id = store.save_digest(DigestRecord(made_at=made, covers_from=made, trigger='button', job_id='j', problems=[], stories=[],
+                                               failed=[down]))
+    assert store.digest(digest_id)['failed'] == [{'id': down, 'name': 'Down', 'site': 'https://down.be'}]
+    store.add_to_digest(digest_id, DigestRecord(made_at=made, covers_from=made, trigger='continued', job_id='j2', problems=[],
+                                                stories=[]))
+    assert store.digest(digest_id)['failed'] == [], 'answered on the retry'
