@@ -72,6 +72,9 @@ DATE_PATTERNS = [
     ('mdy', re.compile(rf'\b{_MONTH}[ \t]+(\d{{1,2}}){_ORD}{_YEAR}\b', re.IGNORECASE)),
     ('iso', re.compile(r'\b(\d{4})-(\d{2})-(\d{2})\b')),
     ('num', re.compile(r'\b(\d{1,2})[/.](\d{1,2})[/.](\d{4}|\d{2})\b')),
+    # CLAUDE> day/month without a year, with a slash only ('26/9'; '26.9' is too often a time or a price), never part of an
+    # address ('/2026/09/25/')
+    ('dm', re.compile(r'(?<![/\d])(\d{1,2})/(\d{1,2})(?![/\d])')),
 ]
 # CLAUDE> every pattern captures (hour, minute, suffix); '12.50' counts only with a suffix, so prices are not times
 TIME_PATTERNS = [
@@ -374,6 +377,8 @@ def _date_matches(text: str, today: date) -> list[tuple[int, int, list[tuple[dat
                 days = [_make_date(year, MONTHS[g[0].lower()], int(g[1]), today)]
             elif kind == 'iso':
                 days = [_make_date(g[0], int(g[1]), int(g[2]), today)]
+            elif kind == 'dm':
+                days = [_make_date(None, int(g[1]), int(g[0]), today)]
             else:
                 days = [_make_date(g[2], int(g[1]), int(g[0]), today)]
             if days and all(days):
@@ -668,6 +673,14 @@ def pdf_events(content: bytes, source: str, today: date, tz: ZoneInfo, text_filt
     text = pdf_text(content, '|'.join(sorted(MONTHS, key=len, reverse=True)))
     spans = marked_text(BeautifulSoup(pdf_as_html(text, source), 'lxml'), source, today, tz)
     return text_events(spans, text_filter, source, today, http), text
+
+
+def typed_events(text: str, today: date, tz: ZoneInfo, text_filter: str,
+                 http: httpx.Client | None = None) -> tuple[list[WebEvent], str]:
+    """Events the user typed or pasted in the sentence: code reads its dates, the model lists the events by date number."""
+    page = pdf_as_html(text, 'your text')
+    spans = marked_text(BeautifulSoup(page, 'lxml'), 'your text', today, tz)
+    return text_events(spans, text_filter, 'your text', today, http), page
 
 
 @dataclass(frozen=True)

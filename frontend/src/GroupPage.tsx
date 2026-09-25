@@ -44,11 +44,14 @@ export default function GroupPage({ group, log, onLog }: Props) {
   const groupJobs = useQuery({ queryKey: ['jobs', group.id], queryFn: () => getJobs(group.id) })
   const refreshJobs = () => queryClient.invalidateQueries({ queryKey: ['jobs'] })
 
+  const [reply, setReply] = useState('')
   const ask = useMutation({
-    mutationFn: () => interpret(group.id, text, taskId, files.map(f => f.id)),
-    onSuccess: data => {
+    // CLAUDE> `sentence` is the command with the user's answer to a question added; otherwise the command box as typed
+    mutationFn: (sentence?: string) => interpret(group.id, sentence ?? text, taskId, files.map(f => f.id)),
+    onSuccess: (data, sentence) => {
       setResult(data)
-      setCommand(text)
+      setCommand(sentence ?? text)
+      setReply('')
       setSelected(new Set(data.preview?.rows.filter(r => r.selectable && r.selected).map(r => r.id) ?? []))
     },
     onError: () => setResult(null),
@@ -98,7 +101,15 @@ export default function GroupPage({ group, log, onLog }: Props) {
   const submit = () => {
     if (!text.trim() || ask.isPending) return
     run.reset()
-    ask.mutate()
+    ask.mutate(undefined)
+  }
+
+  // CLAUDE> the model asked something back: the answer joins the command, so the model sees both
+  const answer = () => {
+    if (!reply.trim() || !result || ask.isPending) return
+    const sentence = `${command}\n(${result.message} ${reply.trim()})`
+    setText(sentence)
+    ask.mutate(sentence)
   }
 
   const chosen = group.tasks.find(t => t.id === taskId)
@@ -182,10 +193,22 @@ export default function GroupPage({ group, log, onLog }: Props) {
             </div>
           )}
 
-          {result && result.status !== 'preview' && (
-            <div className="message" role="status">
-              <p>{result.status === 'clarify' ? result.message : `Not something ${group.name} can do here: ${result.message}`}</p>
-              {result.job && <JobCost job={result.job} onOpen={setOpenJob} />}
+          {result && result.status === 'clarify' && (
+            <div className="question-card" role="status">
+              <p className="question">{result.message}</p>
+              <form className="answer" onSubmit={event => { event.preventDefault(); answer() }}>
+                <input value={reply} onChange={event => setReply(event.target.value)} placeholder="Your answer" autoFocus
+                       aria-label="Your answer" />
+                <button type="submit" className="primary" disabled={!reply.trim() || ask.isPending}>
+                  {ask.isPending ? 'Working…' : 'Answer'}</button>
+              </form>
+              {result.job && <JobLine job={result.job} onOpen={setOpenJob} />}
+            </div>
+          )}
+          {result && result.status === 'unsupported' && (
+            <div className="question-card" role="status">
+              <p className="question">Not something {group.name} can do: {result.message}</p>
+              {result.job && <JobLine job={result.job} onOpen={setOpenJob} />}
             </div>
           )}
 
@@ -268,4 +291,13 @@ function takeKeptSentence(group: string): string {
   } catch {
     return ''
   }
+}
+
+// CLAUDE> what a question cost, as one small line; the full job opens on click
+function JobLine({ job, onOpen }: { job: JobSummary; onOpen: (id: string) => void }) {
+  return (
+    <button type="button" className="link job-line" onClick={() => onOpen(job.id)}>
+      ${job.cost_usd.toFixed(6)} · {(job.duration_ms / 1000).toFixed(1)} s · details
+    </button>
+  )
 }

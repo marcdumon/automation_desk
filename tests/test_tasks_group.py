@@ -39,7 +39,7 @@ def tasks_api(tasks: dict[str, list[dict]]) -> FakeGoogle:
 
 def selection(**kwargs: str) -> dict:
     """Selection fields: open tasks in all lists unless overridden."""
-    return {'status': 'ok', 'message': '', 'list_name': 'all', 'which': 'open', 'title_contains': [], 'due_period': '', **kwargs}
+    return {'status': 'ok', 'message': '', 'list_names': [], 'which': 'open', 'title_contains': [], 'due_period': '', **kwargs}
 
 
 TODAY_LIST = [
@@ -52,12 +52,12 @@ TODAY_LIST = [
 def test_one_task_by_a_word_of_its_title(make_ctx) -> None:
     fake = tasks_api({'L1': TODAY_LIST})
     ctx = make_ctx(fake, 'change the date of the Zalando task in list Today to tomorrow')
-    args = ChangeDatesArgs(**selection(list_name='Today', title_contains=['zalando']), new_due='tomorrow')
+    args = ChangeDatesArgs(**selection(list_names=['Today'], title_contains=['zalando']), new_due='tomorrow')
     preview, payload = ChangeDates().resolve(args, ctx)
     assert [r.cells['Task'] for r in preview.rows] == ['Zalando: get measured'], 'the completed Zalando task is not open'
     assert preview.rows[0].cells['New date'] == 'Wed 23 Sep 2026' and not preview.rows[0].selectable, 'already due then'
 
-    args = ChangeDatesArgs(**selection(list_name='Today', title_contains=['zalando']), new_due='today+2')
+    args = ChangeDatesArgs(**selection(list_names=['Today'], title_contains=['zalando']), new_due='today+2')
     preview, payload = ChangeDates().resolve(args, ctx)
     ChangeDates().execute(payload, {'z'}, ctx)
     assert [kw['body'] for name, kw in fake.calls if name == 'tasks.patch'] == [{'due': '2026-09-24T00:00:00.000Z'}]
@@ -75,7 +75,7 @@ def test_overdue_and_due_period_and_all_lists(make_ctx) -> None:
 def test_nothing_matching_says_what_was_looked_for(make_ctx) -> None:
     with pytest.raises(UserError, match="Looked for open tasks in list 'Today' with 'dentist' in the title"):
         ctx = make_ctx(tasks_api({'L1': TODAY_LIST}), '')
-        CompleteTasks().resolve(SelectionArgs(**selection(list_name='Today', title_contains=['dentist'])), ctx)
+        CompleteTasks().resolve(SelectionArgs(**selection(list_names=['Today'], title_contains=['dentist'])), ctx)
 
 
 def test_move_completed_to_a_list_subtasks_first_never_open_parents(make_ctx) -> None:
@@ -109,7 +109,16 @@ def test_delete_notes_subtasks_and_add_resolves_list_and_date(make_ctx) -> None:
 def test_several_tasks_named_in_one_sentence(make_ctx) -> None:
     tasks = [*TODAY_LIST, {'id': 'r', 'title': 'Ramen poetsen (clean windows)', 'due': '2026-09-23T00:00:00.000Z', 'etag': 'e4'}]
     ctx = make_ctx(tasks_api({'L1': tasks}), 'change the date of the Zalando and clean tasks in list Today to tomorrow')
-    args = ChangeDatesArgs(**selection(list_name='Today', title_contains=['Zalando', 'clean']), new_due='today+2')
+    args = ChangeDatesArgs(**selection(list_names=['Today'], title_contains=['Zalando', 'clean']), new_due='today+2')
     preview, _ = ChangeDates().resolve(args, ctx)
     assert [r.cells['Task'] for r in preview.rows] == ['Zalando: get measured', 'Ramen poetsen (clean windows)']
     assert "with 'Zalando' or 'clean' in the title" in preview.summary
+
+
+
+def test_tasks_from_two_lists_at_once(make_ctx) -> None:
+    """'in today and this week lists' is both lists, not a question which one."""
+    fake = tasks_api({'L1': TODAY_LIST, 'L2': [{'id': 'm', 'title': 'Mail Anna', 'due': '2026-09-19T00:00:00.000Z', 'etag': 'e'}]})
+    ctx = make_ctx(fake, 'x')
+    preview, _ = CompleteTasks().resolve(SelectionArgs(**selection(list_names=['today', 'Tomorrow'], which='overdue')), ctx)
+    assert {(r.cells['Task'], r.cells['List']) for r in preview.rows} == {('Prepare CS329Z', 'Today'), ('Mail Anna', 'Tomorrow')}

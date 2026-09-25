@@ -130,3 +130,29 @@ def test_a_pdf_in_a_mail(make_ctx, quiet_model: dict) -> None:
     assert preview.rows[0].cells['Source'] == 'https://mail.google.com/mail/u/0/#all/t1'
     with pytest.raises(UserError, match='No mail with a PDF matches'):
         AddEventsFromWeb().resolve(args(pdf_mail_from=['Bozar']), ctx)
+
+
+TYPED = """add event
+Expo SEPT'83
+Kasteelstraat 3, Antwerpen
+Zaterdag 26/9- Zondag 27/9
+Van 14u tot 22u
+to calendar exhibitions"""
+
+
+def test_an_event_typed_in_the_sentence(make_ctx, quiet_model: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No page, no PDF: the event details the user typed are the agenda."""
+    seen: dict = {}
+
+    def answer(system: str, user: str, schema: type, **_: object) -> Extraction:
+        """Stand-in for the model: the event from D1 to D2, T1 to T2."""
+        seen['text'] = user
+        return one_event(title="Expo SEPT'83", location='Kasteelstraat 3, Antwerpen')
+
+    monkeypatch.setattr(web_page, 'ask', answer)
+    _preview, payload = AddEventsFromWeb().resolve(args(), make_ctx(calendar_and_gmail(), TYPED))
+    assert '26/9' in seen['text'] and '[D1' in seen['text'] and '[T1' in seen['text'], 'code marked the dates and times'
+    event = payload['events'][0]
+    assert (event.start, event.end) == (date(2026, 9, 26), date(2026, 9, 27))
+    assert (event.start_time.hour, event.end_time.hour) == (14, 22)
+    assert payload['url'].startswith('text:')

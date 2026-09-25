@@ -24,7 +24,7 @@ from automation_desk.groups.base import Context, Preview, PreviewOption, Row, St
 from automation_desk.groups.calendar.client import events_tagged, writable_calendars
 from automation_desk.groups.calendar.organisers import Organiser, organiser_for, placed, save, titled
 from automation_desk.groups.calendar.pdf import PdfError, is_pdf
-from automation_desk.groups.calendar.web_page import WebEvent, pdf_as_html, pdf_events, read_dates, read_events
+from automation_desk.groups.calendar.web_page import WebEvent, pdf_as_html, pdf_events, read_dates, read_events, typed_events
 from automation_desk.groups.gmail.client import gmail_link, mail_pdfs, message_ids, metadata, received, sender
 from automation_desk.groups.gmail.select import any_of
 
@@ -72,6 +72,13 @@ def is_timed(event: WebEvent) -> bool:
     return event.start_time is not None and ((event.end or event.start) == event.start or event.end_time is not None)
 
 
+def daily_hours(event: WebEvent) -> bool:
+    """Whether the hours hold for each day: several days, and an end time later than the start time ('za 26/9 - zo 27/9,
+    van 14u tot 22u' is 14:00-22:00 on both days). An end before the start runs past midnight: one event."""
+    return (event.end is not None and event.end > event.start and event.start_time is not None
+            and event.end_time is not None and event.end_time > event.start_time)
+
+
 def timed_span(event: WebEvent, default: timedelta = DEFAULT_DURATION,
                override: timedelta | None = None) -> tuple[datetime, datetime, bool]:
     """Start and end of a timed event, and whether the duration is assumed rather than from the page or the user."""
@@ -80,7 +87,8 @@ def timed_span(event: WebEvent, default: timedelta = DEFAULT_DURATION,
     if override:
         return start, start + override, False
     if event.end_time:
-        end = datetime.combine(event.end or event.start, event.end_time)
+        # CLAUDE> hours that hold for each day end on the first day; the event repeats daily (see event_body)
+        end = datetime.combine(event.start if daily_hours(event) else event.end or event.start, event.end_time)
         if end > start:
             return start, end, False
     return start, start + default, True
@@ -103,6 +111,8 @@ def event_body(event: WebEvent, tz_name: str, key: str, tag: str, default: timed
     start, end, _ = timed_span(event, default, override)
     body['start'] = {'dateTime': start.isoformat(), 'timeZone': tz_name}
     body['end'] = {'dateTime': end.isoformat(), 'timeZone': tz_name}
+    if daily_hours(event):
+        body['recurrence'] = [f"RRULE:FREQ=DAILY;UNTIL={last_day.strftime('%Y%m%d')}T235959Z"]
     return body
 
 
@@ -198,20 +208,23 @@ def when(event: WebEvent, default: timedelta = DEFAULT_DURATION,
         return day, 'all day' if event.start_time is None else f"from {event.start_time.strftime('%H:%M')}", '—'
     start, end, assumed = timed_span(event, default, override)
     duration = duration_label(end - start) + (' (assumed)' if assumed else '')
-    return day, f"{start.strftime('%H:%M')}-{end.strftime('%H:%M')}", duration
+    daily = ' daily' if daily_hours(event) else ''
+    return day, f"{start.strftime('%H:%M')}-{end.strftime('%H:%M')}{daily}", duration
 
 
 class AddEventsFromWeb(StandardTask):
     """Scrape an agenda page and add its events to a named calendar."""
 
     id = 'add_events_from_web'
-    name = 'Add events from a web page or PDF'
-    description = ('Reads an agenda (a web page, a PDF link, a PDF you attach, or a PDF in a mail: date, place, info) '
-                   'and adds the events to one of your calendars, with '
+    name = 'Add events'
+    description = ('Adds events to one of your calendars from an agenda (a web page, a PDF link, a PDF you attach, a PDF in '
+                   'a mail) or from event details typed or pasted in the sentence itself (title, place, dates, times), '
+                   'with '
                    'exclusions such as weekdays, a period or a free-text rule. Importing the same page twice adds nothing twice.')
     example = 'add all events from https://example.org/agenda to calendar Exhibitions except the ones on fridays'
     Args = AddEventsArgs
-    guidance = ('The URL and any attached PDF are handled by the app; do not repeat them. Put weekday exclusions in '
+    guidance = ('The URL, any attached PDF and event details typed in the sentence are handled by the app; do not repeat '
+                'them. Typed event details are supported: never answer unsupported for them. Put weekday exclusions in '
                 'exclude_weekdays, a period in date_range and any other condition in text_filter. Only when the user says '
                 'the agenda PDF is in a mail, fill pdf_mail_from and/or pdf_mail_subject.')
 
@@ -227,10 +240,17 @@ class AddEventsFromWeb(StandardTask):
                     url, site, events, notes, html_for_organiser = self._from_files(args, ctx, http)
                 elif args.pdf_mail_from or args.pdf_mail_subject:
                     url, site, events, notes, html_for_organiser = self._from_mail(args, ctx, http)
-                else:
+                elif URL.search(ctx.sentence):
                     url, site = self._url(ctx), None
                     events, notes, html_for_organiser = read_events(url, ctx.today, ctx.tz, args.text_filter,
                                                                     config().max_pages if args.follow_pages else 1, http)
+                else:
+                    # CLAUDE> no page, no PDF: the event details the user typed are the agenda
+                    events, html_for_organiser = typed_events(ctx.sentence, ctx.today, ctx.tz, args.text_filter, http)
+                    url, site, notes = f'text:{hashlib.sha1(ctx.sentence.encode()).hexdigest()[:16]}', 'your text', []
+                    if not events:
+                        raise UserError('No event with a date found in your sentence. Give its date (e.g. 26/9) and time, '
+                                        'or put the address of an agenda page in it, or attach a PDF.')
             except PdfError as error:
                 raise UserError(str(error)) from error
             except httpx.HTTPStatusError as error:

@@ -39,7 +39,7 @@ def test_sentence_for_another_group_is_refused(client: TestClient, monkeypatch: 
 def test_preview_then_execute_only_selectable_rows_once(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     task = GROUPS['tasks'].task('change_dates')
     monkeypatch.setattr(api, 'fill_args', lambda group, t, text: ChangeDatesArgs(
-        status='ok', message='', list_name='Today', which='open', title_contains=[], due_period='', new_due='tomorrow'))
+        status='ok', message='', list_names=['Today'], which='open', title_contains=[], due_period='', new_due='tomorrow'))
     seen: dict = {}
 
     def resolve(args: ChangeDatesArgs, ctx: object) -> tuple:
@@ -76,7 +76,7 @@ def test_preview_then_execute_only_selectable_rows_once(client: TestClient, monk
 
 def test_user_errors_are_422(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(api, 'fill_args', lambda group, t, text: ChangeDatesArgs(
-        status='ok', message='', list_name='Today', which='open', title_contains=[], due_period='', new_due='2026-09-30'))
+        status='ok', message='', list_names=['Today'], which='open', title_contains=[], due_period='', new_due='2026-09-30'))
 
     def resolve(args: ChangeDatesArgs, ctx: object) -> tuple:
         """Stand-in resolve."""

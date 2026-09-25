@@ -350,3 +350,14 @@ details.news-card[open] > summary { margin-bottom: 14px; }
 .digest-problems { margin: 4px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
 .digest .left-out { margin: 12px 0 0 4px; }
 @media (max-width: 760px) { .digest-actions li { flex-direction: column; align-items: flex-start; } }
+
+/* CLAUDE> the model asked something back: the question, an answer field, and what it cost in one small line */
+.question-card { margin-top: 16px; padding: 14px 18px; border: 1px solid var(--rule); border-left: 4px solid var(--accent);
+  border-radius: 10px; background: var(--surface); display: grid; gap: 10px; }
+.question { margin: 0; font-size: 16px; }
+.answer { display: flex; gap: 8px; }
+.answer input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper);
+  font: inherit; color: inherit; }
+.answer input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
+.job-line { justify-self: start; color: var(--muted) !important; text-decoration: none !important; font-size: 12px !important; }
+.job-line:hover { text-decoration: underline !important; }
