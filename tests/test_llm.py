@@ -94,3 +94,50 @@ def test_the_suite_can_never_reach_openrouter_for_real(monkeypatch: pytest.Monke
     monkeypatch.setenv('OPENROUTER_API_KEY', 'test')
     with pytest.raises(AssertionError, match='call OpenRouter for real'):
         llm.ask('s', 'u', Pair)
+
+
+class Clock:
+    """A stand-in for time: sleeping moves it forward and is remembered."""
+
+    def __init__(self) -> None:
+        self.now, self.slept = 1_000.0, []
+
+    def sleep(self, seconds: float) -> None:
+        self.slept.append(round(seconds, 1))
+        self.now += seconds
+
+
+@respx.mock
+def test_a_rate_limit_waits_until_the_limit_resets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OpenRouter's new-account limit is 20 requests a minute; the reset time comes in the error's metadata."""
+    monkeypatch.setenv('OPENROUTER_API_KEY', 'test')
+    clock = Clock()
+    monkeypatch.setattr(llm.time, 'sleep', clock.sleep)
+    monkeypatch.setattr(llm.time, 'time', lambda: clock.now)
+    monkeypatch.setattr(llm.time, 'monotonic', lambda: clock.now)
+    reset = str(int((clock.now + 37) * 1000))
+    limited = httpx.Response(429, json={'error': {'message': 'Rate limit exceeded', 'code': 429, 'metadata': {
+        'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': reset}}}})
+    respx.post(COMPLETIONS).mock(side_effect=[limited, limited, limited, reply('{"a": 3}')])
+    assert llm.ask('sys', 'user', Pair) == Pair(a=3)
+    assert clock.slept[0] == 37.0, 'waits until the reset, not a few seconds'
+
+
+@respx.mock
+def test_requests_are_spaced_to_the_limit_per_minute(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The 21st request within a minute waits for the first to be a minute old, so the limit is never hit."""
+    monkeypatch.setenv('OPENROUTER_API_KEY', 'test')
+    clock = Clock()
+    monkeypatch.setattr(llm.time, 'sleep', clock.sleep)
+    monkeypatch.setattr(llm.time, 'monotonic', lambda: clock.now)
+    respx.post(COMPLETIONS).mock(return_value=reply('{"a": 1}'))
+    for _ in range(20):
+        llm.ask('sys', 'user', Pair)
+        clock.now += 1
+    assert clock.slept == []
+    pauses = []
+    monkeypatch.setattr(llm.time, 'sleep', lambda seconds: pauses.append(llm.pause_left()) or clock.sleep(seconds))
+    llm.ask('sys', 'user', Pair)
+    assert clock.slept == [40.0]
+    assert pauses == [40], 'the page can say how long the pause lasts'
+    assert llm.pause_left() == 0

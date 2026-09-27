@@ -87,6 +87,24 @@ def _respx_active() -> bool:
 
 
 @pytest.fixture(autouse=True)
+def fresh_rate_pace(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test starts with no recent model requests, so the per-minute spacing never makes the suite wait."""
+    from collections import deque
+
+    from automation_desk import llm
+
+    monkeypatch.setattr(llm, '_SENT', deque())
+
+
+@pytest.fixture(autouse=True)
+def captures_in_tmp(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pages read through a stand-in browser are kept in the test's own folder, not the project's data."""
+    from automation_desk.groups.calendar import web_page
+
+    monkeypatch.setattr(web_page, 'CAPTURES', tmp_path / 'captures')
+
+
+@pytest.fixture(autouse=True)
 def no_real_chrome_like_retry(monkeypatch: pytest.MonkeyPatch) -> None:
     """A refused download never reaches the real site again in tests; tests of the retry put their own stand-in."""
     from automation_desk.groups.calendar import web_page

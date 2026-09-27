@@ -165,3 +165,71 @@ def test_continuing_a_digest_starts_in_the_background(client: TestClient, monkey
             break
         time.sleep(0.01)
     assert started == [(3, True)]
+
+
+def test_watched_agenda_sites(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from automation_desk.groups.calendar.tasks.check_watched import CheckWatchedSites
+
+    lines = ['kmska.be/nl/agenda → Exhibitions', 'mas.be']
+    saved = client.post('/api/calendar/watch', json={'lines': lines, 'default_calendar': 'events'})
+    assert saved.json()['lines'] == ['kmska.be/nl/agenda → Exhibitions', 'mas.be']
+    got = client.get('/api/calendar/watch').json()
+    assert (got['default_calendar'], got['needs_browser']) == ('events', [])
+    asked = {}
+
+    def check(self: object, ctx: object, via_browser: bool = False, only: set | None = None) -> tuple:
+        """Stand-in: one new event."""
+        asked.update(via_browser=via_browser, only=only)
+        return Preview(summary='1 new event(s)', columns=['Title'], rows=[Row(id='k1', cells={'Title': 'Expo'})]), {'offered': ['k1']}
+
+    monkeypatch.setattr(CheckWatchedSites, 'check', check)
+    answer = client.post('/api/calendar/watch/check', json={'via_browser': True, 'only': [1]}).json()
+    assert answer['status'] == 'preview' and answer['plan_id'] and answer['task_id'] == 'check_watched_sites'
+    assert asked == {'via_browser': True, 'only': {1}}
+
+
+def test_watched_sites_from_imported_events(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from automation_desk.groups.calendar.tasks import check_watched
+
+    monkeypatch.setattr(api, 'context', lambda sentence, files=None: type('C', (), {'google': lambda self, n, v: None})())
+    monkeypatch.setattr(check_watched, 'sites_from_events', lambda svc, http: ([('https://kmska.be/nl/agenda', 'Exhibitions')], 2))
+    answer = client.post('/api/calendar/watch/from-events').json()
+    assert (answer['added'], answer['unmatched']) == (1, 2) and answer['lines'] == ['kmska.be/nl/agenda → Exhibitions']
+
+
+def test_one_section_is_applied_and_the_plan_stays_for_the_rest(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from automation_desk import jobs
+    from automation_desk.groups.calendar.tasks.check_watched import CheckWatchedSites
+    from automation_desk.plans import Plan
+
+    applied = []
+    monkeypatch.setattr(CheckWatchedSites, 'execute_group', lambda self, payload, selected, section, ctx: (
+        applied.append((section, selected)) or ['Added'], {'b1', 'b2'}))
+    monkeypatch.setattr(CheckWatchedSites, 'execute', lambda self, payload, selected, ctx: applied.append(('all', selected)) or ['ok'])
+    plan_id = api.plans.put(Plan(group_id='calendar', task_id='check_watched_sites', payload={}, row_ids={'a1', 'b1', 'b2'},
+                                   job=jobs.Job(group='calendar', sentence='Check watched agenda sites')))
+    one = client.post('/api/groups/calendar/execute', json={'plan_id': plan_id, 'selected': ['b1', 'a1'], 'section': 'b.be'}).json()
+    assert one['results'] == ['Added'] and applied == [('b.be', {'b1', 'a1'})]
+    rest = client.post('/api/groups/calendar/execute', json={'plan_id': plan_id, 'selected': ['a1', 'b1']}).json()
+    assert rest['results'] == ['ok'] and applied[-1] == ('all', {'a1'}), "b.be's rows are done"
+
+
+def test_applying_a_check_with_nothing_ticked_still_declines(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from automation_desk import jobs
+    from automation_desk.groups.calendar.tasks.check_watched import CheckWatchedSites
+    from automation_desk.plans import Plan
+
+    seen = []
+    monkeypatch.setattr(CheckWatchedSites, 'execute', lambda self, payload, selected, ctx: seen.append(selected) or ['Nothing added.'])
+    plan_id = api.plans.put(Plan(group_id='calendar', task_id='check_watched_sites', payload={}, row_ids={'a1'},
+                                 job=jobs.Job(group='calendar', sentence='Check watched agenda sites')))
+    client.post('/api/groups/calendar/execute', json={'plan_id': plan_id, 'selected': []})
+    assert seen == [set()], 'the unticked events are remembered as declined'
+
+
+def test_stop_asks_a_running_action_to_stop(client: TestClient) -> None:
+    from automation_desk import stop
+
+    stop.begin('watch-check')
+    assert client.post('/api/stop/watch-check').json() == {'stopping': 'watch-check'} and stop.requested('watch-check')
+    assert client.post('/api/stop/anything-else').status_code == 404

@@ -27,6 +27,7 @@ class Config:
 
     llm_base_url: str
     llm_model: str
+    llm_requests_per_minute: int
     fallback_timezone: str
     max_pages: int
     port: int
@@ -48,6 +49,7 @@ def config() -> Config:
     return Config(
         llm_base_url=raw['llm']['base_url'],
         llm_model=raw['llm']['model'],
+        llm_requests_per_minute=int(raw['llm']['requests_per_minute']),
         fallback_timezone=raw['time']['fallback_timezone'],
         max_pages=int(raw['web']['max_pages']),
         port=int(raw['server']['port']),

@@ -2,6 +2,7 @@
 
 import httpx
 
+from automation_desk import stop
 from automation_desk.groups.news import store
 from automation_desk.groups.news.feeds import find_feed
 
@@ -23,13 +24,18 @@ def save_site_list(lines: list[str]) -> list[str]:
 
     Returns a line per site that could not be added; the rest of the list is saved anyway.
     """
+    stop.begin('news-sites')
     known = {_key(s.site): s for s in store.sources()}
     wanted = list(dict.fromkeys(_key(line) for line in lines if line.strip()))
     problems = []
+    new = [key for key in wanted if key not in known]
     with httpx.Client(timeout=20.0) as http:
-        for key in wanted:
-            if key in known:
-                continue
+        for i, key in enumerate(new):
+            if stop.requested('news-sites'):
+                left = new[i:]
+                names = ', '.join(left[:-1]) + f' and {left[-1]}' if len(left) > 1 else left[0]
+                problems.append(f'Stopped: {names} {"were" if len(left) > 1 else "was"} not added. Save again to add them.')
+                break
             try:
                 name, feed, kind = find_feed(_address(key), http)
             except httpx.HTTPError as error:

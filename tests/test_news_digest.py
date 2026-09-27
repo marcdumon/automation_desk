@@ -234,3 +234,40 @@ def test_a_digest_never_reads_through_the_browser_only_its_follow_up_does(parts:
     digest_id = module.make_digest('button', now=NOW)
     module.continue_digest(digest_id, raise_cap=False, now=NOW)
     assert browser == [False, True], 'the digest: never; the follow-up the user asked for: yes'
+
+
+STOPPED = 'you stopped it. Nothing is lost: the next digest takes the same new articles'
+
+
+def test_a_digest_can_be_stopped_while_reading_sites(parts: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from automation_desk import stop
+
+    good = parts['collect']
+
+    def collect(now: datetime, http: object, allow_browser: bool, report: object = None) -> Collected:
+        """The user presses Stop; the next site to start sees it."""
+        stop.request('news-digest')
+        report('tijd.be', 'reading…')
+        return good(now, http, allow_browser)
+
+    monkeypatch.setattr(module, 'collect', collect)
+    assert module.make_digest('button', now=NOW) is None
+    assert store.latest_made_at() is None and module.failure() == STOPPED
+    monkeypatch.setattr(module, 'collect', good)
+    assert module.make_digest('button', now=NOW) is not None, 'a Stop does not carry over to the next run'
+
+
+def test_a_digest_can_be_stopped_while_sorting(parts: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from automation_desk import stop
+
+    def summarise(articles: list, subjects: list, budget: float, http: object = None, blocked: list | None = None,
+                  report: object = None) -> tuple:
+        """Stop is pressed after the first batch."""
+        report(1, 3)
+        stop.request('news-digest')
+        report(2, 3)
+        raise AssertionError('the third batch is never sorted')
+
+    monkeypatch.setattr(module, 'summarise', summarise)
+    assert module.make_digest('button', now=NOW) is None
+    assert store.latest_made_at() is None and module.failure() == STOPPED

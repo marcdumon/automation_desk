@@ -38,3 +38,13 @@ def events_between(svc: Resource, calendar_id: str, time_min: str | None, time_m
         items += page.get('items', [])
         if not (token := page.get('nextPageToken')):
             return items
+
+
+def all_events(svc: Resource, calendar_id: str) -> list[dict]:
+    """Every event of a calendar, repeating ones once."""
+    items, token = [], None
+    while True:
+        page = svc.events().list(calendarId=calendar_id, maxResults=2500, pageToken=token).execute()
+        items += page.get('items', [])
+        if not (token := page.get('nextPageToken')):
+            return items

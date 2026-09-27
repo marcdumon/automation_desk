@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS news_left_out (
     title TEXT, topic TEXT
 );
 CREATE TABLE IF NOT EXISTS news_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS watched_sites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, site TEXT NOT NULL UNIQUE, calendar TEXT NOT NULL DEFAULT '', last_result TEXT
+);
+CREATE TABLE IF NOT EXISTS watched_skipped (key TEXT PRIMARY KEY, skipped TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS watched_browser (site_id INTEGER PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS watched_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS news_followups (
     digest_id INTEGER NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, data TEXT, PRIMARY KEY (digest_id, kind, key)
 );
