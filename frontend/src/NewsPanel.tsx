@@ -8,6 +8,7 @@ import {
 import { servePageRequests } from './capture'
 import { when } from './format'
 import { extensionIsCurrent, openInBackground } from './openTab'
+import StopButton from './StopButton'
 
 // CLAUDE> a digest costs fractions of a cent: four decimals below a cent, two above
 const cost = (dollars: number) => `$${dollars < 0.01 ? dollars.toFixed(4) : dollars.toFixed(2)}`
@@ -55,13 +56,18 @@ export default function NewsPanel() {
       )}
       {data.running && data.progress?.step && (
         <section className="news-card digest-progress">
-          <h3>{data.progress.step}</h3>
+          <div className="digest-progress-head">
+            <h3>{data.progress.step}</h3>
+            <StopButton action="news-digest" running={data.running} />
+          </div>
           <ul>{Object.entries(data.progress.sites ?? {}).map(([site, status]) => (
             <li key={site}><span>{site}</span> <span className="muted">{status}</span></li>))}</ul>
         </section>
       )}
-      {data.failure && !data.running && (
-        <p className="news-card news-error">The last digest could not be made: {data.failure}. Press Make digest now to try again.</p>
+      {data.failure && !data.running && (data.failure.startsWith('you stopped it')
+        ? <p className="news-card news-quiet">You stopped the digest, so none was made. Nothing is lost: Make digest now takes the
+            same new articles.</p>
+        : <p className="news-card news-error">The last digest could not be made: {data.failure}. Press Make digest now to try again.</p>
       )}
       {data.nothing_new && !data.running && (
         <p className="news-card news-quiet">Nothing new since {shortWhen(data.nothing_new.since)}
@@ -127,14 +133,14 @@ function DigestView({ digest, onChange, onDeleted }: { digest: NewsDigest; onCha
       {digest.subjects.map(group => (
         <details key={group.subject} className="digest-subject">
           <summary>
-            {/* CLAUDE> a click on the ✕ must not also fold the section */}
-            <button type="button" className="story-delete" aria-label={`Delete all ${group.subject} stories`} title="Delete this whole subject"
+            <h3>{group.subject} <span className="muted">({group.stories.length})</span></h3>
+            {/* CLAUDE> far right and red, away from the title the user clicks to fold; the click must not fold it */}
+            <button type="button" className="story-delete subject-delete" aria-label={`Delete all ${group.subject} stories`} title="Delete this whole subject"
                     disabled={removeSubject.isPending}
                     onClick={e => {
                       e.preventDefault()
                       removeSubject.mutate(group.subject)
                     }}>✕</button>
-            <h3>{group.subject} <span className="muted">({group.stories.length})</span></h3>
           </summary>
           {group.stories.map(story => (
             <article key={story.id} className="story">
@@ -269,6 +275,7 @@ function SiteList({ sources, onSaved }: {
       <textarea rows={12} value={text} onChange={e => setText(e.target.value)} />
       <button type="button" className="quiet" disabled={text === initial || saved.isPending} onClick={() => saved.mutate()}>
         {saved.isPending ? 'Saving… (looking up feeds)' : 'Save'}</button>
+      <StopButton action="news-sites" running={saved.isPending} />
       {saved.isError && <p className="cap-error">Not saved: {saved.error.message}</p>}
       {troubled.length > 0 && (
         <details className="site-problems">

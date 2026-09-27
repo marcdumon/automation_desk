@@ -331,3 +331,147 @@ def test_day_and_month_without_a_year() -> None:
     """'Zaterdag 26/9- Zondag 27/9' is two dates; '/2026/09/25/' in an address is not a date."""
     assert web_page.read_dates('Zaterdag 26/9- Zondag 27/9', date(2026, 9, 23)) == [date(2026, 9, 26), date(2026, 9, 27)]
     assert web_page.read_dates('zie https://site.be/2026/09/25/expo en /09/25/', date(2026, 9, 23)) == []
+
+
+def test_a_page_too_long_to_answer_at_once_is_asked_in_halves(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Axel Vervoordt lists 130 exhibitions on one page: the model's list got cut off, so each half is asked on its own."""
+    from automation_desk.groups.calendar.web_page import Spans
+    from automation_desk.llm import CutOff
+
+    lines = [f'Show {n} [D{n}: {n} okt]\n' for n in range(1, 9)]
+    spans = Spans(dates={n: (date(2026, 10, n), None) for n in range(1, 9)}, times={}, links={}, text=''.join(lines))
+    asked = []
+
+    def answer(system: str, user: str, schema: type, **_: object) -> Extraction:
+        """Cuts off when asked about more than four shows."""
+        shown = [n for n in range(1, 9) if f'[D{n}:' in user]
+        asked.append(len(shown))
+        if len(shown) > 4:
+            raise CutOff('The answer was longer than the output limit and got cut off.')
+        return Extraction(events=[FoundEvent(title=f'Show {n}', date_span=n, running_until=False, end_date_span=-1, time_span=-1,
+                                             end_time_span=-1, location='', description='', end_text='', link_span=-1,
+                                             matches_filter=True) for n in shown])
+
+    monkeypatch.setattr(web_page, 'ask', answer)
+    events = text_events(spans, '', 'https://x.be/agenda', TODAY)
+    assert [e.title for e in events] == [f'Show {n}' for n in range(1, 9)]
+    assert asked == [8, 4, 4]
+
+
+def test_dates_written_with_dots_as_smak_does() -> None:
+    """S.M.A.K.: 'tot 10.Jan.27', '31.Okt.26 tot 21.Feb.27'; a time after 'okt.' stays a time."""
+    from automation_desk.groups.calendar.web_page import read_dates
+
+    assert read_dates('tot 10.Jan.27 · 31.Okt.26 tot 21.Feb.27', date(2026, 9, 26)) == [
+        date(2027, 1, 10), date(2026, 10, 31), date(2027, 2, 21)]
+    assert read_dates('12 okt. 20:00', date(2026, 9, 26)) == [date(2026, 10, 12)]
+
+
+def test_a_downloaded_page_without_events_is_loaded_again_in_the_browser(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Kanal: JavaScript fills the agenda; the downloaded shell holds one stray date ('Discover Kanal from 28 November')."""
+    loaded = browser_stub(monkeypatch)
+    answers = iter([Extraction(events=[]), EVENT])
+    monkeypatch.setattr(web_page, 'ask', lambda *a, **k: next(answers))
+    shell = '<html><body><p>Discover Kanal from 28 November 2026.</p><div id="agenda"></div></body></html>'
+    with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, html=shell))) as http:
+        events, _, _ = read_events('https://kanal.brussels/en/calendar', TODAY, TZ, '', 1, http)
+    assert loaded == ['https://kanal.brussels/en/calendar'] and [e.title for e in events] == ['Expo']
+
+
+def test_a_year_written_on_the_page_is_kept_even_long_past() -> None:
+    """Patrick Derom's archive: 'TEFAF Maastricht 2018 · 10 - 18 Mar 2018' is 2018, not next March."""
+    from automation_desk.groups.calendar.web_page import read_dates
+
+    assert read_dates('10 - 18 Mar 2018', date(2026, 9, 26)) == [date(2018, 3, 10), date(2018, 3, 18)]
+    assert read_dates('12 okt', date(2026, 9, 26)) == [date(2026, 10, 12)], 'no year: the next one'
+
+
+def test_a_range_with_its_year_only_at_the_end_is_in_that_year() -> None:
+    """Patrick Derom: 'Brafa 2026 · 25 Jan - 1 Feb 2026' is January 2026, not 2027; '20 Dec - 5 Jan 2027' starts in 2026."""
+    from automation_desk.groups.calendar.web_page import read_dates
+
+    today = date(2026, 9, 26)
+    assert read_dates('25 Jan - 1 Feb 2026', today) == [date(2026, 1, 25), date(2026, 2, 1)]
+    assert read_dates('20 Dec - 5 Jan 2027', today) == [date(2026, 12, 20), date(2027, 1, 5)]
+    assert read_dates('12 okt - 3 nov', today) == [date(2026, 10, 12), date(2026, 11, 3)], 'no year at all: as before'
+
+
+def test_an_empty_link_covering_a_card_links_the_card_to_its_page() -> None:
+    """Bozar: <div class="card"><a class="card-link" href="/nl/kalender/..."></a> ... dates, title ...</div>."""
+    html = ('<div class="card"><a class="card-link" href="/nl/kalender/jean-brusselmans"></a><p>2 Okt.\'26 → 31 Jan.\'27</p>'
+            '<h3>Jean Brusselmans</h3></div>'
+            '<div class="card"><a class="card-link" href="/nl/kalender/rachel-whiteread"></a><p>12 Mar.\'27</p><h3>Rachel</h3></div>'
+            '<div><a href="/nl/nieuws"></a><a href="/nl/tickets"></a><p>Nieuws 3 okt 2026</p></div>')
+    spans = marked_text(BeautifulSoup(html, 'lxml'), 'https://www.bozar.be/nl/tentoonstellingen', TODAY, TZ)
+    linked = {spans.dates[d][0]: spans.links[spans.date_links[d]] for d in spans.date_links}
+    assert linked == {date(2026, 10, 2): 'https://www.bozar.be/nl/kalender/jean-brusselmans',
+                      date(2027, 1, 31): 'https://www.bozar.be/nl/kalender/jean-brusselmans',
+                      date(2027, 3, 12): 'https://www.bozar.be/nl/kalender/rachel-whiteread'}, 'a block with two links is no card'
+
+
+def test_a_two_digit_year_is_kept_as_written() -> None:
+    """Bozar's archive: "14 Nov.'24" is 2024, not next November."""
+    from automation_desk.groups.calendar.web_page import read_dates
+
+    assert read_dates("14 Nov.'24", date(2026, 9, 26)) == [date(2024, 11, 14)]
+
+
+def test_a_card_with_a_title_link_links_its_dates_too() -> None:
+    """Axel Vervoordt: <li class="c-card"><p><a href=...>Title</a></p> From September 12 → November 21, 2026</li>."""
+    html = ('<ul><li class="c-card"><p class="head"><a href="/gallery/exhibitions/jef">Jef Verheyen</a></p>'
+            '<p>From September 12 → November 21, 2026</p></li>'
+            '<li class="c-card"><p class="head"><a href="/gallery/exhibitions/kim">Kim Lim</a></p>'
+            '<p>From October 3, 2026</p></li></ul>')
+    spans = marked_text(BeautifulSoup(html, 'lxml'), 'https://www.axel-vervoordt.com/gallery/exhibitions', TODAY, TZ)
+    linked = {spans.dates[d][0]: spans.links[spans.date_links[d]].rsplit('/', 1)[1] for d in spans.date_links}
+    assert linked == {date(2026, 9, 12): 'jef', date(2026, 11, 21): 'jef', date(2026, 10, 3): 'kim'}
+
+
+def test_past_exhibitions_are_left_out_of_what_the_model_reads() -> None:
+    """Axel Vervoordt lists its whole archive; only cards with a date still to come (or 'ongoing') go to the model."""
+    html = ('<ul><li><p><a href="/ex/old">Old show</a></p><p>From March 1 → April 30, 2019</p></li>'
+            '<li><p><a href="/ex/now">Current show</a></p><p>From April 11 → November 14, 2026</p></li>'
+            '<li><p><a href="/ex/collection">Collection</a></p><p>Since June 1, 2020, ongoing</p></li></ul>')
+    spans = marked_text(BeautifulSoup(html, 'lxml'), 'https://www.axel-vervoordt.com/gallery/exhibitions', TODAY, TZ)
+    assert 'Old show' not in spans.text and 'Current show' in spans.text and 'Collection' in spans.text
+    assert len(spans.date_links) == 5, 'the code still knows every date and its page'
+
+
+def test_read_via_browser_skips_the_download(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A site the user reads through the browser: its download would give a stray line, not the agenda."""
+    loaded = browser_stub(monkeypatch)
+    with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, html=AGENDA))) as http:
+        read_events('https://kanal.brussels/en/calendar', TODAY, TZ, '', 1, http, browser_first=True)
+    assert loaded == ['https://kanal.brussels/en/calendar']
+
+
+def test_a_browser_read_during_a_check_stays_in_the_background(monkeypatch: pytest.MonkeyPatch) -> None:
+    asked = []
+    monkeypatch.setattr(web_page, 'read_in_browser',
+                        lambda url, may_ask=True: asked.append(may_ask) or (Captured(url, AGENDA, False), 5))
+    token = web_page.BROWSER_MAY_ASK.set(False)
+    try:
+        web_page.browser_page('https://kanal.brussels/en/calendar')
+    finally:
+        web_page.BROWSER_MAY_ASK.reset(token)
+    web_page.browser_page('https://kanal.brussels/en/calendar')
+    assert asked == [False, True]
+
+
+def test_a_page_read_in_the_browser_is_kept_to_look_at(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """What the user's browser handed over is saved (the latest per site), so a wrong result can be traced to it."""
+    monkeypatch.setattr(web_page, 'CAPTURES', tmp_path)
+    monkeypatch.setattr(web_page, 'read_in_browser', lambda url, may_ask=True: (Captured(url, AGENDA, False), 5))
+    web_page.browser_page('https://kanal.brussels/en/calendar?production_type=Exhibition')
+    assert [p.name for p in tmp_path.iterdir()] == ['kanal.brussels.html'] and 'Expo' in (tmp_path / 'kanal.brussels.html').read_text()
+
+
+def test_a_dotted_start_before_a_full_end_date_is_a_date() -> None:
+    """Tick Tack: '09.10—19.12.2026' starts on 9 October 2026; '13.12—18.01.2025' on 13 December 2024. A lone '12.50' stays
+    a price or a time."""
+    from automation_desk.groups.calendar.web_page import read_dates
+
+    today = date(2026, 9, 26)
+    assert read_dates('09.10—19.12.2026', today) == [date(2026, 10, 9), date(2026, 12, 19)]
+    assert read_dates('13.12—18.01.2025', today) == [date(2024, 12, 13), date(2025, 1, 18)]
+    assert read_dates('Tickets 12.50 - 15.00', today) == []

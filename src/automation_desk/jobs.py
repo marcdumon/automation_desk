@@ -183,7 +183,14 @@ class _RecordedRequest:
         started = time.monotonic()
         error = ''
         try:
-            return self._request.execute()
+            try:
+                return self._request.execute()
+            except ConnectionError:
+                # CLAUDE> a connection left idle (minutes of reading sites) may be closed by Google; a read can safely go
+                # again, a write not: it may have arrived
+                if not self._method.endswith(('.list', '.get')):
+                    raise
+                return self._request.execute()
         except Exception as failure:
             error = str(failure)
             raise

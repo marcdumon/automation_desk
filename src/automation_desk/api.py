@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -21,14 +22,16 @@ from fastapi.staticfiles import StaticFiles
 from googleapiclient.errors import HttpError
 from pydantic import BaseModel
 
-from automation_desk import google_auth, jobs, ledger, reminders
+from automation_desk import google_auth, jobs, ledger, llm, reminders, stop
 from automation_desk.capture import EXTENSION_DIR, Captured, CaptureError, broker
 from automation_desk.config import ROOT, config
 from automation_desk.dates import DateExprError
 from automation_desk.google_auth import AuthError
 from automation_desk.groups import GROUPS
 from automation_desk.groups.base import Context, Preview, TaskGroup, UserError
+from automation_desk.groups.calendar import watch
 from automation_desk.groups.calendar.client import timezone
+from automation_desk.groups.calendar.tasks import check_watched
 from automation_desk.groups.news import digest as news_digest
 from automation_desk.groups.news import store as news
 from automation_desk.groups.news.sites import save_site_list
@@ -243,6 +246,81 @@ def _interpret(group: TaskGroup, task_id: str | None, text: str, job: jobs.Job,
                              arguments=args.model_dump(exclude={'status', 'message'}), preview=preview)
 
 
+def _watch_state() -> dict:
+    """The watched agenda sites as the Calendar page edits them, and the ones that need the browser."""
+    return {'lines': watch.as_lines(), 'default_calendar': watch.default_calendar(),
+            'needs_browser': [{'id': w.id, 'site': w.site} for w in watch.sites() if w.last_result == watch.NEEDS_BROWSER],
+            'progress': {**watch.progress(), 'pause': llm.pause_left()}}
+
+
+@app.get('/api/calendar/watch')
+def watch_list() -> dict:
+    """The watched agenda sites."""
+    return _watch_state()
+
+
+class WatchList(BaseModel):
+    """The watched agenda sites, one per line ('site → calendar' or just the site), and the default calendar."""
+
+    lines: list[str]
+    default_calendar: str = ''
+
+
+@app.post('/api/calendar/watch')
+def watch_save(request: WatchList) -> dict:
+    """Make the watched sites exactly these lines."""
+    watch.save_list(request.lines)
+    if request.default_calendar.strip():
+        watch.set_default_calendar(request.default_calendar)
+    return _watch_state()
+
+
+@app.post('/api/stop/{action}')
+def stop_action(action: str) -> dict:
+    """Ask a running long action to stop; it ends with what it has done so far."""
+    if action not in stop.ACTIONS:
+        raise HTTPException(404, f'Nothing called {action!r} can be stopped.')
+    stop.request(action)
+    return {'stopping': action}
+
+
+@app.post('/api/calendar/watch/from-events')
+def watch_from_events() -> dict:
+    """Add the agenda pages of the events in the calendars, each with the calendar its events are in."""
+    job = jobs.Job(group='calendar', sentence='Add watched sites from calendar events', task_id='check_watched_sites',
+                   task_name='Watched agenda sites')
+    with jobs.run(job), httpx.Client(timeout=30.0) as http:
+        found, unmatched = check_watched.sites_from_events(context(job.sentence).google('calendar', 'v3'), http)
+        added = watch.add_sites(found)
+        job.message = f'{added} site(s) added of {len(found)} found; {unmatched} import(s) without a web page'
+    return {**_watch_state(), 'added': added, 'unmatched': unmatched}
+
+
+class WatchCheck(BaseModel):
+    """Check every watched site, or `only` these, through the browser when the user asked for it."""
+
+    via_browser: bool = False
+    only: list[int] | None = None
+
+
+@app.post('/api/calendar/watch/check')
+def watch_check(request: WatchCheck) -> InterpretResponse:
+    """The new events of the watched sites as a preview, like a command's, without a model call to understand a sentence."""
+    group = group_or_404('calendar')
+    task = group.task('check_watched_sites')
+    job = jobs.Job(group=group.id, sentence='Check watched agenda sites' + (' through the browser' if request.via_browser else ''),
+                   task_id=task.id, task_name=task.name)
+    with jobs.run(job):
+        preview, payload = task.check(context(job.sentence), request.via_browser, set(request.only) if request.only else None)
+        plan_id = plans.put(Plan(group_id=group.id, task_id=task.id, payload=payload, job=job,
+                                 row_ids={row.id for row in preview.rows if row.selectable}))
+        job.message, job.preview = preview.summary, preview.model_dump()
+    response = InterpretResponse(status='preview', task_id=task.id, task_name=task.name, plan_id=plan_id, arguments={},
+                                 preview=preview)
+    response.job = job.summary()
+    return response
+
+
 class AdjustRequest(BaseModel):
     """New values for a preview's options."""
 
@@ -270,20 +348,32 @@ class ExecuteRequest(BaseModel):
 
     plan_id: str
     selected: list[str]
+    # CLAUDE> one section of the preview only (a watched site); the plan stays for the other sections
+    section: str = ''
 
 
 @app.post('/api/groups/{group_id}/execute')
 def execute(group_id: str, request: ExecuteRequest) -> dict:
     """Apply a frozen plan to the ticked rows, as the 'apply' step of the job that previewed it. Runs at most once."""
     group = group_or_404(group_id)
-    plan = plans.take(request.plan_id)
+    plan = plans.get(request.plan_id) if request.section else plans.take(request.plan_id)
     if plan is None or plan.group_id != group.id:
         raise HTTPException(410, 'This preview expired or was already executed. Run the command again.')
     job = plan.job
+    if request.section:
+        with jobs.run(job, 'apply'):
+            results, done = group.task(plan.task_id).execute_group(plan.payload, set(request.selected) & plan.row_ids,
+                                                                    request.section, context(job.sentence))
+            plan.row_ids.difference_update(done)
+            job.applied_rows = sorted(set(job.applied_rows) | (set(request.selected) & done))
+            job.results = [*job.results, *results]
+            job.apply_message = f'{len(job.results)} result(s)'
+        return {'results': results, 'job': job.summary()}
     with jobs.run(job, 'apply'):
         selected = set(request.selected) & plan.row_ids
         job.applied_rows = sorted(selected)
-        job.results = (group.task(plan.task_id).execute(plan.payload, selected, context(job.sentence)) if selected
+        task = group.task(plan.task_id)
+        job.results = (task.execute(plan.payload, selected, context(job.sentence)) if selected or task.declines_unticked
                        else ['Nothing selected, nothing changed.'])
         job.apply_message = f'{len(job.results)} result(s)'
     return {'results': job.results, 'job': job.summary()}

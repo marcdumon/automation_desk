@@ -77,3 +77,24 @@ def test_calls_are_labelled_with_their_step_and_the_ledger_keeps_the_latest_stat
     assert [c.stage for c in job.google_calls] == ['preview', 'apply'] and job.fetches[0].stage == 'apply'
     stored = jobs.load()
     assert len(stored) == 1 and stored[0]['apply_status'] == 'ok' and len(stored[0]['google_calls']) == 2
+
+
+class _Dropping:
+    """A request whose first try meets a connection Google closed while the app was busy elsewhere."""
+
+    def __init__(self) -> None:
+        self.tries = 0
+
+    def execute(self) -> dict:
+        self.tries += 1
+        if self.tries == 1:
+            raise BrokenPipeError(32, 'Broken pipe')
+        return {'items': []}
+
+
+def test_a_read_is_tried_again_when_the_connection_dropped_but_a_write_is_not() -> None:
+    """A check reads sites for minutes before it asks Calendar anything; the idle connection may be gone by then."""
+    read = _Dropping()
+    assert jobs._RecordedRequest(read, 'calendar.events.list', {}).execute() == {'items': []}
+    with pytest.raises(BrokenPipeError):
+        jobs._RecordedRequest(_Dropping(), 'calendar.events.insert', {}).execute()

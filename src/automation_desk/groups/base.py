@@ -39,6 +39,16 @@ class Row(BaseModel):
     links: dict[str, str] = {}
     # CLAUDE> column -> value the user may edit in the preview, e.g. 'Duration' -> '2h'; sent back as '<column>:<row id>'
     inputs: dict[str, str] = {}
+    # CLAUDE> the name of the section the row is shown in (a watched site), '' when the preview has none
+    group: str = ''
+
+
+class PreviewGroup(BaseModel):
+    """A section of a preview: its rows share `group` = name; shown even without rows, so every source is accounted for."""
+
+    name: str
+    calendar: str = ''
+    note: str = ''
 
 
 class PreviewOption(BaseModel):
@@ -49,6 +59,8 @@ class PreviewOption(BaseModel):
     value: str
     help: str = ''
     multiline: bool = False
+    # CLAUDE> when set, the value is one of these, shown as buttons instead of a text box
+    choices: list[str] = []
 
 
 class Evidence(BaseModel):
@@ -67,6 +79,7 @@ class Preview(BaseModel):
     columns: list[str]
     rows: list[Row]
     notes: list[str] = []
+    groups: list[PreviewGroup] = []
     options: list[PreviewOption] = []
     # CLAUDE> a result to look at, with nothing to apply (a search)
     read_only: bool = False
@@ -131,6 +144,8 @@ class StandardTask(ABC):
     Args: ClassVar[type[TaskArgs]]
     # CLAUDE> the task-specific part of the system prompt: how to fill Args from a sentence
     guidance: ClassVar[str] = ''
+    # CLAUDE> applying with nothing ticked still means something: the unticked rows are remembered as declined
+    declines_unticked: ClassVar[bool] = False
 
     @abstractmethod
     def resolve(self, args: Any, ctx: Context) -> tuple[Preview, Any]:

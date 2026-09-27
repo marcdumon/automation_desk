@@ -34,6 +34,9 @@ PAGE_TAG = 'automation_desk_page'
 EVENT_TAG = 'automation_desk_key'
 
 
+SITE_TIMES, ALL_DAY = 'Times from the site', 'All day'
+
+
 class AddEventsArgs(TaskArgs):
     """Where the events go and which ones to leave out. The URL is taken from the sentence by code."""
 
@@ -164,14 +167,15 @@ def differences(earlier: dict, body: dict) -> list[str]:
     return [label for label, (old, new) in checks.items() if old != new]
 
 
-EDITABLE = ('Date', 'Time', 'Duration', 'Title', 'Place', 'Info', 'Source')
+# CLAUDE> the source is where the event comes from: shown as a link, never edited
+EDITABLE = ('Date', 'Time', 'Duration', 'Title', 'Place', 'Info')
 ALL_DAY_WORDS = {'', 'all day', 'all-day', 'hele dag', 'toute la journée', '—', '-'}
 
 
 def apply_edits(event: WebEvent, edits: dict[str, str], today: date) -> tuple[WebEvent, timedelta | None]:
     """An event with the user's edits applied, and the duration the user set, if any. Everything is read by code."""
     changes: dict = {}
-    for column, field_name in (('Title', 'title'), ('Place', 'location'), ('Info', 'description'), ('Source', 'url')):
+    for column, field_name in (('Title', 'title'), ('Place', 'location'), ('Info', 'description')):
         if column in edits:
             value = edits[column].strip()
             changes[field_name] = '' if value == '—' else value
@@ -325,6 +329,9 @@ class AddEventsFromWeb(StandardTask):
             organiser = Organiser(site=organiser.site, name=' '.join(options.get('organiser', organiser.name).split()),
                                   address=' '.join(options.get('organiser_address', organiser.address).split()))
             save(organiser)
+        all_day = payload.get('all_day', False)
+        if options.get('times'):
+            all_day = options['times'] == ALL_DAY
         default = payload.get('default_duration', DEFAULT_DURATION)
         if options.get('default_duration', '').strip():
             default = parse_duration(options['default_duration'])
@@ -333,17 +340,21 @@ class AddEventsFromWeb(StandardTask):
             column, _, key = name.partition(':')
             if key and column in EDITABLE:
                 edits.setdefault(key, {})[column] = value
-        return self.compose({**payload, 'organiser': organiser, 'default_duration': default, 'edits': edits}, ctx)
+        return self.compose({**payload, 'organiser': organiser, 'default_duration': default, 'edits': edits, 'all_day': all_day},
+                            ctx)
 
     def compose(self, payload: dict, ctx: Context) -> tuple[Preview, dict]:
         """Titles, places, exclusions and what is already in the calendar, from events already read."""
         url, organiser = payload['url'], payload['organiser']
         default, edits = payload.get('default_duration', DEFAULT_DURATION), payload.get('edits', {})
         # CLAUDE> a year far from the one most events share is probably a typo on the page ('6/10/2028' among 2026 dates)
-        usual_year = Counter(e.start.year for e in payload['events']).most_common(1)[0][0]
+        usual_year = next(iter(Counter(e.start.year for e in payload['events']).most_common(1)), (ctx.today.year, 0))[0]
         svc = ctx.google('calendar', 'v3')
         # CLAUDE> keys and matching use the title as the page gives it, so renaming the organiser never breaks the link
-        pairs = [(e, replace(e, title=titled(e.title, organiser), location=placed(e.location, organiser)))
+        all_day = payload.get('all_day', False)
+        # CLAUDE> 'All day' drops the site's times before the per-event edits, so one event can still get a time back
+        pairs = [(e, replace(e, title=titled(e.title, organiser), location=placed(e.location, organiser),
+                             **({'start_time': None, 'end_time': None} if all_day else {})))
                  for e in payload['events']]
         find = EarlierImports(events_tagged(svc, payload['calendar_id'], PAGE_TAG, payload['page_tag']), [e for e, _ in pairs])
         rows, bodies, updates, seen = [], {}, {}, set()
@@ -368,7 +379,7 @@ class AddEventsFromWeb(StandardTask):
             day, clock, duration = when(event, default, override)
             info = (event.description[:140] + '…') if len(event.description) > 140 else event.description
             inputs = {'Date': day, 'Time': event.start_time.strftime('%H:%M') if event.start_time else 'all day',
-                      'Title': event.title, 'Place': event.location, 'Info': event.description, 'Source': event.url}
+                      'Title': event.title, 'Place': event.location, 'Info': event.description}
             if is_timed(event):
                 inputs['Duration'] = duration.removesuffix(' (assumed)')
             rows.append(Row(id=key, selectable=not unchanged, selected=not (unchanged or reason), note=note,
@@ -391,6 +402,8 @@ class AddEventsFromWeb(StandardTask):
                           help=f'Every title starts with it. Remembered for {organiser.site}.'),
             PreviewOption(name='organiser_address', label='Organiser address', value=organiser.address,
                           help='Added to places that are missing or only name the organiser.'),
+            PreviewOption(name='times', label='Times', value=ALL_DAY if all_day else SITE_TIMES, choices=[SITE_TIMES, ALL_DAY],
+                          help='All day puts every event in without a time; one event can still get its time in its row.'),
             PreviewOption(name='default_duration', label='Default duration', value=duration_label(default),
                           help="For events whose page gives no end time, e.g. '2h', '90 min', '1h30'."),
         ]

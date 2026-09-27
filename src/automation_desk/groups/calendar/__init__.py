@@ -2,7 +2,9 @@
 
 from automation_desk.groups.base import TaskGroup
 from automation_desk.groups.calendar.tasks.add_events_from_web import AddEventsFromWeb
+from automation_desk.groups.calendar.tasks.check_watched import CheckWatchedSites
 from automation_desk.groups.calendar.tasks.delete_events import DeleteEvents
 
-GROUP = TaskGroup(id='calendar', name='Calendar', description='Google Calendar', tasks=[AddEventsFromWeb(), DeleteEvents()],
+GROUP = TaskGroup(id='calendar', name='Calendar', description='Google Calendar',
+                  tasks=[AddEventsFromWeb(), CheckWatchedSites(), DeleteEvents()],
                   accepts_files=True)

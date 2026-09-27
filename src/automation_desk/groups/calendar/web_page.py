@@ -24,9 +24,10 @@ from icalendar import Calendar
 from pydantic import BaseModel, Field
 
 from automation_desk.capture import read_in_browser
+from automation_desk.config import ROOT
 from automation_desk.groups.calendar.pdf import is_pdf, pdf_text
 from automation_desk.jobs import record_fetch
-from automation_desk.llm import ask
+from automation_desk.llm import CutOff, ask
 
 MAX_TEXT_CHARS = 200_000
 # CLAUDE> event pages are read to fill in info and place; a few at a time, and not endlessly
@@ -54,8 +55,9 @@ MONTHS = {
 _MONTH = '(' + '|'.join(sorted(MONTHS, key=len, reverse=True)) + r')\.?'
 _ORD = r'(?:st|nd|rd|th|er|e|ste|de)?'
 # CLAUDE> '23 sep 26' has a two-digit year, but in '12 okt 20:00' or '12 okt 20 uur' the number is a time
-_YEAR = r"(?:,?[ \t]+(\d{4}|'?\d{2}(?![\d:]|\.\d|[ \t]*(?:u|uur|h|am|pm)\b))|[ \t]*('\d{2})(?!\d))?"
-_RANGE_WORD = r"(?:[-\u2013\u2014]|t/m|tot(?:[ \t]+en[ \t]+met)?|to|until|through|au|jusqu'au|jusqu\u2019au)"
+# CLAUDE> and in '10.Jan.27' (S.M.A.K.) the year follows the month's dot
+_YEAR = r"(?:,?[ \t]+(\d{4}|'?\d{2}(?![\d:]|\.\d|[ \t]*(?:u|uur|h|am|pm)\b))|[ \t]*('\d{2}|(?<=\.)\d{2}(?![\d:.]))(?!\d))?"
+_RANGE_WORD = r"(?:[-\u2013\u2014\u2192]|->|t/m|tot(?:[ \t]+en[ \t]+met)?|to|until|through|au|jusqu'au|jusqu\u2019au)"
 _LIST_WORD = r'(?:,|&|\+|en|and|et)'
 # CLAUDE> weekday names (nl, en, fr; full or short) that may stand before a day number inside a list or range
 _WEEKDAY = (r'(?:maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag|ma|di|wo|do|vr|za|zo|monday|tuesday|wednesday|'
@@ -65,16 +67,20 @@ _WEEKDAY = (r'(?:maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag|ma|d
 _NEXT_DAY = rf'[ \t]*(?:{_RANGE_WORD}|{_LIST_WORD})[ \t]*(?:{_WEEKDAY}[ \t]+)?\d{{1,2}}{_ORD}(?![:.]\d|[ \t]*(?:u|uur|h)\b)'
 DATE_PATTERNS = [
     # CLAUDE> several days sharing one month: '12 - 20 oktober', 'zaterdag 10 en zondag 11 oktober 2026', '3, 10 en 17 okt'
-    ('days_month', re.compile(rf'\b\d{{1,2}}{_ORD}(?:{_NEXT_DAY})+[ \t]+{_MONTH}{_YEAR}\b', re.IGNORECASE)),
+    ('days_month', re.compile(rf"(?<!['.\u2019])\b\d{{1,2}}{_ORD}(?:{_NEXT_DAY})+[ \t]+{_MONTH}{_YEAR}\b", re.IGNORECASE)),
     # CLAUDE> the same, month first: 'October 10 and 11, 2026'
     ('month_days', re.compile(rf'\b{_MONTH}[ \t]+\d{{1,2}}{_ORD}(?:{_NEXT_DAY})+{_YEAR}\b', re.IGNORECASE)),
-    ('dmy', re.compile(rf'\b(\d{{1,2}}){_ORD}[ \t]+{_MONTH}{_YEAR}\b', re.IGNORECASE)),
+    # CLAUDE> '10 jan', and '10.Jan' with a dot before the month's letters
+    ('dmy', re.compile(rf'\b(\d{{1,2}}){_ORD}(?:[ \t]+|\.(?=[^\W\d])){_MONTH}{_YEAR}\b', re.IGNORECASE)),
     ('mdy', re.compile(rf'\b{_MONTH}[ \t]+(\d{{1,2}}){_ORD}{_YEAR}\b', re.IGNORECASE)),
     ('iso', re.compile(r'\b(\d{4})-(\d{2})-(\d{2})\b')),
     ('num', re.compile(r'\b(\d{1,2})[/.](\d{1,2})[/.](\d{4}|\d{2})\b')),
     # CLAUDE> day/month without a year, with a slash only ('26/9'; '26.9' is too often a time or a price), never part of an
     # address ('/2026/09/25/')
     ('dm', re.compile(r'(?<![/\d])(\d{1,2})/(\d{1,2})(?![/\d])')),
+    # CLAUDE> day.month with a dot only right before a range dash and a full date ('09.10—19.12.2026', Tick Tack); alone,
+    # '12.50' is a price or a time
+    ('dm_dot', re.compile(rf'(?<![\d.])(\d{{1,2}})\.(\d{{1,2}})(?=\s*{_RANGE_WORD}\s*\d{{1,2}}\.\d{{1,2}}\.(?:\d{{4}}|\d{{2}})\b)')),
 ]
 # CLAUDE> every pattern captures (hour, minute, suffix); '12.50' counts only with a suffix, so prices are not times
 TIME_PATTERNS = [
@@ -131,10 +137,19 @@ def fetch(url: str, http: httpx.Client, use_browser: bool = False) -> Page:
     return browser_page(url)
 
 
+# CLAUDE> off while checking watched agenda sites: pages are read in background tabs that never come forward; a page
+# that wants a person raises NeedsPerson, and the check lists the site for Read via browser
+# CLAUDE> the latest page each site's browser read handed over, to trace a wrong result to what was actually read
+CAPTURES = ROOT / 'data' / 'captures'
+BROWSER_MAY_ASK: contextvars.ContextVar[bool] = contextvars.ContextVar('browser_may_ask', default=True)
+
+
 def browser_page(url: str, may_ask: bool = True) -> Page:
     """Read a page through the user's own browser, recorded on the current job; with `may_ask` False its tab never comes
     forward, and a page that wants a person raises NeedsPerson."""
-    captured, elapsed = read_in_browser(url, may_ask)
+    captured, elapsed = read_in_browser(url, may_ask and BROWSER_MAY_ASK.get())
+    CAPTURES.mkdir(parents=True, exist_ok=True)
+    (CAPTURES / f'{urlparse(url).netloc.removeprefix("www.")}.html').write_text(captured.html)
     via = 'your browser, after you completed the site check' if captured.asked_you else 'your browser'
     record_fetch(url, 0, len(captured.html.encode()), elapsed, via=via)
     return Page(url=captured.url, html=captured.html, via='browser')
@@ -208,8 +223,9 @@ def _make_date(year: str | None, month: int, day: int, today: date) -> date | No
     """Build a date from parts, inferring a missing year; None when the parts are not a real date."""
     try:
         y = int(year.lstrip("'")) if year else 0
+        # CLAUDE> a written year is what the page means, also an archive's '2018' or "Nov.'24"; only a missing one is guessed
         y = y + 2000 if 0 < y < 100 else y
-        if today.year - 1 <= y <= today.year + 3:
+        if 1900 <= y <= today.year + 3:
             return date(y, month, day)
         return infer_year(month, day, today)
     except ValueError:
@@ -352,6 +368,7 @@ def _date_matches(text: str, today: date) -> list[tuple[int, int, list[tuple[dat
     """
     found = []
     taken: list[tuple[int, int]] = []
+    yearless: set[int] = set()
     for kind, pattern in DATE_PATTERNS:
         for m in pattern.finditer(text):
             if any(m.start() < e and s < m.end() for s, e in taken):
@@ -377,14 +394,30 @@ def _date_matches(text: str, today: date) -> list[tuple[int, int, list[tuple[dat
                 days = [_make_date(year, MONTHS[g[0].lower()], int(g[1]), today)]
             elif kind == 'iso':
                 days = [_make_date(g[0], int(g[1]), int(g[2]), today)]
-            elif kind == 'dm':
+            elif kind in ('dm', 'dm_dot'):
                 days = [_make_date(None, int(g[1]), int(g[0]), today)]
             else:
                 days = [_make_date(g[2], int(g[1]), int(g[0]), today)]
             if days and all(days):
                 taken.append((m.start(), m.end()))
                 found.append((m.start(), m.end(), [(d, None) for d in days if d], style))
-    return found
+                if not year and kind in ('dmy', 'mdy', 'dm', 'dm_dot'):
+                    yearless.add(m.start())
+    return _year_from_range_end(sorted(found, key=lambda f: f[0]), yearless, text)
+
+
+def _year_from_range_end(found: list, yearless: set[int], text: str) -> list:
+    """'25 Jan - 1 Feb 2026': a start without a year takes the year of the end it runs to (the year before when its month
+    comes later: '20 Dec - 5 Jan 2027')."""
+    fixed = list(found)
+    for i, (start, end, days, style) in enumerate(found[:-1]):
+        after_start, _, after_days, _ = found[i + 1]
+        if (start in yearless and after_start not in yearless and len(days) == 1 and after_days
+                and re.fullmatch(rf'\s*{_RANGE_WORD}\s*', text[end:after_start], re.IGNORECASE)):
+            day, last = days[0][0], after_days[0][0]
+            year = last.year - 1 if (day.month, day.day) > (last.month, last.day) else last.year
+            fixed[i] = (start, end, [(replace_year(day, year), days[0][1])], style)
+    return fixed
 
 
 def read_dates(text: str, today: date) -> list[date]:
@@ -412,19 +445,40 @@ def _time_matches(text: str, busy: list[tuple[int, int]]) -> list[tuple[int, int
     return found
 
 
+def _card_of(link: Tag, href: str) -> Tag | None:
+    """The card a link stands for: the largest block around it (a few levels up) that has text and links nowhere else, so
+    its dates belong to that page (Bozar's empty 'card-link', Axel Vervoordt's title link). None when there is none."""
+    card = None
+    for block in list(link.parents)[:4]:
+        if block.name in ('body', 'html', '[document]'):
+            break
+        if {urljoin(href, a['href']) for a in block.find_all('a', href=True)} != {href}:
+            break
+        if block.get_text(strip=True):
+            card = block
+    return card
+
+
 def marked_text(soup: BeautifulSoup, page_url: str, today: date, tz: ZoneInfo) -> Spans:
     """The page's visible text with every date, time and link numbered for the model."""
     for tag in soup(['script', 'style', 'noscript', 'svg', 'template', 'iframe']):
         tag.decompose()
 
     links: dict[int, str] = {}
+    marked: set[int] = set()
     for a in soup.find_all('a', href=True):
         href = urljoin(page_url, a['href'])
-        if href.startswith('http') and a.get_text(strip=True):
+        if not href.startswith('http'):
+            continue
+        # CLAUDE> an empty link laid over a card (Bozar's 'card-link') stands for the whole card: its dates and title
+        holder = _card_of(a, href) or (a if a.get_text(strip=True) else None)
+        # CLAUDE> a card with several links to the same page (image, title) is marked once
+        if holder is not None and id(holder) not in marked:
+            marked.add(id(holder))
             links[len(links) + 1] = href
             # CLAUDE> start and end markers let code see which dates sit inside which link; 'L' keeps digits off word boundaries
-            a.insert(0, f'\x01L{len(links)}\x01')
-            a.append(f'\x02L{len(links)}\x02')
+            holder.insert(0, f'\x01L{len(links)}\x01')
+            holder.append(f'\x02L{len(links)}\x02')
 
     # CLAUDE> <time datetime="..."> is exact; swap it for a placeholder so the regexes below skip its text
     exact: dict[str, tuple[date, time | None, str]] = {}
@@ -471,9 +525,37 @@ def marked_text(soup: BeautifulSoup, page_url: str, today: date, tz: ZoneInfo) -
     for placeholder, (day, clock, original) in exact.items():
         dates[len(dates) + 1] = (day, clock)
         text = text.replace(placeholder, f'[D{len(dates)}: {original}]')
-    text, date_links = _resolve_link_markers(text)
+    _, date_links = _resolve_link_markers(text)
+    text, _ = _resolve_link_markers(_without_past_cards(text, dates, today))
     return Spans(dates=dates, times=times, links=links, text=text[:MAX_TEXT_CHARS], until=frozenset(until),
                  date_links=date_links)
+
+
+# CLAUDE> words that keep a card whose dates are all past: it is still on
+STILL_ON = re.compile(r'ongoing|permanent|doorlopend|lopend|vaste collectie|en cours|jusqu.à nouvel ordre', re.IGNORECASE)
+_DATE_IDS = re.compile(r'\[(D\d+(?:(?: to |, )D\d+)*):')
+
+
+def _without_past_cards(text: str, dates: dict[int, tuple[date, time | None]], today: date) -> str:
+    """The marked text without the linked blocks whose dates are all past, so the model does not list an archive
+    (Axel Vervoordt shows 178 exhibitions, nearly all over). Blocks without dates, and 'ongoing' ones, stay."""
+    kept, cursor = [], 0
+    for m in re.finditer(r'\x01L(\d+)\x01', text):
+        if m.start() < cursor:
+            continue
+        close = f'\x02L{m.group(1)}\x02'
+        end = text.find(close, m.end())
+        if end < 0:
+            continue
+        end += len(close)
+        block = text[m.start():end]
+        days = [dates[int(n)][0] for ids in _DATE_IDS.findall(block) for n in re.findall(r'D(\d+)', ids)]
+        kept.append(text[cursor:m.start()])
+        if not (days and max(days) < today and not STILL_ON.search(block)):
+            kept.append(block)
+        cursor = end
+    kept.append(text[cursor:])
+    return ''.join(kept)
 
 
 _LINK_MARKER = re.compile(r'\x01L(\d+)\x01|\x02L(\d+)\x02|\[D(\d+)')
@@ -529,7 +611,8 @@ Dates are marked [Dn: original text], a range as [Dn to Dm: text] and separate d
 One event held on consecutive listed days ('zaterdag 10 en zondag 11 oktober') is ONE event: date_span = the first day,
 end_date_span = the last. Separate dates of a series ('3, 10 en 17 oktober') are separate events.
 Refer to dates and times ONLY by those numbers; never write a date or time yourself.
-Skip navigation, opening hours of the venue, newsletter blocks and items that are not events.
+Skip navigation, opening hours of the venue, newsletter blocks and items that are not events. When the venue itself
+opens or reopens ('Discover Kanal from 28 November'), when ticket sales start, or a link to plan a visit is no event.
 List every event, also those that fail the filter instruction: mark those with matches_filter false, never leave them out.
 Copy titles, locations and descriptions in the page's own language (Dutch, French or English)."""
 
@@ -540,9 +623,7 @@ def text_events(spans: Spans, text_filter: str, page_url: str, today: date,
     if not spans.dates:
         return []
     instruction = f'Filter instruction: {text_filter}' if text_filter else 'Filter instruction: none (all events match).'
-    found = [item for chunk in chunks(spans.text, CHUNK_CHARS)
-             for item in ask(EXTRACT_SYSTEM, f'{instruction}\n\nPage text:\n{chunk}', Extraction, http=http,
-                             purpose='list events on page').events]
+    found = [item for chunk in chunks(spans.text, CHUNK_CHARS) for item in _listed_events(instruction, chunk, http)]
     events = []
     for item in found:
         if item.date_span not in spans.dates:
@@ -562,6 +643,18 @@ def text_events(spans: Spans, text_filter: str, page_url: str, today: date,
                                matches_filter=item.matches_filter,
                                end_text='' if end else item.end_text.strip()))
     return events
+
+
+def _listed_events(instruction: str, chunk: str, http: httpx.Client | None) -> list[FoundEvent]:
+    """The events the model lists in a piece of page text; a list too long for one answer is asked for in halves."""
+    try:
+        return ask(EXTRACT_SYSTEM, f'{instruction}\n\nPage text:\n{chunk}', Extraction, http=http,
+                   purpose='list events on page').events
+    except CutOff:
+        halves = chunks(chunk, len(chunk) // 2 + 1)
+        if len(halves) < 2:
+            raise
+        return [item for half in halves for item in _listed_events(instruction, half, http)]
 
 
 def chunks(text: str, size: int) -> list[str]:
@@ -625,19 +718,20 @@ def next_page(soup: BeautifulSoup, page_url: str) -> str | None:
 
 
 def read_events(url: str, today: date, tz: ZoneInfo, text_filter: str, max_pages: int,
-                http: httpx.Client) -> tuple[list[WebEvent], list[str], str]:
+                http: httpx.Client, browser_first: bool = False) -> tuple[list[WebEvent], list[str], str]:
     """Events from the page and, when max_pages > 1, its following pages, completed from each event's own page.
 
     Returns events, notes for the preview and the first page's HTML (to find who runs the site). A page that is
-    downloaded but shows no events and no dates probably builds its agenda with JavaScript, so it is read again through
-    the browser; once a site needed the browser, its other pages are read that way too.
+    downloaded but shows no events probably builds its agenda with JavaScript, so it is read again through
+    the browser; once a site needed the browser, its other pages are read that way too. `browser_first` skips the
+    download: the user asked for the browser (Kanal's download holds only a stray 'Discover Kanal from 28 November').
     """
     events: list[WebEvent] = []
     notes: list[str] = []
     first_html = ''
     seen: set[str] = set()
     current: str | None = url
-    use_browser = False
+    use_browser = browser_first
     while current and current not in seen and len(seen) < max_pages:
         seen.add(current)
         page = fetch(current, http, use_browser)
@@ -647,7 +741,8 @@ def read_events(url: str, today: date, tz: ZoneInfo, text_filter: str, max_pages
                          'by the model).')
             return found, notes, pdf_as_html(text, page.url)
         found, source = _page_events(page, today, tz, text_filter, http)
-        if found is None and page.via == 'download':
+        # CLAUDE> no events in a download: the agenda is probably filled by JavaScript (Kanal's shell has one stray date)
+        if not found and page.via == 'download':
             page = browser_page(current)
             found, source = _page_events(page, today, tz, text_filter, http)
         use_browser = page.via == 'browser'

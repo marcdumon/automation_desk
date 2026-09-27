@@ -9,7 +9,9 @@ import copy
 import json
 import logging
 import re
+import threading
 import time
+from collections import deque
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -21,10 +23,21 @@ log = logging.getLogger(__name__)
 
 RETRYABLE_STATUS = frozenset({408, 409, 429, 500, 502, 503, 504})
 MAX_ATTEMPTS = 3
+RATE_LIMIT_WAITS = 5
+RATE_LIMIT_MAX_WAIT_S = 65.0
+# CLAUDE> when the recent requests went out, shared by the threads that call the model at once
+_SENT: deque[float] = deque()
+_PACE = threading.Lock()
+# CLAUDE> when a pause for the rate limit ends (time.monotonic), so the page can say why nothing moves
+_paused_until = 0.0
 
 
 class LLMError(RuntimeError):
     """The model could not be reached or gave no usable answer."""
+
+
+class CutOff(LLMError):
+    """The answer was longer than the output limit: asking about less text at once can work."""
 
 
 def strict_schema(schema: type[BaseModel]) -> dict:
@@ -109,13 +122,54 @@ def coerce[T: BaseModel](text: str, schema: type[T]) -> T:
     raise ValueError(f'could not parse a {schema.__name__} from the reply: {last_error}')
 
 
+def pause_left() -> int:
+    """Seconds left of a pause for the model's rate limit, 0 when none."""
+    return max(round(_paused_until - time.monotonic()), 0)
+
+
+def _pause(seconds: float) -> None:
+    """Sleep for the rate limit, telling pause_left how long."""
+    global _paused_until
+    _paused_until = time.monotonic() + seconds
+    try:
+        time.sleep(seconds)
+    finally:
+        _paused_until = 0.0
+
+
+def _wait_for_turn(per_minute: int) -> None:
+    """Wait until a request fits in the model's requests-per-minute limit, and count it."""
+    with _PACE:
+        now = time.monotonic()
+        while _SENT and now - _SENT[0] >= 60:
+            _SENT.popleft()
+        if len(_SENT) >= per_minute:
+            _pause(60 - (now - _SENT[0]))
+            _SENT.popleft()
+            now = time.monotonic()
+        _SENT.append(now)
+
+
+def _rate_limit_wait(response: httpx.Response) -> float:
+    """Seconds until a rate limit resets: from Retry-After, else from the reset time OpenRouter puts in the error."""
+    if seconds := response.headers.get('retry-after', ''):
+        return min(max(float(seconds), 1.0), RATE_LIMIT_MAX_WAIT_S)
+    try:
+        reset_ms = float(response.json()['error']['metadata']['headers']['X-RateLimit-Reset'])
+    except (ValueError, KeyError, TypeError):
+        return 10.0
+    return min(max(reset_ms / 1000 - time.time(), 1.0), RATE_LIMIT_MAX_WAIT_S)
+
+
 def _post(body: dict, http: httpx.Client) -> dict:
-    """Send one completion request, retrying transient failures with backoff."""
+    """Send one completion request, spaced to the rate limit, retrying transient failures with backoff."""
     cfg = config()
     if not cfg.openrouter_key:
         raise LLMError('OPENROUTER_API_KEY is not set; put it in .env.')
     headers = {'Authorization': f'Bearer {cfg.openrouter_key}'}
-    for attempt in range(MAX_ATTEMPTS):
+    attempt = limited = 0
+    while True:
+        _wait_for_turn(cfg.llm_requests_per_minute)
         try:
             response = http.post(f'{cfg.llm_base_url}/chat/completions', json=body, headers=headers)
         except httpx.TransportError as error:
@@ -124,10 +178,14 @@ def _post(body: dict, http: httpx.Client) -> dict:
         else:
             if response.status_code == 200:
                 return response.json()
+            if response.status_code == 429 and limited < RATE_LIMIT_WAITS:
+                limited += 1
+                _pause(_rate_limit_wait(response))
+                continue
             if response.status_code not in RETRYABLE_STATUS or attempt == MAX_ATTEMPTS - 1:
                 raise LLMError(f'OpenRouter returned {response.status_code}: {response.text[:300]}')
         time.sleep(2.0 * 2 ** attempt)
-    raise LLMError('unreachable')
+        attempt += 1
 
 
 def _record(purpose: str, body: dict, reply: dict | None, started: float, error: str = '') -> None:
@@ -186,7 +244,7 @@ def ask[T: BaseModel](system: str, user: str, schema: type[T], http: httpx.Clien
             text = choice['message'].get('content') or ''
             if choice.get('finish_reason') == 'length':
                 _record(purpose, body, reply, started, 'cut off at the output limit')
-                raise LLMError('The answer was longer than the output limit and got cut off.')
+                raise CutOff('The answer was longer than the output limit and got cut off.')
             try:
                 parsed = coerce(text, schema)
             except ValueError as error:

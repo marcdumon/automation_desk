@@ -9,6 +9,7 @@ import JobCost from './JobCost'
 import JobDetailPanel from './JobDetailPanel'
 import JobTable from './JobTable'
 import NewsPanel from './NewsPanel'
+import WatchPanel from './WatchPanel'
 
 export type LogEntry = { when: string; command: string; lines: string[]; job: JobSummary }
 
@@ -45,15 +46,17 @@ export default function GroupPage({ group, log, onLog }: Props) {
   const refreshJobs = () => queryClient.invalidateQueries({ queryKey: ['jobs'] })
 
   const [reply, setReply] = useState('')
+  // CLAUDE> a preview to act on, from a command or from checking the watched agenda sites
+  const show = (data: Interpretation, sentence: string) => {
+    setResult(data)
+    setCommand(sentence)
+    setReply('')
+    setSelected(new Set(data.preview?.rows.filter(r => r.selectable && r.selected).map(r => r.id) ?? []))
+  }
   const ask = useMutation({
     // CLAUDE> `sentence` is the command with the user's answer to a question added; otherwise the command box as typed
     mutationFn: (sentence?: string) => interpret(group.id, sentence ?? text, taskId, files.map(f => f.id)),
-    onSuccess: (data, sentence) => {
-      setResult(data)
-      setCommand(sentence ?? text)
-      setReply('')
-      setSelected(new Set(data.preview?.rows.filter(r => r.selectable && r.selected).map(r => r.id) ?? []))
-    },
+    onSuccess: (data, sentence) => show(data, sentence ?? text),
     onError: () => setResult(null),
     onSettled: refreshJobs,
   })
@@ -75,6 +78,29 @@ export default function GroupPage({ group, log, onLog }: Props) {
       setResult(null)
       setText('')
       setFiles([])
+    },
+    onSettled: refreshJobs,
+  })
+
+  // CLAUDE> one section (a watched site) added on its own: its rows leave the preview, its head says what was done
+  const addSection = useMutation({
+    mutationFn: (name: string) => {
+      const ids = result!.preview!.rows.filter(r => r.group === name && selected.has(r.id)).map(r => r.id)
+      return execute(group.id, result!.plan_id!, ids, name).then(data => ({ ...data, name }))
+    },
+    onSuccess: ({ results, job, name }) => {
+      onLog({ when: new Date().toLocaleTimeString(), command: `${command} · ${name}`, lines: results, job })
+      const added = result!.preview!.rows.filter(r => r.group === name && selected.has(r.id)).length
+      const offered = result!.preview!.rows.filter(r => r.group === name && r.selectable).length
+      setSelected(current => new Set([...current].filter(id => !result!.preview!.rows.some(r => r.id === id && r.group === name))))
+      setResult(current => current && current.preview ? {
+        ...current,
+        preview: {
+          ...current.preview,
+          rows: current.preview.rows.filter(r => r.group !== name),
+          groups: current.preview.groups?.map(g => g.name === name ? { ...g, note: added ? `added ${added}` : `declined ${offered}` } : g),
+        },
+      } : current)
     },
     onSettled: refreshJobs,
   })
@@ -172,6 +198,8 @@ export default function GroupPage({ group, log, onLog }: Props) {
             </div>
           </form>
 
+          {group.id === 'calendar' && <WatchPanel onPreview={data => { run.reset(); show(data, 'Check watched agenda sites') }} />}
+
           {ask.isPending && readingInBrowser && (
             <div className="message" role="status">
               <p>Working on it. If a tab opens with a site's "verify you are human" check, complete it there; the tab closes and the app continues by itself.</p>
@@ -225,7 +253,14 @@ export default function GroupPage({ group, log, onLog }: Props) {
                 return next
               })}
               onToggleAll={all => setSelected(new Set(all ? result.preview!.rows.filter(r => r.selectable).map(r => r.id) : []))}
+              onSetMany={(ids, on) => setSelected(current => {
+                const next = new Set(current)
+                ids.forEach(id => (on ? next.add(id) : next.delete(id)))
+                return next
+              })}
               onConfirm={() => run.mutate()}
+              onAddSection={name => addSection.mutate(name)}
+              addingSection={addSection.isPending ? addSection.variables ?? null : null}
               onCancel={() => setResult(null)}
               busy={run.isPending}
               cost={result.job && <JobCost job={result.job} onOpen={setOpenJob} />}

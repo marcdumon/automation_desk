@@ -4,7 +4,7 @@ import type { MouseEvent } from 'react'
 // a page cannot do that by itself. Without the extension (or with an older one) a link opens the normal way.
 export const canOpenInBackground = () => document.documentElement.dataset.automationOpen === '1'
 // CLAUDE> extension 1.3 or later: it recognises check pages by what they load (the Economist's DataDome check)
-export const extensionIsCurrent = () => Number(document.documentElement.dataset.automationVersion ?? 0) >= 1.3
+export const extensionIsCurrent = () => Number(document.documentElement.dataset.automationVersion ?? 0) >= 1.5
 
 export function openInBackground(event: MouseEvent<HTMLAnchorElement>) {
   if (!canOpenInBackground() || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return

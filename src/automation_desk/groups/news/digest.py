@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 import httpx
 
-from automation_desk import jobs
+from automation_desk import jobs, stop
 from automation_desk.groups.news import store
 from automation_desk.groups.news.collect import Article, Collected, collect
 from automation_desk.groups.news.merge import merge_stories
@@ -35,8 +35,22 @@ def progress() -> dict:
         return {'step': _progress['step'], 'sites': dict(_progress['sites'])} if _progress else {}
 
 
+class Stopped(Exception):
+    """The user pressed Stop: the run ends between two steps and saves nothing."""
+
+
+STOPPED = 'you stopped it. Nothing is lost: the next digest takes the same new articles'
+
+
+def _stop_here() -> None:
+    """End the run when the user pressed Stop; called as each site and each sorting batch starts."""
+    if stop.requested('news-digest'):
+        raise Stopped
+
+
 def _step(step: str) -> None:
     """Enter a step of the run."""
+    _stop_here()
     with _progress_lock:
         _progress.setdefault('sites', {})
         _progress['step'] = step
@@ -44,6 +58,8 @@ def _step(step: str) -> None:
 
 def _site(site: str, status: str) -> None:
     """A site's status; the sites are read four at a time, so from several threads."""
+    if status == 'reading…':
+        _stop_here()
     with _progress_lock:
         _progress.setdefault('sites', {})[site] = status
 
@@ -73,8 +89,13 @@ def _run[T](work: Callable[[], T]) -> T:
     """One digest run at a time, with the page told it runs, what it does, and why it failed."""
     with _lock:
         _active.set()
+        stop.begin('news-digest')
         try:
             result = work()
+        except Stopped:
+            # CLAUDE> articles are marked seen only when a digest is saved, so the next run finds them again
+            _failure['message'] = STOPPED
+            return None
         except Exception as error:
             _failure['message'] = str(error) or type(error).__name__
             raise

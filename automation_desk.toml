@@ -5,6 +5,8 @@ base_url = 'https://openrouter.ai/api/v1'
 # CLAUDE> Verified 2026-09-24 in openrouter.ai/api/v1/models: supports structured_outputs, $0.10 in / $0.50 out per M tokens.
 # On the same 60 news articles it cost 60% less than google/gemini-3.1-flash-lite, with summaries as good (3x slower).
 model = 'openai/gpt-6-luna'
+# CLAUDE> OpenRouter allows new accounts 20 requests a minute per model; calls are spaced to stay under it
+requests_per_minute = 20
 
 [time]
 # CLAUDE> used only when the Calendar settings cannot be read

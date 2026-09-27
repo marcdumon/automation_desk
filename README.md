@@ -11,6 +11,7 @@ with a tick box per item, and changes nothing until you press Apply.
 | Calendar | Add events from a web page or PDF | `add all events from https://…/agenda to calendar Exhibitions except the ones on fridays` |
 | Calendar | …or from event details you type or paste (title, place, dates such as 26/9, times) | `add event Expo, Kasteelstraat 3 Antwerpen, za 26/9 - zo 27/9 van 14u tot 22u to calendar Events` |
 | Calendar | …from a PDF link, an attached PDF (Attach PDF / drag it in) or a PDF in a mail | `add the events from the PDF in the mail from Kanal to calendar Exhibitions` |
+| Calendar | Check watched agenda sites (list on the Calendar page; events not in your calendar; ones you left unticked come back unticked) | `check my agenda sites`, or the Check for new events button |
 | Calendar | Delete events from a calendar | `delete the events of next week in calendar Test` |
 | Tasks | Change the date of tasks | `change the date of the Zalando and clean tasks in list Today to tomorrow` |
 | Tasks | Move tasks to another list | `move all completed tasks to list Completed` |

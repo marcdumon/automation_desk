@@ -5,13 +5,14 @@ export type Group = { id: string; name: string; description: string; tasks: Stan
 export type Upload = { id: string; name: string; size: number }
 export type Row = {
   id: string; cells: Record<string, string>; selectable: boolean; selected: boolean; note: string
-  links: Record<string, string>; inputs: Record<string, string>
+  links: Record<string, string>; inputs: Record<string, string>; group?: string
 }
-export type PreviewOption = { name: string; label: string; value: string; help: string; multiline: boolean }
+export type PreviewGroup = { name: string; calendar: string; note: string }
+export type PreviewOption = { name: string; label: string; value: string; help: string; multiline: boolean; choices?: string[] }
 export type Evidence = { quote: string; source: string; link: string; verified: boolean }
 export type Preview = {
   summary: string; columns: string[]; rows: Row[]; notes: string[]; options: PreviewOption[]; read_only: boolean
-  answer: string; evidence: Evidence[]
+  answer: string; evidence: Evidence[]; groups?: PreviewGroup[]
 }
 export type JobSummary = {
   id: string
@@ -89,8 +90,14 @@ export class ApiError extends Error {
   }
 }
 
+// CLAUDE> the browser's own words for an unreachable server ('Failed to fetch') tell the user nothing
+export const APP_NOT_RUNNING = 'The Automation desk app is not running, so this could not be done. Start it again: '
+  + 'type run_automation_desk in a terminal (or use your Automation desk launcher), then press the button again.'
+
+const reach = (path: string, init?: RequestInit) => fetch(path, init).catch(() => { throw new ApiError(APP_NOT_RUNNING, false, '') })
+
 async function call<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(path, body === undefined ? undefined : {
+  const response = await reach(path, body === undefined ? undefined : {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -112,19 +119,31 @@ export const reminderDone = (id: string) => call<{ ok: boolean }>(`/api/reminder
 export const getVersion = () => call<{ build: string; restart_needed?: boolean }>('/api/version')
 export const getAuth = () => call<{ ok: boolean; message: string }>('/api/auth')
 export const login = () => call<{ ok: boolean; message: string }>('/api/auth/login', {})
+export type SiteProgress = { site: string; state: 'waiting' | 'reading' | 'done' | 'browser' | 'failed'; detail: string }
+export type WatchState = {
+  lines: string[]; default_calendar: string; needs_browser: { id: number; site: string }[]
+  progress?: { sites?: SiteProgress[]; pause?: number }
+}
+export const getWatch = () => call<WatchState>('/api/calendar/watch')
+export const saveWatch = (lines: string[], defaultCalendar: string) =>
+  call<WatchState>('/api/calendar/watch', { lines, default_calendar: defaultCalendar })
+export const stopAction = (action: string) => call<{ stopping: string }>(`/api/stop/${action}`, {})
+export const watchFromEvents = () => call<WatchState & { added: number; unmatched: number }>('/api/calendar/watch/from-events', {})
+export const checkWatch = (viaBrowser: boolean, only: number[] | null = null) =>
+  call<Interpretation>('/api/calendar/watch/check', { via_browser: viaBrowser, only })
 export const interpret = (group: string, text: string, taskId: string | null, uploadIds: string[] = []) =>
   call<Interpretation>(`/api/groups/${group}/interpret`, { text, task_id: taskId, upload_ids: uploadIds })
 
 export async function uploadFile(file: File): Promise<Upload> {
-  const response = await fetch(`/api/uploads?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file })
+  const response = await reach(`/api/uploads?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file })
   const data = await response.json().catch(() => ({}))
   if (!response.ok) throw new ApiError(typeof data.detail === 'string' ? data.detail : `Upload failed (${response.status})`, false)
   return data as Upload
 }
 export const adjust = (group: string, planId: string, options: Record<string, string>) =>
   call<Interpretation>(`/api/groups/${group}/plans/${planId}/adjust`, { options })
-export const execute = (group: string, planId: string, selected: string[]) =>
-  call<{ results: string[]; job: JobSummary }>(`/api/groups/${group}/execute`, { plan_id: planId, selected })
+export const execute = (group: string, planId: string, selected: string[], section = '') =>
+  call<{ results: string[]; job: JobSummary }>(`/api/groups/${group}/execute`, { plan_id: planId, selected, section })
 export const getJobs = (group?: string) => call<JobList>(group ? `/api/jobs?group=${group}` : '/api/jobs')
 export const getJob = (id: string) => call<JobDetail>(`/api/jobs/${id}`)
 
@@ -156,18 +175,18 @@ export const saveBlocked = (names: string[]) => call<{ blocked: string[] }>('/ap
 export const setNewsCap = (usd: number) => call<{ cap_usd: number }>('/api/news/cap', { usd })
 export const makeNewsDigest = () => call<{ started: boolean }>('/api/news/make', {})
 export async function deleteNewsStory(id: string): Promise<void> {
-  const response = await fetch(`/api/news/stories/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const response = await reach(`/api/news/stories/${encodeURIComponent(id)}`, { method: 'DELETE' })
   if (!response.ok) throw new Error(`The story could not be deleted (${response.status}). Reload the page.`)
 }
 export const continueNewsDigest = (id: number, raiseCap: boolean) =>
   call<{ started: boolean }>(`/api/news/digests/${id}/continue`, { raise_cap: raiseCap })
 export async function deleteNewsDigest(id: number): Promise<void> {
-  const response = await fetch(`/api/news/digests/${id}`, { method: 'DELETE' })
+  const response = await reach(`/api/news/digests/${id}`, { method: 'DELETE' })
   if (!response.ok) throw new Error(`The digest could not be deleted (${response.status}). Reload the page.`)
 }
 export const deleteNewsSubject = (digestId: number, subject: string) =>
   call<{ deleted: number }>(`/api/news/digests/${digestId}/delete-subject`, { subject })
 export const saveNewsSites = (sites: string[]) => call<{ problems: string[]; sources: NewsSource[] }>('/api/news/sources', { sites })
 export async function removeNewsSource(id: number): Promise<void> {
-  await fetch(`/api/news/sources/${id}`, { method: 'DELETE' })
+  await reach(`/api/news/sources/${id}`, { method: 'DELETE' })
 }

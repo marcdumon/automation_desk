@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 
-import type { Preview } from './api'
+import type { Preview, PreviewGroup, Row } from './api'
 
 type Props = {
   taskName: string
@@ -8,6 +8,9 @@ type Props = {
   selected: Set<string>
   onToggle: (id: string) => void
   onToggleAll: (all: boolean) => void
+  onSetMany: (ids: string[], on: boolean) => void
+  onAddSection: (name: string) => void
+  addingSection: string | null
   onConfirm: () => void
   onCancel: () => void
   busy: boolean
@@ -17,7 +20,7 @@ type Props = {
 }
 
 // CLAUDE> the frozen plan as a table of changes; nothing reaches Google until "Apply" is pressed
-export default function ChangeSheet({ taskName, preview, selected, onToggle, onToggleAll, onConfirm, onCancel, busy, cost, onAdjust, adjusting }: Props) {
+export default function ChangeSheet({ taskName, preview, selected, onToggle, onToggleAll, onSetMany, onAddSection, addingSection, onConfirm, onCancel, busy, cost, onAdjust, adjusting }: Props) {
   const selectable = preview.rows.filter(r => r.selectable)
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(preview.options.map(o => [o.name, o.value])))
   const [cellValues, setCellValues] = useState<Record<string, string>>({})
@@ -29,6 +32,44 @@ export default function ChangeSheet({ taskName, preview, selected, onToggle, onT
   const editable = preview.options.length > 0 || preview.rows.some(r => Object.keys(r.inputs ?? {}).length > 0)
   const update = () => onAdjust({ ...values, ...Object.fromEntries(changedCells) })
   const allOn = selectable.length > 0 && selectable.every(r => selected.has(r.id))
+  const declineAll = selected.size === 0 && selectable.length > 0 && (preview.groups?.length ?? 0) > 0
+  const renderRow = (row: Row) => {
+    const on = selected.has(row.id)
+    return (
+      <tr key={row.id} className={preview.read_only || on ? 'on' : 'off'}>
+        {!preview.read_only && (
+          <td className="tick">
+            <input type="checkbox" checked={on} disabled={!row.selectable} onChange={() => onToggle(row.id)}
+                   aria-label={`Include ${Object.values(row.cells)[0] ?? row.id}`} />
+          </td>
+        )}
+        {preview.columns.map((c, i) => (
+          <td key={c}>
+            <span className="value">
+              {row.inputs?.[c] !== undefined
+                ? (row.inputs[c].length > 20 || row.inputs[c].includes('\n')
+                  ? <textarea className={`cell-input col-${c.toLowerCase()}`} rows={1}
+                              aria-label={`${c} of ${Object.values(row.cells)[0] ?? row.id}`}
+                              value={cellValues[`${c}:${row.id}`] ?? row.inputs[c]}
+                              onChange={e => setCellValues({ ...cellValues, [`${c}:${row.id}`]: e.target.value })} />
+                  : <input className={`cell-input col-${c.toLowerCase()}`}
+                           aria-label={`${c} of ${Object.values(row.cells)[0] ?? row.id}`}
+                           value={cellValues[`${c}:${row.id}`] ?? row.inputs[c]}
+                           onChange={e => setCellValues({ ...cellValues, [`${c}:${row.id}`]: e.target.value })}
+                           onKeyDown={e => { if (e.key === 'Enter' && changed) { e.preventDefault(); update() } }} />)
+                : row.links?.[c]
+                ? <a href={row.links[c]} target="_blank" rel="noreferrer">{row.cells[c]}</a>
+                : /^https?:\/\//.test(row.cells[c] ?? '')
+                ? <SourceLink url={row.cells[c]} />
+                : row.cells[c]}
+            </span>
+            {row.inputs?.[c] !== undefined && row.cells[c]?.endsWith('(assumed)') && <span className="note">assumed</span>}
+            {i === 0 && row.note && <span className="note">{row.note}</span>}
+          </td>
+        ))}
+      </tr>
+    )
+  }
   return (
     <div className="sheet" aria-label="Changes to apply">
       <div className="sheet-head">
@@ -69,45 +110,16 @@ export default function ChangeSheet({ taskName, preview, selected, onToggle, onT
               {preview.columns.map(c => <th key={c}>{c}</th>)}
             </tr>
           </thead>
-          <tbody>
-            {preview.rows.map(row => {
-              const on = selected.has(row.id)
-              return (
-                <tr key={row.id} className={preview.read_only || on ? 'on' : 'off'}>
-                  {!preview.read_only && (
-                    <td className="tick">
-                      <input type="checkbox" checked={on} disabled={!row.selectable} onChange={() => onToggle(row.id)}
-                             aria-label={`Include ${Object.values(row.cells)[0] ?? row.id}`} />
-                    </td>
-                  )}
-                  {preview.columns.map((c, i) => (
-                    <td key={c}>
-                      <span className="value">
-                        {row.inputs?.[c] !== undefined
-                          ? (row.inputs[c].length > 20 || row.inputs[c].includes('\n')
-                            ? <textarea className={`cell-input col-${c.toLowerCase()}`} rows={1}
-                                        aria-label={`${c} of ${Object.values(row.cells)[0] ?? row.id}`}
-                                        value={cellValues[`${c}:${row.id}`] ?? row.inputs[c]}
-                                        onChange={e => setCellValues({ ...cellValues, [`${c}:${row.id}`]: e.target.value })} />
-                            : <input className={`cell-input col-${c.toLowerCase()}`}
-                                     aria-label={`${c} of ${Object.values(row.cells)[0] ?? row.id}`}
-                                     value={cellValues[`${c}:${row.id}`] ?? row.inputs[c]}
-                                     onChange={e => setCellValues({ ...cellValues, [`${c}:${row.id}`]: e.target.value })}
-                                     onKeyDown={e => { if (e.key === 'Enter' && changed) { e.preventDefault(); update() } }} />)
-                          : row.links?.[c]
-                          ? <a href={row.links[c]} target="_blank" rel="noreferrer">{row.cells[c]}</a>
-                          : /^https?:\/\//.test(row.cells[c] ?? '')
-                          ? <a href={row.cells[c]} target="_blank" rel="noreferrer">{row.cells[c].replace(/^https?:\/\/(www\.)?/, '')}</a>
-                          : row.cells[c]}
-                      </span>
-                      {row.inputs?.[c] !== undefined && row.cells[c]?.endsWith('(assumed)') && <span className="note">assumed</span>}
-                      {i === 0 && row.note && <span className="note">{row.note}</span>}
-                    </td>
-                  ))}
-                </tr>
-              )
-            })}
-          </tbody>
+          {preview.groups && preview.groups.length > 0
+            ? preview.groups.map(g => (
+              <tbody key={g.name} className="group">
+                <GroupHead group={g} rows={preview.rows.filter(r => r.group === g.name)} span={preview.columns.length}
+                           tick={!preview.read_only} selected={selected} onSetMany={onSetMany}
+                           onAdd={() => onAddSection(g.name)} adding={addingSection === g.name} busy={busy || addingSection !== null} />
+                {preview.rows.filter(r => r.group === g.name).map(renderRow)}
+              </tbody>
+            ))
+            : <tbody>{preview.rows.map(renderRow)}</tbody>}
         </table>
       </div>
       {cost}
@@ -118,8 +130,10 @@ export default function ChangeSheet({ taskName, preview, selected, onToggle, onT
         ) : (
           <>
             <button type="button" className="quiet" onClick={onCancel} disabled={busy}>Cancel</button>
-            <button type="button" className="primary" onClick={onConfirm} disabled={busy || selected.size === 0}>
-              {busy ? 'Applying…' : `Apply ${selected.size} change${selected.size === 1 ? '' : 's'}`}
+            {/* CLAUDE> in a sectioned preview (watched sites) applying nothing declines the rest: they come back unticked */}
+            <button type="button" className={declineAll ? 'quiet' : 'primary'} onClick={onConfirm}
+                    disabled={busy || (selected.size === 0 && !declineAll)}>
+              {busy ? 'Applying…' : declineAll ? 'Decline all' : `Apply ${selected.size} change${selected.size === 1 ? '' : 's'}`}
             </button>
           </>
         )}
@@ -139,13 +153,70 @@ function Options({ preview, values, setValues, changed, onUpdate, adjusting }: {
       {preview.options.map(o => (
         <label key={o.name} className={o.multiline ? 'wide' : ''}>
           <span className="option-label">{o.label}</span>
-          {o.multiline
-            ? <textarea rows={8} value={values[o.name] ?? ''} onChange={e => setValues({ ...values, [o.name]: e.target.value })} />
-            : <input value={values[o.name] ?? ''} onChange={e => setValues({ ...values, [o.name]: e.target.value })} />}
+          {o.choices && o.choices.length > 0
+            ? (
+              <span className="choices" role="radiogroup" aria-label={o.label}>
+                {o.choices.map(c => (
+                  <button key={c} type="button" role="radio" aria-checked={values[o.name] === c}
+                          className={values[o.name] === c ? 'choice chosen' : 'choice'}
+                          onClick={() => setValues({ ...values, [o.name]: c })}>{c}</button>))}
+              </span>
+            )
+            : o.multiline
+              ? <textarea rows={8} value={values[o.name] ?? ''} onChange={e => setValues({ ...values, [o.name]: e.target.value })} />
+              : <input value={values[o.name] ?? ''} onChange={e => setValues({ ...values, [o.name]: e.target.value })} />}
           {o.help && <span className="option-help">{o.help}</span>}
         </label>
       ))}
       <button type="submit" className="quiet" disabled={!changed || adjusting}>{adjusting ? 'Updating…' : 'Update preview'}</button>
     </form>
+  )
+}
+
+// CLAUDE> the head of one source's section: its name, the calendar its events go to, what it gave, and a tick for all its rows
+function GroupHead({ group, rows, span, tick, selected, onSetMany, onAdd, adding, busy }: {
+  group: PreviewGroup; rows: Row[]; span: number; tick: boolean; selected: Set<string>; onSetMany: (ids: string[], on: boolean) => void
+  onAdd: () => void; adding: boolean; busy: boolean
+}) {
+  const ids = rows.filter(r => r.selectable).map(r => r.id)
+  const allOn = ids.length > 0 && ids.every(id => selected.has(id))
+  const ticked = ids.filter(id => selected.has(id)).length
+  const tone = /^\d+ new/.test(group.note) ? 'new' : /^added/.test(group.note) ? 'done'
+    : /^(needs|could not)/.test(group.note) ? 'attention' : 'quiet'
+  return (
+    <tr className="group-head">
+      {tick && (
+        <td className="tick">
+          {ids.length > 0 && <input type="checkbox" checked={allOn} aria-label={`Include every event of ${group.name}`}
+                                    onChange={e => onSetMany(ids, e.target.checked)} />}
+        </td>
+      )}
+      <td colSpan={span}>
+        <div className="group-title">
+          <h3>{group.name}</h3>
+          {group.calendar && <span className="group-calendar">→ {group.calendar}</span>}
+          <span className={`group-note ${tone}`}>{tone === 'done' && '✓ '}{group.note}</span>
+          {tick && ids.length > 0 && (
+            // CLAUDE> with nothing ticked the button declines the site's events: they come back unticked, never as new
+            <button type="button" className={ticked ? 'primary group-add' : 'quiet group-add'} disabled={busy} onClick={onAdd}>
+              {adding ? (ticked ? 'Adding…' : 'Declining…')
+                : ticked ? `Add ${ticked} ${ticked === 1 ? 'event' : 'events'}` : `Decline ${ids.length} ${ids.length === 1 ? 'event' : 'events'}`}
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
+  )
+}
+
+// CLAUDE> a page address as a clear button: the site and the start of the path, opening the page in a new tab
+function SourceLink({ url }: { url: string }) {
+  const parsed = new URL(url)
+  const path = parsed.pathname.replace(/\/$/, '')
+  const shown = parsed.hostname.replace(/^www\./, '') + (path.length > 28 ? `${path.slice(0, 27)}…` : path)
+  return (
+    <a className="source-link" href={url} target="_blank" rel="noreferrer" title={url}>
+      <span>{shown}</span><span aria-hidden="true">↗</span>
+    </a>
   )
 }

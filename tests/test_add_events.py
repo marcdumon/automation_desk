@@ -163,7 +163,7 @@ def test_organiser_titles_places_and_adjusting_it(make_ctx, pages: dict, monkeyp
     ctx = make_ctx(calendar_api([]), SENTENCE)
     preview, payload = AddEventsFromWeb().resolve(args(exclude_weekdays=[]), ctx)
     assert {r.cells['Title'] for r in preview.rows} >= {'Venue: Saturday talk', 'Venue: Long expo'}
-    assert [o.value for o in preview.options] == ['Venue', '', '2h']
+    assert [o.value for o in preview.options] == ['Venue', '', 'Times from the site', '2h']
 
     preview, payload = AddEventsFromWeb().adjust(payload, {'organiser': 'VNU', 'organiser_address': 'Kade 1, 2000 Antwerpen'}, ctx)
     row = next(r for r in preview.rows if r.cells['Title'] == 'VNU: Saturday talk')
@@ -217,7 +217,7 @@ def test_every_field_can_be_edited(make_ctx, pages: dict) -> None:
     preview, payload = AddEventsFromWeb().resolve(args(exclude_weekdays=[]), ctx)
     concert = next(r for r in preview.rows if r.cells['Title'] == 'Friday concert')
     expo = next(r for r in preview.rows if r.cells['Title'] == 'Long expo')
-    assert set(concert.inputs) == {'Date', 'Time', 'Duration', 'Title', 'Place', 'Info', 'Source'}
+    assert set(concert.inputs) == {'Date', 'Time', 'Duration', 'Title', 'Place', 'Info'}, 'the source is where it comes from: fixed'
     edits = {f'Date:{concert.id}': '3/10/2026', f'Time:{concert.id}': '19u30', f'Duration:{concert.id}': '1h30',
              f'Title:{concert.id}': 'Jazz!', f'Place:{concert.id}': 'Zaal Nova', f'Info:{concert.id}': 'Nieuw',
              f'Time:{expo.id}': '10:00', f'Date:{expo.id}': '1 okt 2026'}
@@ -244,3 +244,15 @@ def test_hours_on_several_days_are_those_hours_each_day() -> None:
     night = event('Party', date(2026, 9, 26), end=date(2026, 9, 27), start_time=time(22), end_time=time(2))
     body = module.event_body(night, 'Europe/Brussels', 'k', 't')
     assert body['end']['dateTime'] == '2026-09-27T02:00:00' and 'recurrence' not in body, 'past midnight: one event'
+
+
+def test_all_events_can_be_all_day(make_ctx, pages: dict) -> None:
+    """A preview choice: the site's times, or every event all day without a time."""
+    ctx = make_ctx(calendar_api([]), SENTENCE)
+    preview, payload = AddEventsFromWeb().resolve(args(exclude_weekdays=[]), ctx)
+    times = next(o for o in preview.options if o.name == 'times')
+    assert (times.value, times.choices) == ('Times from the site', ['Times from the site', 'All day'])
+    preview, payload = AddEventsFromWeb().adjust(payload, {'times': 'All day'}, ctx)
+    talk = next(r for r in preview.rows if r.cells['Title'].endswith('Saturday talk'))
+    assert talk.cells['Time'] == 'all day'
+    assert 'date' in payload['bodies'][talk.id]['start'] and 'dateTime' not in payload['bodies'][talk.id]['start']

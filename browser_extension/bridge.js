@@ -3,7 +3,7 @@ document.documentElement.dataset.automationBridge = 'ready'
 // CLAUDE> this version can also open links in a background tab; the page checks this before relying on it
 document.documentElement.dataset.automationOpen = '1'
 // CLAUDE> the page asks for a reload of older versions: 1.3 recognises check pages by what they load, not only their title
-document.documentElement.dataset.automationVersion = '1.3'
+document.documentElement.dataset.automationVersion = '1.5'
 
 window.addEventListener('message', event => {
   if (event.source !== window) return
