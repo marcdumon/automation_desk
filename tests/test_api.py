@@ -233,3 +233,20 @@ def test_stop_asks_a_running_action_to_stop(client: TestClient) -> None:
     stop.begin('watch-check')
     assert client.post('/api/stop/watch-check').json() == {'stopping': 'watch-check'} and stop.requested('watch-check')
     assert client.post('/api/stop/anything-else').status_code == 404
+
+
+def test_the_pdf_white_space_tool_returns_the_widened_pdf_under_the_chosen_name(client: TestClient) -> None:
+    import io
+
+    from pypdf import PdfReader, PdfWriter
+
+    writer = PdfWriter()
+    writer.add_blank_page(600, 800)
+    original = io.BytesIO()
+    writer.write(original)
+    answer = client.post('/api/tools/pdf-margin?side=right&percent=33&name=Notes%20lecture%201', content=original.getvalue())
+    assert answer.status_code == 200 and answer.headers['content-type'] == 'application/pdf'
+    assert answer.headers['content-disposition'] == "attachment; filename*=UTF-8''Notes%20lecture%201.pdf"
+    assert round(float(PdfReader(io.BytesIO(answer.content)).pages[0].cropbox.right)) == 798
+    refused = client.post('/api/tools/pdf-margin?side=right&percent=33&name=x', content=b'hello')
+    assert refused.status_code == 422 and 'not a PDF' in refused.json()['detail']
