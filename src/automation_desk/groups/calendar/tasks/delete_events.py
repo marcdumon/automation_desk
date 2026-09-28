@@ -5,12 +5,12 @@ reads the sentence; your event titles never go to it, so there is no free-text f
 """
 
 import re
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 
 from googleapiclient.errors import HttpError
 from pydantic import Field
 
-from automation_desk.dates import label, resolve_range
+from automation_desk.dates import label, period_label, resolve_range
 from automation_desk.groups.base import Context, Preview, Row, StandardTask, TaskArgs, UserError, match_name
 from automation_desk.groups.calendar.client import events_between, writable_calendars
 
@@ -24,7 +24,8 @@ class DeleteEventsArgs(TaskArgs):
 
     calendar_name: str = Field(description="The calendar's name as the user wrote it, e.g. 'Test'.")
     date_range: str = Field(description="Only events in this period, as the user said it: 'today', 'next week', "
-                                        "'this month', 'today to next friday'. Empty when the user gives no period "
+                                        "'this month', 'today to next friday', 'after today', 'before friday'. "
+                                        "Empty when the user gives no period "
                                         "('all events' is not a period). "
                                         'Never a numeric date.')
     title_contains: list[str] = Field(description="One entry per event the user names by (part of) its title, copied from "
@@ -68,8 +69,10 @@ class DeleteEvents(StandardTask):
         no_period = _norm(args.date_range) in NO_LIMIT
         period = None if no_period else resolve_range(args.date_range, ctx.today, ctx.sentence)
         time_min = time_max = None
-        if period:
+        # CLAUDE> an open end ('after today') sends no bound on that side
+        if period and period[0] != date.min:
             time_min = datetime.combine(period[0], time.min, ctx.tz).isoformat()
+        if period and period[1] != date.max:
             time_max = datetime.combine(period[1] + timedelta(days=1), time.min, ctx.tz).isoformat()
 
         words, source = [w for w in (_norm(t) for t in args.title_contains) if w], _norm(args.source_contains)
@@ -90,7 +93,7 @@ class DeleteEvents(StandardTask):
         if not rows:
             raise UserError(f"No events in '{calendar['summary']}' match that.")
 
-        limits = [f'in {label(period[0])} to {label(period[1])}' if period else 'at any date']
+        limits = [period_label(*period) if period else 'at any date']
         if words:
             limits.append('with ' + ' or '.join(f"'{t.strip()}'" for t in args.title_contains if t.strip()) + ' in the title')
         if source:

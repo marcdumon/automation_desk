@@ -122,3 +122,90 @@ def test_tasks_from_two_lists_at_once(make_ctx) -> None:
     ctx = make_ctx(fake, 'x')
     preview, _ = CompleteTasks().resolve(SelectionArgs(**selection(list_names=['today', 'Tomorrow'], which='overdue')), ctx)
     assert {(r.cells['Task'], r.cells['List']) for r in preview.rows} == {('Prepare CS329Z', 'Today'), ('Mail Anna', 'Tomorrow')}
+
+
+def shifting_api(tasks: dict[str, list[dict]]) -> FakeGoogle:
+    """Like Google: moving or deleting a task shifts the others in its list, which gives each of them a new etag."""
+    fake = tasks_api(tasks)
+
+    def shift(tasklist: str, task: str, **_: object) -> dict:
+        """Take the task out of its list; the rest get new positions, so new etags."""
+        tasks[tasklist] = [t for t in tasks[tasklist] if t['id'] != task]
+        for other in tasks[tasklist]:
+            other['etag'] += '+'
+        return {}
+
+    fake.handlers['tasks.move'] = shift
+    fake.handlers['tasks.delete'] = shift
+    return fake
+
+
+def three_due_later() -> list[dict]:
+    """Three open tasks in Today, all due tomorrow."""
+    return [{'id': x, 'title': f'Task {x}', 'due': '2026-09-23T00:00:00.000Z', 'etag': f'e{x}'} for x in 'abc']
+
+
+def test_moving_several_tasks_of_one_list_moves_them_all(make_ctx) -> None:
+    """'move all tasks with date later than today from list today to list this week': 5 found, only 3 moved before."""
+    fake = shifting_api({'L1': three_due_later(), 'L2': []})
+    ctx = make_ctx(fake, 'move all tasks due later than today from today to tomorrow')
+    _preview, payload = MoveTasks().resolve(MoveTasksArgs(**selection(list_names=['today'], due_period='later than today'),
+                                                          to_list='Tomorrow'), ctx)
+    results = MoveTasks().execute(payload, {'a', 'b', 'c'}, ctx)
+    assert [kw['task'] for name, kw in fake.calls if name == 'tasks.move'] == ['a', 'b', 'c'], results
+
+
+def test_deleting_several_tasks_of_one_list_deletes_them_all(make_ctx) -> None:
+    fake = shifting_api({'L1': three_due_later()})
+    ctx = make_ctx(fake, 'delete my tasks in today')
+    _preview, payload = DeleteTasks().resolve(SelectionArgs(**selection(list_names=['today'])), ctx)
+    DeleteTasks().execute(payload, {'a', 'b', 'c'}, ctx)
+    assert [kw['task'] for name, kw in fake.calls if name == 'tasks.delete'] == ['a', 'b', 'c']
+
+
+def test_a_task_the_user_really_changed_is_still_skipped(make_ctx) -> None:
+    tasks = {'L1': three_due_later(), 'L2': []}
+    fake = shifting_api(tasks)
+    ctx = make_ctx(fake, 'move all tasks in today to tomorrow')
+    _preview, payload = MoveTasks().resolve(MoveTasksArgs(**selection(list_names=['today']), to_list='Tomorrow'), ctx)
+    tasks['L1'][1]['title'] = 'Task b, renamed'
+    results = MoveTasks().execute(payload, {'a', 'b', 'c'}, ctx)
+    assert results[1] == 'Skipped "Task b": it changed since the preview.'
+
+
+def with_a_repeating_task() -> dict[str, list[dict]]:
+    """Quick Clean done twice before (in Completed) and open again in Today, next to an ordinary task."""
+    return {
+        'L1': [{'id': 'q', 'title': 'Quick Clean', 'due': '2026-09-26T00:00:00.000Z', 'etag': '1'},
+               {'id': 'z', 'title': 'Zalando: get measured', 'due': '2026-09-26T00:00:00.000Z', 'etag': '2'}],
+        'L2': [],
+        'L3': [{'id': 'q1', 'title': 'Quick Clean', 'status': 'completed', 'completed': '2026-09-08T10:00:00.000Z', 'etag': '3'},
+               {'id': 'q2', 'title': 'quick clean ', 'status': 'completed', 'completed': '2026-09-12T10:00:00.000Z', 'etag': '4'}],
+    }
+
+
+REPEATING = 'looks like a repeating task: change it in Google Tasks'
+
+
+@pytest.mark.parametrize('action', ['move', 'delete', 'change dates'])
+def test_an_open_task_that_looks_repeating_comes_unticked(make_ctx, action: str) -> None:
+    """Moving a repeating task broke its series (Quick Clean); the API does not say which tasks repeat, so a title done
+    twice or more is taken for one."""
+    ctx = make_ctx(tasks_api(with_a_repeating_task()), 'x')
+    chosen = selection(list_names=['today'])
+    if action == 'move':
+        preview, _ = MoveTasks().resolve(MoveTasksArgs(**chosen, to_list='Tomorrow'), ctx)
+    elif action == 'delete':
+        preview, _ = DeleteTasks().resolve(SelectionArgs(**chosen), ctx)
+    else:
+        preview, _ = ChangeDates().resolve(ChangeDatesArgs(**chosen, new_due='friday'), ctx)
+    assert {r.cells['Task']: (r.selected, r.note) for r in preview.rows} == {
+        'Quick Clean': (False, REPEATING), 'Zalando: get measured': (True, '')}
+    assert all(r.selectable for r in preview.rows), 'the user can still tick it'
+    assert preview.summary.split(' ')[1] == '1', 'the summary counts what is ticked'
+
+
+def test_completed_copies_of_a_repeating_task_move_as_before(make_ctx) -> None:
+    ctx = make_ctx(tasks_api(with_a_repeating_task()), 'move all completed tasks to list Tomorrow')
+    preview, _ = MoveTasks().resolve(MoveTasksArgs(**selection(which='completed'), to_list='Tomorrow'), ctx)
+    assert all(r.selected and not r.note for r in preview.rows)

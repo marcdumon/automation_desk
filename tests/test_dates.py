@@ -63,6 +63,23 @@ def test_ranges() -> None:
 
 
 @pytest.mark.parametrize(('expr', 'expected'), [
+    ('later than today', (date(2026, 9, 23), date.max)),
+    ('after friday', (date(2026, 9, 26), date.max)),
+    ('from monday on', (date(2026, 9, 28), date.max)),
+    ('friday or later', (date(2026, 9, 25), date.max)),
+    ('before friday', (date.min, date(2026, 9, 24))),
+    ('earlier than today', (date.min, date(2026, 9, 21))),
+    ('friday or earlier', (date.min, date(2026, 9, 25))),
+    ('until friday', (date.min, date(2026, 9, 25))),
+    ('in the past', (date.min, date(2026, 9, 21))),
+    ('in the future', (date(2026, 9, 23), date.max)),
+])
+def test_open_ended_ranges(expr: str, expected: tuple[date, date]) -> None:
+    """'move all tasks with date later than today': a period with one end open."""
+    assert resolve_range(expr, TUESDAY) == expected
+
+
+@pytest.mark.parametrize(('expr', 'expected'), [
     ('3pm', time(15)), ('15:00', time(15)), ('20h30', time(20, 30)), ('noon', time(12)), ('12am', time(0)), ('at 9', time(9)),
 ])
 def test_times(expr: str, expected: time) -> None:
@@ -85,3 +102,7 @@ def test_durations(expr: str, minutes: int) -> None:
 def test_bad_durations(expr: str) -> None:
     with pytest.raises(DateExprError):
         parse_duration(expr)
+
+
+def test_a_closed_range_may_start_with_from() -> None:
+    assert resolve_range('from today to friday', TUESDAY) == (TUESDAY, date(2026, 9, 25))

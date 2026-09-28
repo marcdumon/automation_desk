@@ -96,6 +96,21 @@ def resolve_day(expr: str, today: date, sentence: str = '') -> date:
     raise DateExprError(f'cannot understand the date {expr!r}')
 
 
+# CLAUDE> (prefixes, suffixes, open towards the future, the day itself included)
+_OPEN_ENDS = (
+    (('later than ', 'after '), (), True, False),
+    (('from ', 'starting ', 'on or after '), (' or later', ' onwards', ' onward', ' on'), True, True),
+    (('earlier than ', 'before '), (), False, False),
+    (('until ', 'till ', 'up to ', 'on or before '), (' or earlier', ' or before'), False, True),
+)
+
+
+def _open(day: date, after: bool, inclusive: bool) -> tuple[date, date]:
+    """A period from or up to `day`, the other end open."""
+    step = timedelta(days=0 if inclusive else 1)
+    return (day + step, date.max) if after else (date.min, day - step)
+
+
 def resolve_range(expr: str, today: date, sentence: str = '') -> tuple[date, date]:
     """Resolve a range expression to (first day, last day), both inclusive."""
     e = _norm(expr)
@@ -115,13 +130,24 @@ def resolve_range(expr: str, today: date, sentence: str = '') -> tuple[date, dat
         first = date(year, month, 1)
         following = date(year + (month == 12), month % 12 + 1, 1)
         return first, following - timedelta(days=1)
+    # CLAUDE> one end open: 'later than today', 'before friday', 'friday or later'; the far end is date.max or date.min
+    if e in ('in the past', 'the past', 'past'):
+        return date.min, today - timedelta(days=1)
+    if e in ('in the future', 'the future', 'future'):
+        return today + timedelta(days=1), date.max
     for separator in (' to ', ' until ', ' till ', ' through '):
         if separator in e:
             left, right = e.split(separator, 1)
+            left = left.removeprefix('from ')
             start, end = resolve_day(left, today, sentence), resolve_day(right, today, sentence)
             if end < start:
                 raise DateExprError(f'{expr!r} ends before it starts')
             return start, end
+    for prefixes, suffixes, after, inclusive in _OPEN_ENDS:
+        bare = next((e.removeprefix(p) for p in prefixes if e.startswith(p)), e)
+        bare = next((bare.removesuffix(x) for x in suffixes if bare.endswith(x)), bare)
+        if bare != e:
+            return _open(resolve_day(bare, today, sentence), after, inclusive)
     day = resolve_day(e, today, sentence)
     return day, day
 
@@ -157,6 +183,15 @@ def weekday_index(name: str) -> int:
 def label(day: date) -> str:
     """A date as shown in previews: 'Thu 24 Sep 2026'."""
     return day.strftime('%a %d %b %Y')
+
+
+def period_label(start: date, end: date) -> str:
+    """A period in a summary: 'in Mon 28 Sep 2026 to Sun 04 Oct 2026', or with one end open 'from … on' / 'up to …'."""
+    if end == date.max:
+        return f'from {label(start)} on'
+    if start == date.min:
+        return f'up to {label(end)}'
+    return f'in {label(start)} to {label(end)}'
 
 
 _AGE = re.compile(r'^(?:an?|one|(\d+))\s*(d|days?|w|weeks?|m|months?|y|years?)$')

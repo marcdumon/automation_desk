@@ -7,7 +7,7 @@ from pydantic import Field
 
 from automation_desk.dates import label
 from automation_desk.groups.base import Context, Preview, Row, StandardTask, match_name
-from automation_desk.groups.tasks.client import tasklists, tasks_in
+from automation_desk.groups.tasks.client import REPEATING_NOTE, looks_repeating, repeating_titles, task_state, tasklists, tasks_in
 from automation_desk.groups.tasks.select import SelectionArgs, describe, select
 
 
@@ -39,19 +39,21 @@ class MoveTasks(StandardTask):
                 if task.get('parent'):
                     children.setdefault(task['parent'], []).append(task)
 
+        repeating = repeating_titles(svc)
         rows, moves = [], []
         # CLAUDE> subtasks first, each to the top level of the target, so a parent never drags others along
         for item in sorted(found, key=lambda i: not i.task.get('parent')):
             task = item.task
             left_behind = [c for c in children.get(task['id'], []) if c['id'] not in chosen]
             done_on = task.get('completed')
-            rows.append(Row(id=task['id'], selectable=not left_behind, selected=not left_behind,
-                            note=f'has {len(left_behind)} subtask(s) that would move along' if left_behind else '',
+            repeats = looks_repeating(task, repeating)
+            note = f'has {len(left_behind)} subtask(s) that would move along' if left_behind else REPEATING_NOTE if repeats else ''
+            rows.append(Row(id=task['id'], selectable=not left_behind, selected=not left_behind and not repeats, note=note,
                             cells={'Task': task.get('title') or '(untitled)', 'From list': item.list_title,
                                    'Completed': label(date.fromisoformat(done_on[:10])) if done_on else '—'}))
             if not left_behind:
-                moves.append({'id': task['id'], 'list_id': item.list_id, 'etag': task.get('etag'), 'title': task.get('title', '')})
-        preview = Preview(summary=f"Move {len(moves)} task(s) to '{target['title']}'. {describe(args)}",
+                moves.append({'id': task['id'], 'list_id': item.list_id, 'state': task_state(task), 'title': task.get('title', '')})
+        preview = Preview(summary=f"Move {sum(r.selected for r in rows)} task(s) to '{target['title']}'. {describe(args)}",
                           columns=['Task', 'From list', 'Completed'], rows=rows,
                           notes=['Subtasks arrive as top-level tasks. Repeating tasks cannot be moved between lists.'])
         return preview, {'target_id': target['id'], 'target': target['title'], 'moves': moves}
@@ -62,7 +64,7 @@ class MoveTasks(StandardTask):
         results = []
         for move in [m for m in payload['moves'] if m['id'] in selected]:
             current = svc.tasks().get(tasklist=move['list_id'], task=move['id']).execute()
-            if current.get('etag') != move['etag']:
+            if task_state(current) != move['state']:
                 results.append(f'Skipped "{move["title"]}": it changed since the preview.')
                 continue
             try:
