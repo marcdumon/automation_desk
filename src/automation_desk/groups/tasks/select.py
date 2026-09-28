@@ -34,7 +34,8 @@ class SelectionArgs(TaskArgs):
                                                   "for 'the Zalando and clean tasks'. A task matches if its title contains "
                                                   'any entry. Empty list when the user means all tasks.')
     due_period: str = Field(description="Only tasks due in this period, as the user said it: 'today', 'this week', "
-                                        "'tomorrow to friday'. Empty when not limited. This is the CURRENT due date, never "
+                                        "'tomorrow to friday', 'later than today', 'before friday'. Empty when not limited. "
+                                        "This is the CURRENT due date, never "
                                         'a new one. Never a numeric date.')
 
 

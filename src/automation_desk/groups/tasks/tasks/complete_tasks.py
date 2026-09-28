@@ -2,7 +2,7 @@
 
 from automation_desk.dates import label
 from automation_desk.groups.base import Context, Preview, Row, StandardTask
-from automation_desk.groups.tasks.client import due_date
+from automation_desk.groups.tasks.client import due_date, task_state
 from automation_desk.groups.tasks.select import SelectionArgs, describe, select
 
 
@@ -20,7 +20,7 @@ class CompleteTasks(StandardTask):
         found = [i for i in select(args, ctx) if i.task.get('status') != 'completed']
         rows = [Row(id=i.task['id'], cells={'Task': i.task.get('title') or '(untitled)', 'List': i.list_title,
                                             'Due': label(d) if (d := due_date(i.task)) else '—'}) for i in found]
-        targets = {i.task['id']: {'list_id': i.list_id, 'etag': i.task.get('etag'), 'title': i.task.get('title', '')}
+        targets = {i.task['id']: {'list_id': i.list_id, 'state': task_state(i.task), 'title': i.task.get('title', '')}
                    for i in found}
         return Preview(summary=f'Complete {len(rows)} task(s). {describe(args)}', columns=['Task', 'List', 'Due'],
                        rows=rows), {'targets': targets}
@@ -33,7 +33,7 @@ class CompleteTasks(StandardTask):
             if task_id not in selected:
                 continue
             current = svc.tasks().get(tasklist=target['list_id'], task=task_id).execute()
-            if current.get('etag') != target['etag']:
+            if task_state(current) != target['state']:
                 results.append(f'Skipped "{target["title"]}": it changed since the preview.')
                 continue
             svc.tasks().patch(tasklist=target['list_id'], task=task_id, body={'status': 'completed'}).execute()

@@ -71,3 +71,12 @@ def test_deletes_only_selected_and_unchanged_events(make_ctx) -> None:
     results = DeleteEvents().execute(payload, {'a', 'b'}, ctx)
     assert [kw['eventId'] for name, kw in fake.calls if name == 'events.delete'] == ['a']
     assert results[1].startswith('Skipped "Dentist"') and 'changed since the preview' in results[1]
+
+
+def test_a_period_open_at_one_end_sends_only_the_other_bound(make_ctx) -> None:
+    """'delete the events after today': no end date is sent, and the summary says 'from' instead of a year 9999."""
+    fake = calendar_api(EVENTS)
+    preview, _ = DeleteEvents().resolve(args(date_range='after today'), make_ctx(fake, 'delete the events after today'))
+    listed = next(kw for name, kw in fake.calls if name == 'events.list')
+    assert listed['timeMin'] == '2026-09-23T00:00:00+02:00' and listed.get('timeMax') is None
+    assert 'from Wed 23 Sep 2026 on' in preview.summary and '9999' not in preview.summary

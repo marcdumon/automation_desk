@@ -4,7 +4,7 @@ from pydantic import Field
 
 from automation_desk.dates import label, resolve_day
 from automation_desk.groups.base import Context, Preview, Row, StandardTask
-from automation_desk.groups.tasks.client import due_date, due_value
+from automation_desk.groups.tasks.client import REPEATING_NOTE, due_date, due_value, looks_repeating, repeating_titles, task_state
 from automation_desk.groups.tasks.select import SelectionArgs, describe, select
 
 
@@ -30,15 +30,17 @@ class ChangeDates(StandardTask):
         """Find the tasks and resolve the new date once."""
         new_due = resolve_day(args.new_due, ctx.today, ctx.sentence)
         rows, targets = [], {}
+        repeating = repeating_titles(ctx.google('tasks', 'v1'))
         for item in select(args, ctx):
             current = due_date(item.task)
             same = current == new_due
-            rows.append(Row(id=item.task['id'], selectable=not same, selected=not same,
-                            note='already on that date' if same else '',
+            repeats = looks_repeating(item.task, repeating)
+            rows.append(Row(id=item.task['id'], selectable=not same, selected=not same and not repeats,
+                            note='already on that date' if same else REPEATING_NOTE if repeats else '',
                             cells={'Task': item.task.get('title') or '(untitled)', 'List': item.list_title,
                                    'Current date': label(current) if current else '—', 'New date': label(new_due)}))
-            targets[item.task['id']] = {'list_id': item.list_id, 'etag': item.task.get('etag'), 'title': item.task.get('title', '')}
-        preview = Preview(summary=f'Set {sum(r.selectable for r in rows)} task(s) to {label(new_due)}. {describe(args)}',
+            targets[item.task['id']] = {'list_id': item.list_id, 'state': task_state(item.task), 'title': item.task.get('title', '')}
+        preview = Preview(summary=f'Set {sum(r.selected for r in rows)} task(s) to {label(new_due)}. {describe(args)}',
                           columns=['Task', 'List', 'Current date', 'New date'], rows=rows,
                           notes=['Google Tasks stores only the date of a due date, never a time.'])
         return preview, {'due': due_value(new_due), 'targets': targets}
@@ -51,7 +53,7 @@ class ChangeDates(StandardTask):
             if task_id not in selected:
                 continue
             current = svc.tasks().get(tasklist=target['list_id'], task=task_id).execute()
-            if current.get('etag') != target['etag']:
+            if task_state(current) != target['state']:
                 results.append(f'Skipped "{target["title"]}": it changed since the preview.')
                 continue
             svc.tasks().patch(tasklist=target['list_id'], task=task_id, body={'due': payload['due']}).execute()
