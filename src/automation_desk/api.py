@@ -12,12 +12,13 @@ from datetime import datetime
 from functools import cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from googleapiclient.errors import HttpError
 from pydantic import BaseModel
@@ -38,6 +39,7 @@ from automation_desk.groups.news.sites import save_site_list
 from automation_desk.interpret import fill_args, route
 from automation_desk.llm import LLMError
 from automation_desk.plans import Plan, PlanStore
+from automation_desk.tools import pdf_margin
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / 'static'
@@ -392,6 +394,21 @@ def job_detail(job_id: str) -> dict:
     if found is None:
         raise HTTPException(404, f'No job {job_id!r}')
     return found
+
+
+@app.post('/api/tools/pdf-margin')
+async def tool_pdf_margin(request: Request, side: str = 'right', percent: float = 33, name: str = 'document') -> Response:
+    """The PDF in the request body with white space beside its pages, as a download under `name`."""
+    content = await request.body()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise UserError(f'The file is larger than {MAX_UPLOAD_BYTES // 1_000_000} MB.')
+    try:
+        widened = pdf_margin.add_margin(content, side, percent)
+    except ValueError as error:
+        raise UserError(str(error)) from error
+    stem = re.sub(r'[\\/:*?"<>|]', '_', name.strip()).removesuffix('.pdf').removesuffix('.PDF') or 'document'
+    return Response(widened, media_type='application/pdf',
+                    headers={'Content-Disposition': f"attachment; filename*=UTF-8''{quote(stem + '.pdf')}"})
 
 
 @app.post('/api/uploads')

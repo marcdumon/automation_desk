@@ -6,6 +6,7 @@ import { getAuth, getGroups, getVersion, login, type Group } from './api'
 import GroupPage, { type LogEntry } from './GroupPage'
 import JobsPage from './JobsPage'
 import Reminders from './Reminders'
+import ToolsPage from './ToolsPage'
 
 export default function App() {
   const groups = useQuery({ queryKey: ['groups'], queryFn: getGroups })
@@ -45,6 +46,7 @@ export default function App() {
               <GroupPage key={group.id} group={group} log={logs[group.id] ?? []} onLog={entry => append(group.id, entry)} />
             </Route>
           ))}
+          <Route path="/tools"><ToolsPage /></Route>
           <Route path="/jobs"><JobsPage /></Route>
           <Route><Redirect to={`/${groups.data[0]?.id ?? ''}`} /></Route>
         </Switch>
@@ -59,6 +61,7 @@ function Sidebar({ groups }: { groups: Group[] }) {
       <div className="brand">Automation desk</div>
       <ul className="group-list">
         {groups.map(group => <GroupLink key={group.id} group={group} />)}
+        <ToolsLink />
       </ul>
       <JobsLink />
       <Reminders />
@@ -75,6 +78,19 @@ function GroupLink({ group }: { group: Group }) {
             aria-current={active ? 'page' : undefined}>
         <span className="swatch" aria-hidden="true" />
         <span>{group.name}</span>
+      </Link>
+    </li>
+  )
+}
+
+// CLAUDE> small one-step tools, listed with the task groups
+function ToolsLink() {
+  const [active] = useRoute('/tools')
+  return (
+    <li>
+      <Link href="/tools" className={`group-link accent-tools${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined}>
+        <span className="swatch" aria-hidden="true" />
+        <span>Tools</span>
       </Link>
     </li>
   )

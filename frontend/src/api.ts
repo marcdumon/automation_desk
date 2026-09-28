@@ -127,6 +127,16 @@ export type WatchState = {
 export const getWatch = () => call<WatchState>('/api/calendar/watch')
 export const saveWatch = (lines: string[], defaultCalendar: string) =>
   call<WatchState>('/api/calendar/watch', { lines, default_calendar: defaultCalendar })
+// CLAUDE> the widened PDF comes back as a file; errors come back as JSON like every other call
+export async function pdfMargin(file: File, side: string, percent: number, name: string): Promise<Blob> {
+  const query = new URLSearchParams({ side, percent: String(percent), name })
+  const response = await reach(`/api/tools/pdf-margin?${query}`, { method: 'POST', body: file })
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}))
+    throw new ApiError(typeof data.detail === 'string' ? data.detail : `Request failed (${response.status})`, false, '')
+  }
+  return response.blob()
+}
 export const stopAction = (action: string) => call<{ stopping: string }>(`/api/stop/${action}`, {})
 export const watchFromEvents = () => call<WatchState & { added: number; unmatched: number }>('/api/calendar/watch/from-events', {})
 export const checkWatch = (viaBrowser: boolean, only: number[] | null = null) =>

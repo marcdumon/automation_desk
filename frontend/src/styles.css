@@ -8,6 +8,7 @@
   --tasks: #2f7a57;
   --gmail: #a83a34;
   --news: #7a5ea8;
+  --tools: #a8327a;
   --error: #a83a34;
   --accent: var(--ink);
   --accent-wash: color-mix(in srgb, var(--accent) 8%, transparent);
@@ -25,6 +26,7 @@
     --tasks: #6cc39a;
     --gmail: #e2837c;
     --news: #b49be0;
+    --tools: #e68ac2;
     --error: #e2837c;
     color-scheme: dark;
   }
@@ -34,6 +36,7 @@
 .accent-tasks { --accent: var(--tasks); }
 .accent-gmail { --accent: var(--gmail); }
 .accent-news { --accent: var(--news); }
+.accent-tools { --accent: var(--tools); }
 
 * { box-sizing: border-box; }
 
@@ -430,3 +433,30 @@ details.news-card[open] > summary { margin-bottom: 14px; }
 .sheet td a.source-link { word-break: normal; }
 .source-link:hover, .sheet td a.source-link:hover { border-color: var(--accent); color: var(--accent); }
 .watch-from-events { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }
+
+/* CLAUDE> Tools: one card per small task */
+.tools { display: grid; gap: 20px; }
+.tool-card { display: grid; gap: 14px; padding: 20px 22px; border: 1px solid var(--rule); border-radius: 12px; background: var(--surface); }
+.tool-card h2 { margin: 0; font-size: 17px; }
+.tool-card > p { margin: -8px 0 0; font-size: 14px; }
+.drop-zone { display: grid; gap: 4px; justify-items: center; padding: 26px 16px; border: 2px dashed var(--rule); border-radius: 10px;
+  background: var(--paper); color: inherit; font: inherit; cursor: pointer; }
+.drop-zone:hover, .drop-zone.dragging { border-color: var(--accent); background: var(--accent-wash); }
+.drop-zone.chosen { border-style: solid; }
+.drop-zone .muted { font-size: 13px; }
+/* CLAUDE> file on the left, the settings side by side on the right; one column on a narrow window */
+.tool-body { display: grid; grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); gap: 24px; align-items: stretch; }
+.tool-body .drop-zone { align-content: center; }
+.tool-settings { display: grid; gap: 16px; align-content: center; }
+.tool-fields { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: flex-start; }
+@media (max-width: 760px) { .tool-body { grid-template-columns: 1fr; } }
+.tool-fields label { display: grid; gap: 6px; font-size: 14px; }
+.percent-field, .name-field { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+.percent-field input { width: 5em; }
+.tool-fields label:last-child { flex: 1 1 260px; }
+.name-field input { flex: 1; min-width: 0; }
+.percent-field input, .name-field input { padding: 7px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper);
+  color: var(--ink); font: inherit; }
+.percent-field input[aria-invalid='true'] { border-color: var(--error); }
+.tool-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.tool-done { color: var(--tasks); font-weight: 600; font-size: 14px; }
