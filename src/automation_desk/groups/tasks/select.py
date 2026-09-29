@@ -1,23 +1,24 @@
 """Which tasks a sentence means: one shared selection for every standard task of the Tasks group.
 
-The model copies the user's words into these fields; code does the matching against the task lists. Task titles never
-go to the model.
+The model copies the user's words into these fields; code does the matching against the Todoist projects (the lists) and
+tasks. Task titles never go to the model.
 """
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Literal
 
-from googleapiclient.discovery import Resource
 from pydantic import Field
 
 from automation_desk.dates import resolve_range
 from automation_desk.groups.base import Context, TaskArgs, UserError, match_name
-from automation_desk.groups.tasks.client import due_date, tasklists, tasks_in
+from automation_desk.groups.tasks.client import task_date
 
 # CLAUDE> list names that mean 'every list'
 ALL_LISTS = {'', 'all', 'all lists', 'every list', 'any list', 'everywhere'}
 NO_PERIOD = {'', 'all', 'any', 'any time', 'anytime', 'always', 'ever'}
+# CLAUDE> how far back 'completed tasks' reach: Todoist hands them out three months at a time
+COMPLETED_REACH = timedelta(days=365)
 
 
 class SelectionArgs(TaskArgs):
@@ -53,41 +54,39 @@ def _norm(text: str) -> str:
     return ' '.join(text.split()).casefold()
 
 
-def lists_for(svc: Resource, names: list[str]) -> list[dict]:
-    """The lists a selection covers: the named ones, in the order of the user's lists, or all of them."""
-    lists = tasklists(svc)
+def lists_for(projects: list[dict], names: list[str]) -> list[dict]:
+    """The lists (Todoist projects) a selection covers: the named ones, in the user's order, or all of them."""
     named = [n for n in names if _norm(n) not in ALL_LISTS]
     if not named:
-        return lists
-    wanted = {match_name(n, lists, 'title', 'task list')['id'] for n in named}
-    return [tasklist for tasklist in lists if tasklist['id'] in wanted]
+        return projects
+    wanted = {match_name(n, projects, 'name', 'list')['id'] for n in named}
+    return [project for project in projects if project['id'] in wanted]
 
 
 def select(args: SelectionArgs, ctx: Context, exclude_list_id: str = '') -> list[Selected]:
     """Every task matching the selection, in list order; `exclude_list_id` skips a list (e.g. a move's target)."""
-    svc = ctx.google('tasks', 'v1')
+    todoist = ctx.todoist()
     period: tuple[date, date] | None = None
     if _norm(args.due_period) not in NO_PERIOD:
         period = resolve_range(args.due_period, ctx.today, ctx.sentence)
     words = [w for w in (_norm(t) for t in args.title_contains) if w]
-    with_completed = args.which in ('completed', 'all')
+    tasks = todoist.open_tasks() if args.which != 'completed' else []
+    if args.which in ('completed', 'all'):
+        tasks += todoist.completed(ctx.now - COMPLETED_REACH, ctx.now)
 
     found = []
-    for tasklist in lists_for(svc, args.list_names):
-        if tasklist['id'] == exclude_list_id:
+    for project in lists_for(todoist.projects(), args.list_names):
+        if project['id'] == exclude_list_id:
             continue
-        for task in tasks_in(svc, tasklist['id'], with_completed=with_completed):
-            done = task.get('status') == 'completed'
-            due = due_date(task)
-            if (args.which == 'open' and done) or (args.which == 'completed' and not done):
+        for task in (t for t in tasks if t.get('project_id') == project['id']):
+            due = task_date(task)
+            if args.which == 'overdue' and (due is None or due >= ctx.today):
                 continue
-            if args.which == 'overdue' and (done or due is None or due >= ctx.today):
-                continue
-            if words and not any(w in _norm(task.get('title', '')) for w in words):
+            if words and not any(w in _norm(task.get('content', '')) for w in words):
                 continue
             if period and (due is None or not period[0] <= due <= period[1]):
                 continue
-            found.append(Selected(tasklist['id'], tasklist['title'], task))
+            found.append(Selected(project['id'], project['name'], task))
     if not found:
         raise UserError('No task matches that. ' + describe(args))
     return found

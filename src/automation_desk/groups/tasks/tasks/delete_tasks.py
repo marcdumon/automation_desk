@@ -1,8 +1,7 @@
 """Standard task: delete tasks."""
 
-from automation_desk.dates import label
 from automation_desk.groups.base import Context, Preview, Row, StandardTask
-from automation_desk.groups.tasks.client import REPEATING_NOTE, due_date, looks_repeating, repeating_titles, task_state, tasks_in
+from automation_desk.groups.tasks.client import repeat_rule, task_state, when
 from automation_desk.groups.tasks.select import SelectionArgs, describe, select
 
 
@@ -12,42 +11,40 @@ class DeleteTasks(StandardTask):
     id = 'delete_tasks'
     name = 'Delete tasks'
     description = 'Deletes the tasks you describe: one task by a word of its title, completed ones in a list, ...'
-    example = 'delete the completed tasks in list Completed'
+    example = 'delete the completed tasks in list Inbox'
     Args = SelectionArgs
 
     def resolve(self, args: SelectionArgs, ctx: Context) -> tuple[Preview, dict]:
-        """List the matching tasks, noting subtasks that a delete takes along."""
-        svc = ctx.google('tasks', 'v1')
+        """List the matching tasks, noting subtasks a delete takes along; a repeating task comes unticked."""
         found = select(args, ctx)
-        children: dict[str, int] = {}
-        for list_id in {i.list_id for i in found}:
-            for task in tasks_in(svc, list_id, with_completed=True):
-                if task.get('parent'):
-                    children[task['parent']] = children.get(task['parent'], 0) + 1
-        repeating = repeating_titles(svc)
-        rows = [Row(id=i.task['id'], selected=not looks_repeating(i.task, repeating),
-                    note=f"also deletes its {children[i.task['id']]} subtask(s)" if children.get(i.task['id'])
-                    else REPEATING_NOTE if looks_repeating(i.task, repeating) else '',
-                    cells={'Task': i.task.get('title') or '(untitled)', 'List': i.list_title,
-                           'State': 'done' if i.task.get('status') == 'completed' else 'open',
-                           'Due': label(d) if (d := due_date(i.task)) else '—'}) for i in found]
-        targets = {i.task['id']: {'list_id': i.list_id, 'state': task_state(i.task), 'title': i.task.get('title', '')}
+        children = {}
+        for task in ctx.todoist().open_tasks():
+            if task.get('parent_id'):
+                children[task['parent_id']] = children.get(task['parent_id'], 0) + 1
+        rows = []
+        for item in found:
+            task, repeats = item.task, repeat_rule(item.task) and not item.task.get('checked')
+            note = (f"also deletes its {children[task['id']]} subtask(s)" if children.get(task['id'])
+                    else f'repeats {repeat_rule(task)}: deleting ends it' if repeats else '')
+            rows.append(Row(id=task['id'], selected=not repeats, note=note,
+                            cells={'Task': task.get('content') or '(untitled)', 'List': item.list_title,
+                                   'State': 'done' if task.get('checked') else 'open', 'Date': when(task)}))
+        targets = {i.task['id']: {'state': task_state(i.task), 'title': i.task.get('content', ''), 'done': bool(i.task.get('checked'))}
                    for i in found}
         return Preview(summary=f'Delete {sum(r.selected for r in rows)} task(s). {describe(args)}',
-                       columns=['Task', 'List', 'State', 'Due'],
-                       rows=rows, notes=['Deleted tasks cannot be brought back from Google Tasks.']), {'targets': targets}
+                       columns=['Task', 'List', 'State', 'Date'], rows=rows,
+                       notes=['Deleted tasks cannot be brought back from Todoist.']), {'targets': targets}
 
     def execute(self, payload: dict, selected: set[str], ctx: Context) -> list[str]:
-        """Delete each selected task, skipping any that changed since the preview."""
-        svc = ctx.google('tasks', 'v1')
-        results = []
+        """Delete each selected task, skipping an open one that changed since the preview."""
+        todoist, results = ctx.todoist(), []
         for task_id, target in payload['targets'].items():
             if task_id not in selected:
                 continue
-            current = svc.tasks().get(tasklist=target['list_id'], task=task_id).execute()
-            if task_state(current) != target['state']:
+            # CLAUDE> a completed task cannot change any more; only open ones are checked again
+            if not target['done'] and task_state(todoist.task(task_id)) != target['state']:
                 results.append(f'Skipped "{target["title"]}": it changed since the preview.')
                 continue
-            svc.tasks().delete(tasklist=target['list_id'], task=task_id).execute()
+            todoist.delete(task_id)
             results.append(f'Deleted "{target["title"]}".')
         return results

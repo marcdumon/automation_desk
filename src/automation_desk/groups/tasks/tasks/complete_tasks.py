@@ -1,8 +1,7 @@
 """Standard task: mark tasks as completed."""
 
-from automation_desk.dates import label
 from automation_desk.groups.base import Context, Preview, Row, StandardTask
-from automation_desk.groups.tasks.client import due_date, task_state
+from automation_desk.groups.tasks.client import repeat_rule, task_state, when
 from automation_desk.groups.tasks.select import SelectionArgs, describe, select
 
 
@@ -16,26 +15,24 @@ class CompleteTasks(StandardTask):
     Args = SelectionArgs
 
     def resolve(self, args: SelectionArgs, ctx: Context) -> tuple[Preview, dict]:
-        """List the matching open tasks."""
-        found = [i for i in select(args, ctx) if i.task.get('status') != 'completed']
-        rows = [Row(id=i.task['id'], cells={'Task': i.task.get('title') or '(untitled)', 'List': i.list_title,
-                                            'Due': label(d) if (d := due_date(i.task)) else '—'}) for i in found]
-        targets = {i.task['id']: {'list_id': i.list_id, 'state': task_state(i.task), 'title': i.task.get('title', '')}
-                   for i in found}
-        return Preview(summary=f'Complete {len(rows)} task(s). {describe(args)}', columns=['Task', 'List', 'Due'],
+        """List the matching open tasks; a repeating one moves on to its next date."""
+        found = [i for i in select(args, ctx) if not i.task.get('checked')]
+        rows = [Row(id=i.task['id'], note=f'repeats {repeat_rule(i.task)}: moves on to its next date' if repeat_rule(i.task) else '',
+                    cells={'Task': i.task.get('content') or '(untitled)', 'List': i.list_title, 'Date': when(i.task)})
+                for i in found]
+        targets = {i.task['id']: {'state': task_state(i.task), 'title': i.task.get('content', '')} for i in found}
+        return Preview(summary=f'Complete {len(rows)} task(s). {describe(args)}', columns=['Task', 'List', 'Date'],
                        rows=rows), {'targets': targets}
 
     def execute(self, payload: dict, selected: set[str], ctx: Context) -> list[str]:
-        """Set each selected task to completed, skipping any that changed since the preview."""
-        svc = ctx.google('tasks', 'v1')
-        results = []
+        """Close each selected task, skipping any that changed since the preview."""
+        todoist, results = ctx.todoist(), []
         for task_id, target in payload['targets'].items():
             if task_id not in selected:
                 continue
-            current = svc.tasks().get(tasklist=target['list_id'], task=task_id).execute()
-            if task_state(current) != target['state']:
+            if task_state(todoist.task(task_id)) != target['state']:
                 results.append(f'Skipped "{target["title"]}": it changed since the preview.')
                 continue
-            svc.tasks().patch(tasklist=target['list_id'], task=task_id, body={'status': 'completed'}).execute()
+            todoist.close(task_id)
             results.append(f'Completed "{target["title"]}".')
         return results

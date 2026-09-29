@@ -5,6 +5,7 @@ class: the arguments the model fills from a sentence (`Args`), `resolve`, which 
 and `execute`, which applies exactly the previewed rows. Add an automation by adding an instance to its group's `tasks`.
 """
 
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -16,6 +17,8 @@ from googleapiclient.discovery import Resource
 from pydantic import BaseModel, Field
 
 from automation_desk.jobs import RecordedService
+from automation_desk.todoist import Todoist
+from automation_desk.todoist import token as todoist_token
 
 
 class TaskArgs(BaseModel):
@@ -92,13 +95,18 @@ class UserError(ValueError):
     """A problem the user can fix by rephrasing: unknown list, bad date, empty page..."""
 
 
+def _plain_name(name: str) -> str:
+    """A name for matching: words only, lower case; emoji used as icons and punctuation left out, '&' read as 'and'."""
+    return ' '.join(re.findall(r'\w+', name.casefold().replace('&', ' and ')))
+
+
 def match_name(name: str, items: list[dict], key: str, kind: str) -> dict:
     """The item whose `key` matches `name`: exact (case-insensitive), then unique prefix, then unique substring.
 
     Matching happens in code so the model never sees the user's list or calendar names.
     """
-    wanted = ' '.join(name.casefold().strip(' "\'').split())
-    names = {id(item): ' '.join(str(item.get(key, '')).casefold().split()) for item in items}
+    wanted = _plain_name(name)
+    names = {id(item): _plain_name(str(item.get(key, ''))) for item in items}
     for test in (lambda n: n == wanted, lambda n: n.startswith(wanted), lambda n: wanted in n):
         hits = [item for item in items if test(names[id(item)])]
         if len(hits) == 1:
@@ -119,7 +127,10 @@ class Context:
     service: Callable[[str, str], Resource]
     # CLAUDE> files the user attached to the command, as (name, content)
     files: list[tuple[str, bytes]] = field(default_factory=list)
+    # CLAUDE> builds the Todoist client of the Tasks group; tests put a stand-in here
+    todoist_factory: Callable[[], Todoist] | None = None
     _cache: dict[tuple[str, str], Resource] = field(default_factory=dict)
+    _todoist: Todoist | None = None
 
     def google(self, name: str, version: str) -> Resource:
         """A Google client, built once per request."""
@@ -127,6 +138,12 @@ class Context:
         if key not in self._cache:
             self._cache[key] = RecordedService(self.service(name, version), name)
         return self._cache[key]
+
+    def todoist(self) -> Todoist:
+        """The Todoist client, built once per request."""
+        if self._todoist is None:
+            self._todoist = self.todoist_factory() if self.todoist_factory else Todoist(todoist_token())
+        return self._todoist
 
     @property
     def today(self) -> date:

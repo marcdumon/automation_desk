@@ -1,6 +1,6 @@
 # automation_desk
 
-A local app for automating Google Calendar, Google Tasks and Gmail by typing plain sentences.
+A local app for automating Google Calendar, Gmail, News and your Todoist tasks by typing plain sentences.
 
 It is organised in **task groups** (one page each: Calendar, Tasks, Gmail, more later). Each group has **standard tasks**.
 Type a sentence in a group's command box, or pick one of its standard tasks first. The app shows exactly what will change,
@@ -14,8 +14,8 @@ with a tick box per item, and changes nothing until you press Apply.
 | Calendar | Check watched agenda sites (list on the Calendar page; events not in your calendar; ones you left unticked come back unticked) | `check my agenda sites`, or the Check for new events button |
 | Calendar | Delete events from a calendar | `delete the events of next week in calendar Test` |
 | Tasks | Change the date of tasks | `change the date of the Zalando and clean tasks in list Today to tomorrow` |
-| Tasks | Move tasks to another list | `move all completed tasks to list Completed` |
-| Tasks | Complete tasks / Delete tasks / Add a task | `mark the Zalando task as done` |
+| Tasks | Move tasks to another list | `move all tasks with date later than today from list Today to list This week` |
+| Tasks | Complete tasks / Delete tasks / Add a task | `mark the Zalando task as done`, `add Quick Clean every saturday` |
 | Gmail | Find a mail (read only, any language) | `wanneer is het resultaat van de bloedtest beschikbaar, label Health` |
 | Gmail | Label or mark mail (also archive) | `archive all newsletters older than 2 weeks` |
 | Gmail | Trash mail | `trash all mail from Zalando older than a month` |
@@ -89,8 +89,8 @@ output goes to `data/server.log`.
 
 ```bash
 uv sync
-cp .env.example .env                                  # set OPENROUTER_API_KEY
-uv run python -m automation_desk.google_auth           # one-time Google login (Tasks, Calendar, Gmail)
+cp .env.example .env                                  # set OPENROUTER_API_KEY and TODOIST_API_TOKEN
+uv run python -m automation_desk.google_auth           # one-time Google login (Calendar, Gmail)
 cd frontend && npm install && npm run build && cd ..
 uv run automation-desk                                 # http://127.0.0.1:8765
 ```
@@ -116,4 +116,4 @@ A new group is a new package plus one line in `groups/__init__.py`.
 
 ## Known limits
 
-- Google Tasks stores only the date of a due date, and recurring tasks cannot be moved between lists.
+- Tasks live in Todoist; its lists are Todoist projects. The Todoist API token comes from Todoist → Settings → Integrations → Developer and goes in `.env` as `TODOIST_API_TOKEN`. A new date on a repeating task would end its repeat, so such tasks come unticked in Change dates and Delete.

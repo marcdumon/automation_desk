@@ -39,6 +39,7 @@ from automation_desk.groups.news.sites import save_site_list
 from automation_desk.interpret import fill_args, route
 from automation_desk.llm import LLMError
 from automation_desk.plans import Plan, PlanStore
+from automation_desk.todoist import TodoistError
 from automation_desk.tools import pdf_margin
 
 log = logging.getLogger(__name__)
@@ -98,6 +99,12 @@ def auth_error(_: Request, error: AuthError) -> JSONResponse:
 def user_error(_: Request, error: ValueError) -> JSONResponse:
     """Something the user can fix by rephrasing."""
     return JSONResponse({'detail': str(error)}, status_code=422)
+
+
+@app.exception_handler(TodoistError)
+def todoist_error(_: Request, error: TodoistError) -> JSONResponse:
+    """Todoist refused or could not be reached: the message says what to do."""
+    return JSONResponse({'detail': str(error)}, status_code=502)
 
 
 @app.exception_handler(CaptureError)
