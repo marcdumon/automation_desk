@@ -1,64 +1,42 @@
-"""Google Tasks API helpers shared by the Tasks group's standard tasks."""
+"""Todoist task helpers shared by the Tasks group's standard tasks: dates, repeats and what the user sees of a task."""
 
-from collections import Counter
-from datetime import date
+from datetime import UTC, date, datetime, time
+from zoneinfo import ZoneInfo
 
-from googleapiclient.discovery import Resource
-
-
-def tasklists(svc: Resource) -> list[dict]:
-    """All task lists of the user."""
-    items, token = [], None
-    while True:
-        page = svc.tasklists().list(maxResults=100, pageToken=token).execute()
-        items += page.get('items', [])
-        if not (token := page.get('nextPageToken')):
-            return items
+from automation_desk.dates import label
 
 
-def tasks_in(svc: Resource, list_id: str, with_completed: bool) -> list[dict]:
-    """Tasks of one list; completed and hidden ones only when asked."""
-    items, token = [], None
-    while True:
-        page = svc.tasks().list(tasklist=list_id, maxResults=100, pageToken=token, showCompleted=with_completed,
-                                showHidden=with_completed).execute()
-        items += page.get('items', [])
-        if not (token := page.get('nextPageToken')):
-            return items
+def task_date(task: dict) -> date | None:
+    """The day a task is planned for (Todoist's 'date', not its deadline); None when undated."""
+    due = task.get('due')
+    return date.fromisoformat(due['date'][:10]) if due else None
 
 
-def due_date(task: dict) -> date | None:
-    """The due date of a task. Google Tasks keeps only the date part."""
-    return date.fromisoformat(task['due'][:10]) if task.get('due') else None
+def task_time(task: dict) -> time | None:
+    """The time of day a task is planned for, as the user sees it; None when it has only a date."""
+    due = task.get('due')
+    if not due or len(due['date']) <= 10:
+        return None
+    return datetime.fromisoformat(due['date'].removesuffix('Z')).time()
 
 
-def due_value(day: date) -> str:
-    """A date in the RFC 3339 form the Tasks API expects for `due`."""
-    return f'{day.isoformat()}T00:00:00.000Z'
+def when(task: dict) -> str:
+    """A task's date and time as previews show them: 'Fri 25 Sep 2026 10:30', or '—'."""
+    day, clock = task_date(task), task_time(task)
+    return f'{label(day)} {clock.strftime("%H:%M")}' if day and clock else label(day) if day else '—'
+
+
+def repeat_rule(task: dict) -> str:
+    """How a task repeats, in Todoist's words ('every saturday'); empty when it does not."""
+    due = task.get('due') or {}
+    return due.get('string', '') if due.get('is_recurring') else ''
+
+
+def utc_moment(day: date, clock: time, tz: ZoneInfo) -> str:
+    """A local date and time as the UTC timestamp Todoist's due_datetime takes."""
+    return datetime.combine(day, clock, tz).astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
 def task_state(task: dict) -> list:
-    """What the user sees of a task, to tell whether they changed it since a preview. Not its etag: moving or deleting a task
-    shifts the others in its list, and Google gives each of them a new etag without anything the user would call a change."""
-    return [task.get('title', ''), task.get('notes', ''), task.get('due', ''), task.get('status', '')]
-
-
-REPEATING_NOTE = 'looks like a repeating task: change it in Google Tasks'
-
-
-def _title_key(task: dict) -> str:
-    """A title for counting: case- and space-insensitive."""
-    return ' '.join(task.get('title', '').split()).casefold()
-
-
-def repeating_titles(svc: Resource) -> set[str]:
-    """Titles the user completed twice or more, in any list: most likely repeating tasks. The Tasks API does not say which
-    tasks repeat, and moving one to another list broke its series (Quick Clean), so previews leave these unticked."""
-    done = Counter(_title_key(t) for tasklist in tasklists(svc) for t in tasks_in(svc, tasklist['id'], with_completed=True)
-                   if t.get('status') == 'completed' and _title_key(t))
-    return {title for title, count in done.items() if count >= 2}
-
-
-def looks_repeating(task: dict, titles: set[str]) -> bool:
-    """Whether an open task is probably an occurrence of a repeating task; its completed copies are harmless to handle."""
-    return task.get('status') != 'completed' and _title_key(task) in titles
+    """What the user sees of a task, to tell whether they changed it since a preview."""
+    return [task.get('content', ''), task.get('description', ''), (task.get('due') or {}).get('date'), task.get('checked', False)]

@@ -120,10 +120,69 @@ def ledger(tmp_path, monkeypatch: pytest.MonkeyPatch):
     return path
 
 
+class FakeTodoist:
+    """Stands in for automation_desk.todoist.Todoist: projects and tasks in memory, every change recorded in `calls`."""
+
+    def __init__(self, projects: list[dict], tasks: list[dict], completed: list[dict] | None = None) -> None:
+        """Projects as {'id', 'name'}, open tasks and completed tasks as the API gives them."""
+        self._projects, self.tasks, self.done = projects, tasks, completed or []
+        self.calls: list[tuple] = []
+
+    def projects(self) -> list[dict]:
+        """All projects."""
+        return list(self._projects)
+
+    def open_tasks(self) -> list[dict]:
+        """Tasks not done."""
+        return list(self.tasks)
+
+    def completed(self, since: object, until: object) -> list[dict]:
+        """Completed tasks, whatever the period."""
+        self.calls.append(('completed', since, until))
+        return list(self.done)
+
+    def task(self, task_id: str) -> dict:
+        """One task as it is now."""
+        return next(t for t in self.tasks + self.done if t['id'] == task_id)
+
+    def add(self, fields: dict) -> dict:
+        """Create a task."""
+        self.calls.append(('add', fields))
+        return {'id': 'new', **fields}
+
+    def update(self, task_id: str, fields: dict) -> dict:
+        """Change a task."""
+        self.calls.append(('update', task_id, fields))
+        return {}
+
+    def close(self, task_id: str) -> None:
+        """Complete a task."""
+        self.calls.append(('close', task_id))
+
+    def delete(self, task_id: str) -> None:
+        """Delete a task."""
+        self.calls.append(('delete', task_id))
+
+    def move(self, task_id: str, project_id: str) -> None:
+        """Move a task to a project."""
+        self.calls.append(('move', task_id, project_id))
+
+
+@pytest.fixture(autouse=True)
+def no_real_todoist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test reaches the user's real Todoist: without a stand-in, the Context finds no token."""
+    from automation_desk.groups import base
+
+    monkeypatch.setattr(base, 'todoist_token', lambda: '')
+
+
 @pytest.fixture
 def make_ctx() -> Callable[..., Context]:
-    """Build a Context whose Google clients are the given fake."""
-    def build(fake: FakeGoogle, sentence: str = '') -> Context:
+    """Build a Context whose Google clients, or Todoist, are the given fake."""
+    def build(fake: FakeGoogle | FakeTodoist, sentence: str = '') -> Context:
         """A Context for `sentence` backed by `fake`."""
+        if isinstance(fake, FakeTodoist):
+            return Context(sentence=sentence, now=NOW, tz=TZ, service=lambda name, version: FakeGoogle({}),
+                           todoist_factory=lambda: fake)
         return Context(sentence=sentence, now=NOW, tz=TZ, service=lambda name, version: fake)
     return build
