@@ -113,3 +113,67 @@ def test_unplanned_tasks_go_back_into_someday(make_ctx) -> None:
     results = DemoteUnplanned().execute(payload, {'a', 'd'}, ctx)
     assert [c[1:] for c in fake.calls if c[0] == 'move_to_section'] == [('a', 'S1'), ('d', 'S2')]
     assert results == ['Moved "Ramen poetsen" into Someday in 🏠 Home.', 'Moved "Gordijnen" into Someday in 💻 Tech.']
+
+
+def test_titles_get_the_verb_colon_form_the_user_can_edit(make_ctx, monkeypatch) -> None:
+    """The model proposes; code skips titles already in form and Inbox links, keeps only answers of the form, and the user
+    edits a title in the preview before it is applied."""
+    from automation_desk.groups.tasks.tasks import titles as module
+    from automation_desk.groups.tasks.tasks.titles import Proposal, Proposals, VerbTitles
+
+    fake = FakeTodoist(PROJECTS, [
+        task('a', 'Ramen poetsen', 'P1', None, []), task('b', 'Buy: Smoking', 'P1', None, []),
+        task('c', '* **LINK**: [All Emojis](https://emojipedia.org/)', 'P0', None, []), task('d', 'Kitchen', 'P1', None, []),
+        task('e', 'Afspraak Tandarts maken', 'P1', None, []),
+    ])
+    seen = {}
+
+    def ask(system: str, user: str, schema: type, **_: object) -> Proposals:
+        """Numbers the titles as sent; 'Kitchen' is a heading, left as it is."""
+        seen['user'] = user
+        return Proposals(titles=[Proposal(n=1, title='Clean: Ramen'), Proposal(n=2, title='Kitchen'),
+                                 Proposal(n=3, title='Book Tandarts')])
+
+    monkeypatch.setattr(module, 'ask', ask)
+    ctx = make_ctx(fake, 'give my tasks a verb: title')
+    preview, payload = VerbTitles().resolve(args(), ctx)
+    assert '1. Ramen poetsen' in seen['user'] and 'Buy: Smoking' not in seen['user'] and 'emojipedia' not in seen['user']
+    assert [(r.cells['Title'], r.inputs['New title']) for r in preview.rows] == [('Ramen poetsen', 'Clean: Ramen')], (
+        "'Kitchen' unchanged, 'Book Tandarts' has no colon: neither is offered")
+    preview, payload = VerbTitles().adjust(payload, {'New title:a': 'Clean: Ramen (binnen)'}, ctx)
+    assert preview.rows[0].inputs['New title'] == 'Clean: Ramen (binnen)'
+    assert VerbTitles().execute(payload, {'a'}, ctx) == ['Renamed "Ramen poetsen" to "Clean: Ramen (binnen)".']
+    assert [c[1:] for c in fake.calls if c[0] == 'update'] == [('a', {'content': 'Clean: Ramen (binnen)'})]
+
+
+def test_nothing_to_rename_asks_no_model(make_ctx, monkeypatch) -> None:
+    from automation_desk.groups.tasks.tasks import titles as module
+    from automation_desk.groups.tasks.tasks.titles import VerbTitles
+
+    monkeypatch.setattr(module, 'ask', lambda *a, **k: (_ for _ in ()).throw(AssertionError('no model call')))
+    fake = FakeTodoist(PROJECTS, [task('b', 'Buy: Smoking', 'P1', None, [])])
+    preview, _ = VerbTitles().resolve(args(), make_ctx(fake, 'x'))
+    assert (preview.summary, preview.read_only) == ('Nothing to rename: every task title already reads Verb: subject.', True)
+
+
+def test_tasks_with_a_label_get_a_deadline(make_ctx) -> None:
+    """'give all tasks with label this week a deadline friday' (Tuesday 22 Sep 2026): code finds the label and the date."""
+    from automation_desk.groups.tasks.tasks.deadlines import DeadlineArgs, LabelDeadline
+
+    fake = FakeTodoist(PROJECTS, [
+        task('a', 'Clean: Ramen', 'P1', None, ['this_week']),
+        task('b', 'Pay: Rekeningen', 'P2', None, ['this_week'], deadline={'date': '2026-09-30', 'lang': 'en'}),
+        task('c', 'Book: Tandarts', 'P1', None, ['this_week'], deadline={'date': '2026-09-25', 'lang': 'en'}),
+        task('d', 'Other', 'P1', None, ['this_month']),
+    ])
+    fake.label_names = ['frog', 'this_week', 'this_month']
+    ctx = make_ctx(fake, 'give all tasks with label this week a deadline friday')
+    preview, payload = LabelDeadline().resolve(DeadlineArgs(status='ok', message='', label='this week', deadline='friday'), ctx)
+    assert [(r.cells['Task'], r.cells['Deadline now'], r.cells['New deadline'], r.selectable, r.note) for r in preview.rows] == [
+        ('Clean: Ramen', '—', 'Fri 25 Sep 2026', True, ''),
+        ('Pay: Rekeningen', 'Wed 30 Sep 2026', 'Fri 25 Sep 2026', True, 'replaces its deadline'),
+        ('Book: Tandarts', 'Fri 25 Sep 2026', 'Fri 25 Sep 2026', False, 'already has that deadline')]
+    assert preview.summary == "Set deadline Fri 25 Sep 2026 on 2 task(s) with label @this_week."
+    LabelDeadline().execute(payload, {'a', 'b'}, ctx)
+    assert [c[1:] for c in fake.calls if c[0] == 'update'] == [('a', {'deadline_date': '2026-09-25'}),
+                                                               ('b', {'deadline_date': '2026-09-25'})]

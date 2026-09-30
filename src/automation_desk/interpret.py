@@ -9,8 +9,9 @@ from automation_desk.groups.base import StandardTask, TaskArgs, TaskGroup
 from automation_desk.llm import ask
 
 RULES = """Rules:
-- Never write a calendar date, a numeric date (like 2026-10-03 or 3/10) or a year. For dates and periods copy the user's
-  own relative words: 'tomorrow', 'today+2', 'friday', 'next week', 'in 3 days'. The app turns them into dates.
+- Copy dates and periods exactly as the user wrote them: relative words ('tomorrow', 'today+2', 'friday', 'next week',
+  'in 3 days') or a date the user typed ('31-12-2026', 'oct 30', '30 oktober'). Never work out a date yourself, never
+  turn words into a date, never add a year the user did not write. The app turns the user's words into dates.
 - Copy names of lists and calendars, titles and free text exactly as the user wrote them, in the user's language
   (English, Dutch or French); do not translate.
 - status 'unsupported' when the sentence asks for something this task does not do; 'clarify' with a question when

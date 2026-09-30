@@ -128,7 +128,12 @@ class FakeTodoist:
         self._projects, self.tasks, self.done = projects, tasks, completed or []
         self.section_names: dict[str, str] = {}
         self.section_projects: dict[str, str] = {}
+        self.label_names: list[str] = []
         self.calls: list[tuple] = []
+
+    def labels(self) -> list[dict]:
+        """All personal labels, from `label_names`."""
+        return [{'id': f'L{n}', 'name': name} for n, name in enumerate(self.label_names)]
 
     def sections(self) -> list[dict]:
         """All sections, from `section_names` (id → name) and `section_projects` (id → project id)."""

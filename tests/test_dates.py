@@ -38,10 +38,16 @@ def test_bare_weekday_on_that_weekday_is_a_week_out() -> None:
     assert resolve_day('this thursday', THURSDAY) == THURSDAY
 
 
-@pytest.mark.parametrize('expr', ['2026-09-24', '24/09', '24/09/2026', '24.9', '2026'])
-def test_numeric_dates_are_rejected(expr: str) -> None:
+@pytest.mark.parametrize('expr', ['2026-09-24', '24/09', '24/09/2026', '24.9'])
+def test_numeric_dates_the_model_made_up_are_rejected(expr: str) -> None:
+    """The user said 'next thursday'; a model that turns it into a numeric date is caught."""
+    with pytest.raises(DateExprError, match='not in your sentence'):
+        resolve_day(expr, TUESDAY, sentence='move it to next thursday')
+
+
+def test_a_bare_year_is_no_day() -> None:
     with pytest.raises(DateExprError):
-        resolve_day(expr, TUESDAY, sentence=f'move it to {expr}')
+        resolve_day('2026', TUESDAY, sentence='move it to 2026')
 
 
 def test_explicit_date_only_when_typed_by_the_user() -> None:
@@ -106,3 +112,25 @@ def test_bad_durations(expr: str) -> None:
 
 def test_a_closed_range_may_start_with_from() -> None:
     assert resolve_range('from today to friday', TUESDAY) == (TUESDAY, date(2026, 9, 25))
+
+
+@pytest.mark.parametrize('expr', ['okt 30', '30 okt', '30 oktober', '30 octobre', 'oct 30'])
+def test_dutch_and_french_month_names(expr: str) -> None:
+    """'give all tasks with label this_month a deadline okt 30': a date with a month name, in the user's language."""
+    assert resolve_day(expr, TUESDAY, f'a deadline {expr}') == date(2026, 10, 30)
+
+
+@pytest.mark.parametrize(('expr', 'expected'), [
+    ('31-12-2026', date(2026, 12, 31)), ('31/12/2026', date(2026, 12, 31)), ('31.12.26', date(2026, 12, 31)),
+    ('2026-12-31', date(2026, 12, 31)), ('3/10', date(2026, 10, 3)), ('1-3', date(2027, 3, 1)),
+])
+def test_a_numeric_date_the_user_typed_is_read_day_first(expr: str, expected: date) -> None:
+    """'give all tasks with label this_year a deadline 31-12-2026': Belgian order, day-month(-year)."""
+    assert resolve_day(expr, TUESDAY, f'a deadline {expr} please') == expected
+
+
+def test_a_numeric_date_not_in_the_sentence_or_not_real_is_refused() -> None:
+    with pytest.raises(DateExprError, match='not in your sentence'):
+        resolve_day('31-12-2026', TUESDAY, 'a deadline at the end of the year')
+    with pytest.raises(DateExprError, match='not a real date'):
+        resolve_day('31-02-2026', TUESDAY, 'a deadline 31-02-2026')

@@ -96,8 +96,9 @@ class UserError(ValueError):
 
 
 def _plain_name(name: str) -> str:
-    """A name for matching: words only, lower case; emoji used as icons and punctuation left out, '&' read as 'and'."""
-    return ' '.join(re.findall(r'\w+', name.casefold().replace('&', ' and ')))
+    """A name for matching: words only, lower case; emoji used as icons and punctuation left out, '&' read as 'and', '_' as a
+    space ('this week' is the label this_week)."""
+    return ' '.join(re.findall(r'[^\W_]+', name.casefold().replace('&', ' and ')))
 
 
 def match_name(name: str, items: list[dict], key: str, kind: str) -> dict:
