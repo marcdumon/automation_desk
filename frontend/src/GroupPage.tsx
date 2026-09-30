@@ -9,6 +9,7 @@ import JobCost from './JobCost'
 import JobDetailPanel from './JobDetailPanel'
 import JobTable from './JobTable'
 import NewsPanel from './NewsPanel'
+import TaskStats from './TaskStats'
 import WatchPanel from './WatchPanel'
 
 export type LogEntry = { when: string; command: string; lines: string[]; job: JobSummary }
@@ -198,6 +199,7 @@ export default function GroupPage({ group, log, onLog }: Props) {
             </div>
           </form>
 
+          {group.id === 'tasks' && <TaskStats />}
           {group.id === 'calendar' && <WatchPanel onPreview={data => { run.reset(); show(data, 'Check watched agenda sites') }} />}
 
           {ask.isPending && readingInBrowser && (

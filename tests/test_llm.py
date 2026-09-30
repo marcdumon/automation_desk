@@ -8,8 +8,8 @@ import respx
 from pydantic import BaseModel
 
 from automation_desk import jobs, llm
+from automation_desk.groups.calendar.tasks.delete_events import DeleteEventsArgs
 from automation_desk.groups.calendar.web_page import FoundEvent
-from automation_desk.groups.tasks.tasks.change_dates import ChangeDatesArgs
 
 COMPLETIONS = 'https://openrouter.ai/api/v1/chat/completions'
 
@@ -28,7 +28,7 @@ def test_strict_schema_keeps_fields_named_title_and_requires_all() -> None:
     schema = llm.strict_schema(FoundEvent)
     assert 'title' in schema['properties'] and 'title' in schema['required']
     assert schema['additionalProperties'] is False
-    assert '$ref' not in json.dumps(llm.strict_schema(ChangeDatesArgs))
+    assert '$ref' not in json.dumps(llm.strict_schema(DeleteEventsArgs))
 
 
 @pytest.mark.parametrize('text', ['{"a": 1}', '```json\n{"a": 1}\n```', 'Here you go: {"a": 1, } thanks'])

@@ -9,7 +9,7 @@ from automation_desk import api
 from automation_desk.dates import DateExprError
 from automation_desk.groups import GROUPS
 from automation_desk.groups.base import Preview, Row
-from automation_desk.groups.tasks.tasks.change_dates import ChangeDatesArgs
+from automation_desk.groups.calendar.tasks.delete_events import DeleteEventsArgs
 from automation_desk.interpret import Route
 
 from .conftest import TZ
@@ -26,7 +26,7 @@ def test_groups_listing(client: TestClient) -> None:
     groups = client.get('/api/groups').json()
     assert [g['id'] for g in groups] == ['calendar', 'tasks', 'gmail', 'news']
     assert groups[3]['tasks'] == [], 'News is run from its page, not from sentences'
-    assert [t['id'] for t in groups[1]['tasks']] == ['change_dates', 'move_tasks', 'complete_tasks', 'delete_tasks', 'add_task']
+    assert [t['id'] for t in groups[1]['tasks']] == ['promote_planned', 'demote_unplanned']
 
 
 def test_sentence_for_another_group_is_refused(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -37,12 +37,12 @@ def test_sentence_for_another_group_is_refused(client: TestClient, monkeypatch: 
 
 
 def test_preview_then_execute_only_selectable_rows_once(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    task = GROUPS['tasks'].task('change_dates')
-    monkeypatch.setattr(api, 'fill_args', lambda group, t, text: ChangeDatesArgs(
-        status='ok', message='', list_names=['Today'], which='open', title_contains=[], due_period='', new_due='tomorrow'))
+    task = GROUPS['calendar'].task('delete_events')
+    monkeypatch.setattr(api, 'fill_args', lambda group, t, text: DeleteEventsArgs(
+        status='ok', message='', calendar_name='Test', date_range='tomorrow', title_contains=[], source_contains=''))
     seen: dict = {}
 
-    def resolve(args: ChangeDatesArgs, ctx: object) -> tuple:
+    def resolve(args: DeleteEventsArgs, ctx: object) -> tuple:
         """Stand-in resolve."""
         rows = [Row(id='a', cells={}), Row(id='b', cells={}, selectable=False)]
         return Preview(summary='s', columns=[], rows=rows), {'frozen': True}
@@ -55,35 +55,35 @@ def test_preview_then_execute_only_selectable_rows_once(client: TestClient, monk
     monkeypatch.setattr(task, 'resolve', resolve)
     monkeypatch.setattr(task, 'execute', execute)
 
-    body = client.post('/api/groups/tasks/interpret', json={'text': 'x', 'task_id': 'change_dates'}).json()
-    assert body['status'] == 'preview' and body['arguments']['new_due'] == 'tomorrow'
+    body = client.post('/api/groups/calendar/interpret', json={'text': 'x', 'task_id': 'delete_events'}).json()
+    assert body['status'] == 'preview' and body['arguments']['date_range'] == 'tomorrow'
 
-    done = client.post('/api/groups/tasks/execute', json={'plan_id': body['plan_id'], 'selected': ['a', 'b', 'zzz']}).json()
+    done = client.post('/api/groups/calendar/execute', json={'plan_id': body['plan_id'], 'selected': ['a', 'b', 'zzz']}).json()
     assert done['results'] == ['done']
     assert done['job']['id'] == body['job']['id'], 'apply continues the job of the preview'
     assert (done['job']['apply_status'], done['job']['results']) == ('ok', 1)
 
-    listed = client.get('/api/jobs', params={'group': 'tasks'}).json()['jobs']
+    listed = client.get('/api/jobs', params={'group': 'calendar'}).json()['jobs']
     assert [(j['id'], j['status'], j['apply_status']) for j in listed] == [(body['job']['id'], 'ok', 'ok')], 'one job'
     detail = client.get(f"/api/jobs/{body['job']['id']}").json()
     assert detail['results'] == ['done'] and detail['applied_at']
     assert detail['preview']['summary'] == 's' and detail['applied_rows'] == ['a'], 'the preview and what was applied are kept'
-    assert client.get(f"/api/jobs/{body['job']['id']}").json()['task_id'] == 'change_dates'
+    assert client.get(f"/api/jobs/{body['job']['id']}").json()['task_id'] == 'delete_events'
     assert seen['execute'] == ({'frozen': True}, {'a'})
-    again = client.post('/api/groups/tasks/execute', json={'plan_id': body['plan_id'], 'selected': ['a']})
+    again = client.post('/api/groups/calendar/execute', json={'plan_id': body['plan_id'], 'selected': ['a']})
     assert again.status_code == 410
 
 
 def test_user_errors_are_422(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(api, 'fill_args', lambda group, t, text: ChangeDatesArgs(
-        status='ok', message='', list_names=['Today'], which='open', title_contains=[], due_period='', new_due='2026-09-30'))
+    monkeypatch.setattr(api, 'fill_args', lambda group, t, text: DeleteEventsArgs(
+        status='ok', message='', calendar_name='Test', date_range='2026-09-30', title_contains=[], source_contains=''))
 
-    def resolve(args: ChangeDatesArgs, ctx: object) -> tuple:
+    def resolve(args: DeleteEventsArgs, ctx: object) -> tuple:
         """Stand-in resolve."""
         raise DateExprError('numeric date')
 
-    monkeypatch.setattr(GROUPS['tasks'].task('change_dates'), 'resolve', resolve)
-    response = client.post('/api/groups/tasks/interpret', json={'text': 'x', 'task_id': 'change_dates'})
+    monkeypatch.setattr(GROUPS['calendar'].task('delete_events'), 'resolve', resolve)
+    response = client.post('/api/groups/calendar/interpret', json={'text': 'x', 'task_id': 'delete_events'})
     assert response.status_code == 422 and 'numeric' in response.json()['detail']
     failed = client.get('/api/jobs').json()['jobs'][0]
     assert (failed['status'], failed['message']) == ('error', 'numeric date'), 'failed jobs are recorded too'
@@ -250,3 +250,22 @@ def test_the_pdf_white_space_tool_returns_the_widened_pdf_under_the_chosen_name(
     assert round(float(PdfReader(io.BytesIO(answer.content)).pages[0].cropbox.right)) == 798
     refused = client.post('/api/tools/pdf-margin?side=right&percent=33&name=x', content=b'hello')
     assert refused.status_code == 422 and 'not a PDF' in refused.json()['detail']
+
+
+def test_task_stats_are_refreshed_when_the_page_asks(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import datetime
+
+    from automation_desk.groups.base import Context
+
+    from .conftest import FakeTodoist
+
+    fake = FakeTodoist([{'id': 'P1', 'name': '🏠 Home'}], [
+        {'id': 'a', 'content': 'a', 'project_id': 'P1', 'section_id': None, 'labels': ['this_week'], 'due': None,
+         'added_at': '2026-09-30T06:00:00Z'}],
+        [{'id': 'x', 'content': 'x', 'project_id': 'P1', 'labels': ['frog'], 'completed_at': '2026-09-30T06:30:00Z',
+          'added_at': '2026-09-29T06:00:00Z'}])
+    now = datetime(2026, 9, 30, 8, 0, tzinfo=TZ)
+    monkeypatch.setattr(api, 'context', lambda sentence, files=None: Context(sentence=sentence, now=now, tz=TZ,
+                                                                          service=lambda *a: None, todoist_factory=lambda: fake))
+    view = client.get('/api/tasks/stats', params={'period': 30}).json()
+    assert view['kpis']['open']['now'] == 1 and view['series'][-1]['completed'] == 1 and view['series'][-1]['frog'] is True

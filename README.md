@@ -13,9 +13,8 @@ with a tick box per item, and changes nothing until you press Apply.
 | Calendar | …from a PDF link, an attached PDF (Attach PDF / drag it in) or a PDF in a mail | `add the events from the PDF in the mail from Kanal to calendar Exhibitions` |
 | Calendar | Check watched agenda sites (list on the Calendar page; events not in your calendar; ones you left unticked come back unticked) | `check my agenda sites`, or the Check for new events button |
 | Calendar | Delete events from a calendar | `delete the events of next week in calendar Test` |
-| Tasks | Change the date of tasks | `change the date of the Zalando and clean tasks in list Today to tomorrow` |
-| Tasks | Move tasks to another list | `move all tasks with date later than today from list Today to list This week` |
-| Tasks | Complete tasks / Delete tasks / Add a task | `mark the Zalando task as done`, `add Quick Clean every saturday` |
+| Tasks | Move planned tasks out of Someday (Todoist tasks in a Someday section with a this_week, this_month or this_year label go to the top of their project) | `move my planned tasks out of someday` |
+| Tasks | Move unplanned tasks into Someday (tasks at the top of a project without a this_ label and without a date go into its Someday section) | `move unplanned tasks back to someday` |
 | Gmail | Find a mail (read only, any language) | `wanneer is het resultaat van de bloedtest beschikbaar, label Health` |
 | Gmail | Label or mark mail (also archive) | `archive all newsletters older than 2 weeks` |
 | Gmail | Trash mail | `trash all mail from Zalando older than a month` |
@@ -116,4 +115,4 @@ A new group is a new package plus one line in `groups/__init__.py`.
 
 ## Known limits
 
-- Tasks live in Todoist; its lists are Todoist projects. The Todoist API token comes from Todoist → Settings → Integrations → Developer and goes in `.env` as `TODOIST_API_TOKEN`. A new date on a repeating task would end its repeat, so such tasks come unticked in Change dates and Delete.
+- Tasks live in Todoist; its lists are Todoist projects. The Todoist API token comes from Todoist → Settings → Integrations → Developer and goes in `.env` as `TODOIST_API_TOKEN`.

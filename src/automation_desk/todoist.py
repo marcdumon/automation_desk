@@ -81,6 +81,10 @@ class Todoist:
         """The user's projects (the Tasks page calls them lists), Inbox first as Todoist orders them."""
         return self._all('/projects')
 
+    def sections(self) -> list[dict]:
+        """All sections of all projects."""
+        return self._all('/sections')
+
     def open_tasks(self) -> list[dict]:
         """Every task not yet done, in all projects."""
         return self._all('/tasks')
@@ -115,6 +119,10 @@ class Todoist:
     def delete(self, task_id: str) -> None:
         """Delete a task and its subtasks."""
         self._call('DELETE', f'/tasks/{task_id}')
+
+    def move_to_section(self, task_id: str, section_id: str) -> None:
+        """Move a task, with its subtasks, into a section."""
+        self._call('POST', f'/tasks/{task_id}/move', json={'section_id': section_id})
 
     def move(self, task_id: str, project_id: str) -> None:
         """Move a task, with its subtasks, to another project."""
