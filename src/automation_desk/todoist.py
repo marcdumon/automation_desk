@@ -81,6 +81,10 @@ class Todoist:
         """The user's projects (the Tasks page calls them lists), Inbox first as Todoist orders them."""
         return self._all('/projects')
 
+    def labels(self) -> list[dict]:
+        """The user's personal labels."""
+        return self._all('/labels')
+
     def sections(self) -> list[dict]:
         """All sections of all projects."""
         return self._all('/sections')

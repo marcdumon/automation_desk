@@ -20,13 +20,21 @@ MONTHS = {
     'january': 1, 'jan': 1, 'february': 2, 'feb': 2, 'march': 3, 'mar': 3, 'april': 4, 'apr': 4, 'may': 5,
     'june': 6, 'jun': 6, 'july': 7, 'jul': 7, 'august': 8, 'aug': 8, 'september': 9, 'sep': 9, 'sept': 9,
     'october': 10, 'oct': 10, 'november': 11, 'nov': 11, 'december': 12, 'dec': 12,
+    # CLAUDE> Dutch and French, as the user writes them ('okt 30', '30 oktober', '30 octobre')
+    'januari': 1, 'februari': 2, 'maart': 3, 'mrt': 3, 'mei': 5, 'juni': 6, 'juli': 7, 'augustus': 8, 'oktober': 10,
+    'okt': 10, 'janvier': 1, 'janv': 1, 'février': 2, 'fevrier': 2, 'févr': 2, 'fevr': 2, 'mars': 3, 'avril': 4, 'avr': 4,
+    'mai': 5, 'juin': 6, 'juillet': 7, 'juil': 7, 'août': 8, 'aout': 8, 'septembre': 9, 'octobre': 10, 'novembre': 11,
+    'décembre': 12, 'decembre': 12, 'déc': 12,
 }
 _NUMERIC_DATE = re.compile(r'\d{1,4}\s*[-/.]\s*\d{1,2}|\d{4}')
+_ISO_DATE = re.compile(r'^(\d{4})-(\d{1,2})-(\d{1,2})$')
+# CLAUDE> Belgian order: day, month, optional year ('31-12-2026', '31/12', '31.12.26')
+_DMY_DATE = re.compile(r'^(\d{1,2})\s*[-/.]\s*(\d{1,2})(?:\s*[-/.]\s*(\d{4}|\d{2}))?$')
 _OFFSET = re.compile(r'^(.+?)\s*([+-])\s*(\d+)\s*(d|days?|w|weeks?)?$')
 _IN_N = re.compile(r'^in\s+(\d+)\s+(days?|weeks?)$')
 _AGO = re.compile(r'^(\d+)\s+(days?|weeks?)\s+ago$')
-_MONTH_DAY = re.compile(r'^([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?$')
-_DAY_MONTH = re.compile(r'^(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?([a-z]+)$')
+_MONTH_DAY = re.compile(r'^([^\W\d_]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?$')
+_DAY_MONTH = re.compile(r'^(\d{1,2})(?:st|nd|rd|th|e)?\s+(?:of\s+)?([^\W\d_]+)\.?$')
 _TIME = re.compile(r'^(\d{1,2})(?:[:.hu](\d{2}))?\s*(am|pm|h|u|uur)?$')
 
 
@@ -55,6 +63,21 @@ def resolve_day(expr: str, today: date, sentence: str = '') -> date:
     e = _norm(expr).removeprefix('on ')
     if not e:
         raise DateExprError('empty date expression')
+    # CLAUDE> before the offsets: '31-12-2026' is a date, not '31-12' minus 2026 days
+    if m := _ISO_DATE.match(e) or _DMY_DATE.match(e):
+        # CLAUDE> a numeric date only when the user typed it: the model may copy it, never make it; read day first
+        if _norm(expr) not in _norm(sentence):
+            raise DateExprError(f'{expr!r} is not in your sentence; the model may not invent dates')
+        if m.re is _ISO_DATE:
+            year, month, day = int(m[1]), int(m[2]), int(m[3])
+        else:
+            day, month, year = int(m[1]), int(m[2]), int(m[3]) if m[3] else None
+        if year is None:
+            return _explicit(month, day, today)
+        try:
+            return date(year + 2000 if year < 100 else year, month, day)
+        except ValueError as error:
+            raise DateExprError(f'{expr!r} is not a real date') from error
 
     if m := _OFFSET.match(e):
         base, sign, n, unit = m.groups()
@@ -92,7 +115,7 @@ def resolve_day(expr: str, today: date, sentence: str = '') -> date:
         return _explicit(MONTHS[month_word], day, today)
 
     if _NUMERIC_DATE.search(e):
-        raise DateExprError(f'{expr!r} is a numeric date; only relative expressions are accepted')
+        raise DateExprError(f"cannot understand the date {expr!r}; write it as 31-12-2026, '31 dec' or 'friday'")
     raise DateExprError(f'cannot understand the date {expr!r}')
 
 

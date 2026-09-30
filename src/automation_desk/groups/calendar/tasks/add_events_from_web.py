@@ -44,7 +44,8 @@ class AddEventsArgs(TaskArgs):
     exclude_weekdays: list[str] = Field(description="Weekdays whose events must be skipped, lowercase English "
                                                     "('friday'), from phrases like 'except the ones on fridays'. Else [].")
     date_range: str = Field(description="Only events in this period, as the user said it: 'this month', 'next week', "
-                                        "'today to next friday'. Empty when not limited. Never a numeric date.")
+                                        "'today to next friday', 'oct 30 to 5-11-2026'. Empty when not limited. Copy dates "
+                                        'exactly as the user wrote them; never turn words into a numeric date yourself.')
     text_filter: str = Field(description="Any other condition on the events in the user's words, e.g. 'only concerts', "
                                          "'no workshops for children'. Empty when none.")
     follow_pages: bool = Field(description='True when the user asks to follow further/next pages of the agenda.')

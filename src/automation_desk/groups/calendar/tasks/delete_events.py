@@ -26,8 +26,8 @@ class DeleteEventsArgs(TaskArgs):
     date_range: str = Field(description="Only events in this period, as the user said it: 'today', 'next week', "
                                         "'this month', 'today to next friday', 'after today', 'before friday'. "
                                         "Empty when the user gives no period "
-                                        "('all events' is not a period). "
-                                        'Never a numeric date.')
+                                        "('all events' is not a period). Copy dates exactly as the user wrote them ('oct 30', "
+                                        "'31-12-2026'); never turn words into a numeric date yourself.")
     title_contains: list[str] = Field(description="One entry per event the user names by (part of) its title, copied from "
                                                   "the sentence: ['KMSKA'] for 'with KMSKA in the title', ['dentist', "
                                                   "'yoga'] for 'the dentist and yoga appointments'. An event matches if its "

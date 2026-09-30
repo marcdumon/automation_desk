@@ -26,7 +26,7 @@ def test_groups_listing(client: TestClient) -> None:
     groups = client.get('/api/groups').json()
     assert [g['id'] for g in groups] == ['calendar', 'tasks', 'gmail', 'news']
     assert groups[3]['tasks'] == [], 'News is run from its page, not from sentences'
-    assert [t['id'] for t in groups[1]['tasks']] == ['promote_planned', 'demote_unplanned']
+    assert [t['id'] for t in groups[1]['tasks']] == ['promote_planned', 'demote_unplanned', 'verb_titles', 'label_deadline']
 
 
 def test_sentence_for_another_group_is_refused(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
