@@ -126,7 +126,21 @@ class FakeTodoist:
     def __init__(self, projects: list[dict], tasks: list[dict], completed: list[dict] | None = None) -> None:
         """Projects as {'id', 'name'}, open tasks and completed tasks as the API gives them."""
         self._projects, self.tasks, self.done = projects, tasks, completed or []
+        self.section_names: dict[str, str] = {}
+        self.section_projects: dict[str, str] = {}
         self.calls: list[tuple] = []
+
+    def sections(self) -> list[dict]:
+        """All sections, from `section_names` (id → name) and `section_projects` (id → project id)."""
+        return [{'id': section_id, 'name': name, 'project_id': self.section_projects.get(section_id, '')}
+                for section_id, name in self.section_names.items()]
+
+    def move_to_section(self, task_id: str, section_id: str) -> None:
+        """Move a task into a section."""
+        self.calls.append(('move_to_section', task_id, section_id))
+        for task in self.tasks:
+            if task['id'] == task_id:
+                task['section_id'] = section_id
 
     def projects(self) -> list[dict]:
         """All projects."""
@@ -164,8 +178,11 @@ class FakeTodoist:
         self.calls.append(('delete', task_id))
 
     def move(self, task_id: str, project_id: str) -> None:
-        """Move a task to a project."""
+        """Move a task to the top of a project, out of any section, as Todoist does."""
         self.calls.append(('move', task_id, project_id))
+        for task in self.tasks:
+            if task['id'] == task_id and not getattr(self, 'moves_nothing', False):
+                task.update(project_id=project_id, section_id=None)
 
 
 @pytest.fixture(autouse=True)

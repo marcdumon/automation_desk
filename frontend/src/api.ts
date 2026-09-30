@@ -137,6 +137,22 @@ export async function pdfMargin(file: File, side: string, percent: number, name:
   }
   return response.blob()
 }
+export type StatDay = {
+  day: string; open: number | null; overdue: number | null; someday: number | null; this_week: number | null
+  this_month: number | null; this_year: number | null; next_year: number | null; planned: number | null
+  planned_done: number | null; completed: number; added: number; frog: boolean
+}
+export type TaskStats = {
+  kpis: { open: { now: number | null; week_ago: number | null; first: number | null }; done_7d: number; added_7d: number
+          frogs_month: number; days_month: number; plan_7d: { planned: number; done: number } }
+  series: StatDay[]
+  weekdays: { label: string; average: number; plan_pct: number | null }[]
+  projects: { project: string; open: number; change: number }[]
+  horizons: { label: string; open: number }[]
+  cleanup: { project: string; open: number; per_day: number; empty_on: string | null } | null
+  since: string | null
+}
+export const getTaskStats = (period: number) => call<TaskStats>(`/api/tasks/stats?period=${period}`)
 export const stopAction = (action: string) => call<{ stopping: string }>(`/api/stop/${action}`, {})
 export const watchFromEvents = () => call<WatchState & { added: number; unmatched: number }>('/api/calendar/watch/from-events', {})
 export const checkWatch = (viaBrowser: boolean, only: number[] | null = null) =>

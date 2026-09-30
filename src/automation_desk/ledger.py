@@ -68,6 +68,16 @@ CREATE TABLE IF NOT EXISTS watched_sites (
 );
 CREATE TABLE IF NOT EXISTS watched_skipped (key TEXT PRIMARY KEY, skipped TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS watched_browser (site_id INTEGER PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS task_days (
+    day TEXT PRIMARY KEY, taken_at TEXT NOT NULL, open INTEGER NOT NULL, overdue INTEGER NOT NULL, someday INTEGER NOT NULL,
+    this_week INTEGER NOT NULL, this_month INTEGER NOT NULL, this_year INTEGER NOT NULL, next_year INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS task_day_projects (day TEXT NOT NULL, project TEXT NOT NULL, open INTEGER NOT NULL,
+    PRIMARY KEY (day, project));
+CREATE TABLE IF NOT EXISTS task_day_planned (day TEXT NOT NULL, task_id TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, task_id));
+CREATE TABLE IF NOT EXISTS task_activity (day TEXT PRIMARY KEY, completed INTEGER NOT NULL, added INTEGER NOT NULL,
+    frog INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS watched_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS news_followups (
     digest_id INTEGER NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL, data TEXT, PRIMARY KEY (digest_id, kind, key)

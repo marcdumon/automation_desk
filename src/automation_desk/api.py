@@ -8,6 +8,7 @@ import hashlib
 import logging
 import re
 import threading
+import time
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -36,6 +37,7 @@ from automation_desk.groups.calendar.tasks import check_watched
 from automation_desk.groups.news import digest as news_digest
 from automation_desk.groups.news import store as news
 from automation_desk.groups.news.sites import save_site_list
+from automation_desk.groups.tasks import stats as task_stats_store
 from automation_desk.interpret import fill_args, route
 from automation_desk.llm import LLMError
 from automation_desk.plans import Plan, PlanStore
@@ -282,6 +284,35 @@ def watch_save(request: WatchList) -> dict:
     if request.default_calendar.strip():
         watch.set_default_calendar(request.default_calendar)
     return _watch_state()
+
+
+@app.get('/api/tasks/stats')
+def task_stats(period: int = 30) -> dict:
+    """The Tasks page's statistics for the last `period` days (0 = all); today's done and added come fresh from Todoist."""
+    ctx = context('Task statistics')
+    try:
+        task_stats_store.take_snapshot(ctx.todoist(), ctx.now)
+        task_stats_store.refresh_activity(ctx.todoist(), ctx.now, days=2)
+    except TodoistError as error:
+        log.warning('task statistics not refreshed: %s', error)
+    return task_stats_store.overview(ctx.today, period)
+
+
+def _task_stats_every_morning() -> None:
+    """The morning snapshot: checked every minute, taken once a day from 07:00 on, with 90 days of history read back.
+
+    The PC mostly wakes from hibernation rather than booting: the app keeps running through it, and its sleep counts only
+    running time, so the first check after waking comes within a minute. A check before the snapshot is due only reads the
+    ledger; Todoist is asked once a day.
+    """
+    while True:
+        try:
+            ctx = context('Daily task statistics')
+            if task_stats_store.take_snapshot(ctx.todoist(), ctx.now):
+                task_stats_store.refresh_activity(ctx.todoist(), ctx.now, days=90)
+        except Exception:
+            log.exception('daily task statistics failed')
+        time.sleep(60)
 
 
 @app.post('/api/stop/{action}')
@@ -611,4 +642,5 @@ if STATIC.exists():
 def main() -> None:
     """Serve the app on localhost only."""
     logging.basicConfig(level=logging.INFO)
+    threading.Thread(target=_task_stats_every_morning, daemon=True).start()
     uvicorn.run(app, host='127.0.0.1', port=config().port)

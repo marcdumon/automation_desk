@@ -1,152 +1,115 @@
-"""The Tasks group's standard tasks against a stand-in Todoist, all sharing one selection. Today is Tuesday 22 Sep 2026."""
+"""The Tasks group against a stand-in Todoist: tasks planned with a this_ label leave their project's Someday section."""
 
-import pytest
-
-from automation_desk.groups.base import UserError
-from automation_desk.groups.tasks.select import SelectionArgs
-from automation_desk.groups.tasks.tasks.add_task import AddTask, AddTaskArgs
-from automation_desk.groups.tasks.tasks.change_dates import ChangeDates, ChangeDatesArgs
-from automation_desk.groups.tasks.tasks.complete_tasks import CompleteTasks
-from automation_desk.groups.tasks.tasks.delete_tasks import DeleteTasks
-from automation_desk.groups.tasks.tasks.move_tasks import MoveTasks, MoveTasksArgs
+from automation_desk.groups.tasks.tasks.someday import PromoteArgs, PromotePlanned
 
 from .conftest import FakeTodoist
 
-PROJECTS = [{'id': 'P0', 'name': 'Inbox'}, {'id': 'P1', 'name': 'Today'}, {'id': 'P2', 'name': 'This week'}]
+PROJECTS = [{'id': 'P0', 'name': 'Inbox', 'inbox_project': True}, {'id': 'P1', 'name': '🏠 Home'}, {'id': 'P2', 'name': '💻 Tech'}]
+SECTIONS = {'S1': 'Someday', 'S2': 'Someday', 'S3': 'Bel209'}
 
 
-def task(task_id: str, content: str, project: str = 'P1', day: str | None = None, **extra: object) -> dict:
-    """An open task as Todoist gives it; `day` as 'YYYY-MM-DD' or with a time 'YYYY-MM-DDTHH:MM:SS'."""
-    due = {'date': day, 'is_recurring': False, 'string': day} if day else None
-    return {'id': task_id, 'content': content, 'description': '', 'project_id': project, 'parent_id': None, 'due': due,
-            'checked': False, **extra}
+def task(task_id: str, content: str, project: str, section: str | None, labels: list[str], **extra: object) -> dict:
+    """An open task as Todoist gives it."""
+    return {'id': task_id, 'content': content, 'description': '', 'project_id': project, 'section_id': section,
+            'parent_id': None, 'labels': labels, 'due': None, 'checked': False, **extra}
 
 
-def weekly(task_id: str, content: str, day: str, project: str = 'P1') -> dict:
-    """A repeating task."""
-    return task(task_id, content, project, due={'date': day, 'is_recurring': True, 'string': 'every saturday'})
+def planned() -> FakeTodoist:
+    """Home and Tech, each with a Someday section; some tasks there have a horizon label."""
+    fake = FakeTodoist(PROJECTS, [
+        task('a', 'Ramen poetsen', 'P1', 'S1', ['this_week']),
+        task('b', 'Keukenkasten renoveren', 'P1', 'S1', []),
+        task('c', 'Gordijnen laten maken', 'P1', 'S1', ['next_year']),
+        task('d', 'Migrate Hyprland', 'P2', 'S2', ['this_month', 'frog']),
+        task('e', 'Sub of Hyprland', 'P2', 'S2', ['this_week'], parent_id='d'),
+        task('f', 'Already up', 'P2', None, ['this_week']),
+        task('g', 'In another section', 'P1', 'S3', ['this_year']),
+    ])
+    fake.section_names = SECTIONS
+    return fake
 
 
-def selection(**kwargs: object) -> dict:
-    """Selection fields: open tasks in all lists unless overridden."""
-    return {'status': 'ok', 'message': '', 'list_names': [], 'which': 'open', 'title_contains': [], 'due_period': '', **kwargs}
+def args() -> PromoteArgs:
+    """No fields to fill."""
+    return PromoteArgs(status='ok', message='')
 
 
-def calls(fake: FakeTodoist, name: str) -> list[tuple]:
-    """The changes of one kind the tasks made."""
-    return [c[1:] for c in fake.calls if c[0] == name]
+def test_tasks_planned_with_a_this_label_leave_someday(make_ctx) -> None:
+    fake = planned()
+    ctx = make_ctx(fake, 'move my planned tasks out of someday')
+    preview, payload = PromotePlanned().resolve(args(), ctx)
+    assert [(r.cells['Task'], r.cells['Project'], r.cells['Horizon']) for r in preview.rows] == [
+        ('Ramen poetsen', '🏠 Home', 'this_week'), ('Migrate Hyprland', '💻 Tech', 'this_month')]
+    assert preview.summary == 'Move 2 planned task(s) out of Someday to the top of their project.'
+    results = PromotePlanned().execute(payload, {'a', 'd'}, ctx)
+    assert [c[1:] for c in fake.calls if c[0] == 'move'] == [('a', 'P1'), ('d', 'P2')], 'a subtask goes along with its parent'
+    assert results == ['Moved "Ramen poetsen" up in 🏠 Home.', 'Moved "Migrate Hyprland" up in 💻 Tech.']
 
 
-def test_change_dates_of_tasks_due_later_than_today(make_ctx) -> None:
-    """'change the date of the tasks in Today due later than today to friday'."""
-    fake = FakeTodoist(PROJECTS, [task('a', 'Zalando', day='2026-09-25'), task('b', 'Old', day='2026-09-20'),
-                                  task('c', 'Call', day='2026-09-24T10:30:00'), task('d', 'Elsewhere', 'P2', '2026-09-25')])
+def test_a_task_changed_since_the_preview_stays(make_ctx) -> None:
+    fake = planned()
     ctx = make_ctx(fake, 'x')
-    args = ChangeDatesArgs(**selection(list_names=['today'], due_period='later than today'), new_due='friday')
-    preview, payload = ChangeDates().resolve(args, ctx)
-    assert {r.cells['Task']: r.cells['New date'] for r in preview.rows} == {'Zalando': 'Fri 25 Sep 2026',
-                                                                            'Call': 'Fri 25 Sep 2026 10:30'}
-    assert next(r for r in preview.rows if r.cells['Task'] == 'Zalando').note == 'already on that date'
-    ChangeDates().execute(payload, {'a', 'c'}, ctx)
-    assert calls(fake, 'update') == [('c', {'due_datetime': '2026-09-25T08:30:00Z'})], 'a timed task keeps its time'
+    _preview, payload = PromotePlanned().resolve(args(), ctx)
+    fake.tasks[0]['labels'] = []
+    results = PromotePlanned().execute(payload, {'a', 'd'}, ctx)
+    assert results[0] == 'Skipped "Ramen poetsen": it changed since the preview.'
 
 
-def test_a_repeating_task_comes_unticked_where_a_change_would_end_its_repeat(make_ctx) -> None:
-    fake = FakeTodoist(PROJECTS, [weekly('q', 'Quick Clean', '2026-09-26'), task('z', 'Zalando', day='2026-09-26')])
-    ctx = make_ctx(fake, 'x')
-    preview, _ = ChangeDates().resolve(ChangeDatesArgs(**selection(), new_due='friday'), ctx)
-    assert {r.cells['Task']: (r.selected, r.note) for r in preview.rows} == {
-        'Quick Clean': (False, 'repeats every saturday: a new date here would end the repeat'), 'Zalando': (True, '')}
-    preview, _ = DeleteTasks().resolve(SelectionArgs(**selection()), ctx)
-    assert {r.cells['Task']: r.selected for r in preview.rows} == {'Quick Clean': False, 'Zalando': True}
-    assert next(r.note for r in preview.rows if r.cells['Task'] == 'Quick Clean') == 'repeats every saturday: deleting ends it'
+def test_nothing_to_move_is_a_plain_answer_not_an_error(make_ctx) -> None:
+    """Running the tidy-up when everything is in its place is fine: a read-only preview says so."""
+    from automation_desk.groups.tasks.tasks.someday import DemoteUnplanned
 
-
-def test_move_tasks_several_of_one_list_and_repeating_ones_too(make_ctx) -> None:
-    """Todoist moves repeating tasks and subtasks along with their parent; a subtask of a moved parent is not moved twice."""
-    fake = FakeTodoist(PROJECTS, [task('a', 'A', day='2026-09-23'), weekly('q', 'Quick Clean', '2026-09-26'),
-                                  task('c', 'Sub of A', parent_id='a'), task('x', 'Other list', 'P2')])
-    ctx = make_ctx(fake, 'x')
-    preview, payload = MoveTasks().resolve(MoveTasksArgs(**selection(list_names=['today']), to_list='this week'), ctx)
-    assert {r.cells['Task']: (r.selected, r.note) for r in preview.rows} == {
-        'A': (True, 'its 1 subtask(s) move along'), 'Quick Clean': (True, ''), 'Sub of A': (False, 'moves along with A')}
-    assert preview.summary.startswith("Move 2 task(s) to 'This week'.")
-    MoveTasks().execute(payload, {'a', 'q'}, ctx)
-    assert calls(fake, 'move') == [('a', 'P2'), ('q', 'P2')]
-
-
-def test_a_task_changed_since_the_preview_is_skipped(make_ctx) -> None:
-    tasks = [task('a', 'A'), task('b', 'B')]
-    fake = FakeTodoist(PROJECTS, tasks)
-    ctx = make_ctx(fake, 'x')
-    _preview, payload = MoveTasks().resolve(MoveTasksArgs(**selection(), to_list='this week'), ctx)
-    tasks[1]['content'] = 'B, renamed'
-    results = MoveTasks().execute(payload, {'a', 'b'}, ctx)
-    assert results == ['Moved "A" to This week.', 'Skipped "B": it changed since the preview.']
-
-
-def test_complete_open_tasks_and_delete_with_subtasks(make_ctx) -> None:
-    fake = FakeTodoist(PROJECTS, [task('p', 'Parent'), task('c', 'Child', parent_id='p')])
-    ctx = make_ctx(fake, 'x')
-    preview, payload = CompleteTasks().resolve(SelectionArgs(**selection(title_contains=['parent'])), ctx)
-    CompleteTasks().execute(payload, {'p'}, ctx)
-    assert calls(fake, 'close') == [('p',)]
-    preview, _ = DeleteTasks().resolve(SelectionArgs(**selection(title_contains=['parent'])), ctx)
-    assert preview.rows[0].note == 'also deletes its 1 subtask(s)'
-
-
-def test_completed_tasks_come_from_the_last_year(make_ctx) -> None:
-    done = [{**task('d', 'Done thing'), 'checked': True, 'completed_at': '2026-09-01T10:00:00Z'}]
-    fake = FakeTodoist(PROJECTS, [task('a', 'Open thing')], done)
-    ctx = make_ctx(fake, 'x')
-    preview, payload = DeleteTasks().resolve(SelectionArgs(**selection(which='completed')), ctx)
-    assert [r.cells['Task'] for r in preview.rows] == ['Done thing']
-    (_, since, until), = [c for c in fake.calls if c[0] == 'completed']
-    assert (since.date().isoformat(), until.date().isoformat()) == ('2025-09-22', '2026-09-22')
-    DeleteTasks().execute(payload, {'d'}, ctx)
-    assert calls(fake, 'delete') == [('d',)]
-
-
-def test_overdue_and_list_names_and_nothing_found(make_ctx) -> None:
-    fake = FakeTodoist(PROJECTS, [task('a', 'Late', day='2026-09-20'), task('b', 'Soon', day='2026-09-23'), task('c', 'Undated')])
-    ctx = make_ctx(fake, 'x')
-    preview, _ = CompleteTasks().resolve(SelectionArgs(**selection(which='overdue')), ctx)
-    assert [r.cells['Task'] for r in preview.rows] == ['Late']
-    with pytest.raises(UserError, match=r"No task matches that\. Looked for open tasks in list 'this week'\."):
-        CompleteTasks().resolve(SelectionArgs(**selection(list_names=['this week'])), ctx)
-    with pytest.raises(UserError, match='list'):
-        CompleteTasks().resolve(SelectionArgs(**selection(list_names=['holidays'])), ctx)
-
-
-def add_args(**kwargs: str) -> AddTaskArgs:
-    """AddTaskArgs with nothing but a title unless overridden."""
-    return AddTaskArgs(**{'status': 'ok', 'message': '', 'title': 'call the plumber', 'list_name': '', 'due': '', 'time': '',
-                          'repeat': '', 'notes': '', **kwargs})
-
-
-def test_add_a_task_with_date_time_or_repeat(make_ctx) -> None:
-    fake = FakeTodoist(PROJECTS, [])
-    ctx = make_ctx(fake, 'add call the plumber to Today friday at 10')
-    preview, payload = AddTask().resolve(add_args(list_name='today', due='friday', time='at 10', notes='leak'), ctx)
-    assert preview.rows[0].cells == {'Task': 'call the plumber', 'List': 'Today', 'When': 'Fri 25 Sep 2026 10:00', 'Notes': 'leak'}
-    AddTask().execute(payload, {'new'}, ctx)
-    _preview, payload = AddTask().resolve(add_args(due='monday'), ctx)
-    AddTask().execute(payload, {'new'}, ctx)
-    preview, payload = AddTask().resolve(add_args(title='Quick Clean', repeat='every saturday'), ctx)
-    assert preview.rows[0].cells['When'] == 'every saturday'
-    AddTask().execute(payload, {'new'}, ctx)
-    assert calls(fake, 'add') == [
-        ({'content': 'call the plumber', 'project_id': 'P1', 'description': 'leak', 'due_datetime': '2026-09-25T08:00:00Z'},),
-        ({'content': 'call the plumber', 'project_id': 'P0', 'due_date': '2026-09-28'},),
-        ({'content': 'Quick Clean', 'project_id': 'P0', 'due_string': 'every saturday'},),
-    ], 'no list named: Inbox'
+    fake = FakeTodoist(PROJECTS, [task('b', 'Keukenkasten renoveren', 'P1', 'S1', [])])
+    fake.section_names = SECTIONS
+    fake.section_projects = {'S1': 'P1', 'S2': 'P2', 'S3': 'P1'}
+    preview, _ = PromotePlanned().resolve(args(), make_ctx(fake, 'x'))
+    assert (preview.summary, preview.rows, preview.read_only) == (
+        'Nothing to move: no task in a Someday section has a this_week, this_month or this_year label.', [], True)
+    preview, _ = DemoteUnplanned().resolve(args(), make_ctx(fake, 'x'))
+    assert (preview.summary, preview.read_only) == ('Nothing to move: every task at the top of a project has a this_ label or a date.',
+                                                    True)
 
 
 def test_list_names_match_without_emoji_and_with_and_for_ampersand() -> None:
-    """Projects named with an emoji as icon: '👨‍👩‍👧 Friends & Family' is 'friends and family' or 'family'."""
+    """Projects named with an emoji as icon: '🧑 Friends & Family' is 'friends and family' or 'family'."""
     from automation_desk.groups.base import match_name
 
-    projects = [{'name': 'Inbox'}, {'name': '🏠 Home'}, {'name': '👨‍👩‍👧 Friends & Family'}, {'name': '💶 Admin & Finance'}]
+    projects = [{'name': 'Inbox'}, {'name': '🏠 Home'}, {'name': '🧑 Friends & Family'}, {'name': '💶 Admin & Finance'}]
     assert [match_name(w, projects, 'name', 'list')['name'] for w in ('home', 'friends and family', 'Friends & Family',
                                                                         'family', 'admin and finance')] == [
-        '🏠 Home', '👨‍👩‍👧 Friends & Family', '👨‍👩‍👧 Friends & Family', '👨‍👩‍👧 Friends & Family', '💶 Admin & Finance']
+        '🏠 Home', '🧑 Friends & Family', '🧑 Friends & Family', '🧑 Friends & Family', '💶 Admin & Finance']
+
+
+def test_a_move_todoist_did_not_make_is_said(make_ctx) -> None:
+    """The app checks that the task really left Someday before it says so."""
+    fake = planned()
+    fake.moves_nothing = True
+    ctx = make_ctx(fake, 'x')
+    _preview, payload = PromotePlanned().resolve(args(), ctx)
+    assert PromotePlanned().execute(payload, {'a'}, ctx) == [
+        'Todoist did not move "Ramen poetsen" out of Someday; drag it up in 🏠 Home.']
+
+
+def test_unplanned_tasks_go_back_into_someday(make_ctx) -> None:
+    """The opposite: at the top of a project without a this_ label and without a date means a wish again."""
+    from automation_desk.groups.tasks.tasks.someday import DemoteUnplanned
+
+    fake = FakeTodoist(PROJECTS, [
+        task('a', 'Ramen poetsen', 'P1', None, []),
+        task('b', 'Call plumber', 'P1', None, [], due={'date': '2026-09-25', 'is_recurring': False, 'string': 'fri'}),
+        task('c', 'Keep planned', 'P1', None, ['this_month']),
+        task('d', 'Gordijnen', 'P2', None, ['next_year']),
+        task('e', 'Sub', 'P1', None, [], parent_id='a'),
+        task('f', 'In Someday already', 'P1', 'S1', []),
+        task('g', 'In my own section', 'P1', 'S3', []),
+        task('h', 'Inbox thing', 'P0', None, []),
+    ])
+    fake.section_names = SECTIONS
+    fake.section_projects = {'S1': 'P1', 'S2': 'P2', 'S3': 'P1'}
+    ctx = make_ctx(fake, 'move unplanned tasks back to someday')
+    preview, payload = DemoteUnplanned().resolve(args(), ctx)
+    assert [(r.cells['Task'], r.cells['Project']) for r in preview.rows] == [('Ramen poetsen', '🏠 Home'), ('Gordijnen', '💻 Tech')]
+    assert preview.summary == 'Move 2 unplanned task(s) into the Someday section of their project.'
+    results = DemoteUnplanned().execute(payload, {'a', 'd'}, ctx)
+    assert [c[1:] for c in fake.calls if c[0] == 'move_to_section'] == [('a', 'S1'), ('d', 'S2')]
+    assert results == ['Moved "Ramen poetsen" into Someday in 🏠 Home.', 'Moved "Gordijnen" into Someday in 💻 Tech.']
