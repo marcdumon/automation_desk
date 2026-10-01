@@ -153,6 +153,30 @@ export type TaskStats = {
   since: string | null
 }
 export const getTaskStats = (period: number) => call<TaskStats>(`/api/tasks/stats?period=${period}`)
+export type HabitDay = { day: string; state: 'done' | 'missed' | 'open' | 'free' | 'future' }
+export type Habit = {
+  id: number; name: string; schedule: string; paused: boolean; streak: number; best: number; month_pct: number | null
+  days: HabitDay[]
+}
+export type HabitsView = {
+  day: string; today_date: string; today: { id: number; name: string; done: boolean; streak: number }[]; habits: Habit[]
+  reminder: string
+}
+export const getHabits = (day?: string) => call<HabitsView>(`/api/habits${day ? `?day=${day}` : ''}`)
+export const addHabit = (name: string, schedule: string) => call<HabitsView>('/api/habits', { name, schedule })
+export const checkHabit = (id: number, day: string, done: boolean) => call<HabitsView>(`/api/habits/${id}/check`, { day, done })
+export const setHabitReminder = (at: string) => call<HabitsView>('/api/habits/reminder', { at })
+export async function changeHabit(id: number, fields: { name?: string; schedule?: string; paused?: boolean }): Promise<HabitsView> {
+  const response = await reach(`/api/habits/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                                                       body: JSON.stringify(fields) })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throw new ApiError(typeof data.detail === 'string' ? data.detail : `Request failed (${response.status})`, false, '')
+  return data as HabitsView
+}
+export async function deleteHabit(id: number): Promise<HabitsView> {
+  const response = await reach(`/api/habits/${id}`, { method: 'DELETE' })
+  return response.json() as Promise<HabitsView>
+}
 export const stopAction = (action: string) => call<{ stopping: string }>(`/api/stop/${action}`, {})
 export const watchFromEvents = () => call<WatchState & { added: number; unmatched: number }>('/api/calendar/watch/from-events', {})
 export const checkWatch = (viaBrowser: boolean, only: number[] | null = null) =>

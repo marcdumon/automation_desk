@@ -173,8 +173,8 @@ def test_tasks_with_a_label_get_a_deadline_and_an_existing_one_only_when_ticked(
     assert [(r.cells['Task'], r.cells['Deadline now'], r.cells['New deadline'], r.selectable, r.selected, r.note)
             for r in preview.rows] == [
         ('Clean: Ramen', '—', 'Fri 25 Sep 2026', True, True, ''),
-        ('Pay: Rekeningen', 'Sun 15 Nov 2026', 'Fri 25 Sep 2026', True, False, 'has its own deadline: tick to replace it'),
-        ('Book: Tandarts', 'Fri 25 Sep 2026', 'Fri 25 Sep 2026', False, False, 'already has that deadline')]
+        ('Pay: Rekeningen', 'Sun 15 Nov 2026', 'Fri 25 Sep 2026', True, False, 'has its own deadline: tick to replace it')], (
+        'Book: Tandarts already has that deadline: not shown')
     assert preview.summary == 'Set deadline Fri 25 Sep 2026 on 1 task(s) with label @this_week; 1 keeps its own unless you tick it.'
     LabelDeadline().execute(payload, {'a'}, ctx)
     assert [c[1:] for c in fake.calls if c[0] == 'update'] == [('a', {'deadline_date': '2026-09-25'})], 'b is left as it is'
@@ -193,3 +193,34 @@ def test_a_deadline_set_after_the_preview_is_not_overwritten(make_ctx) -> None:
     tasks[0]['deadline'] = {'date': '2026-12-01', 'lang': 'en'}
     assert LabelDeadline().execute(payload, {'a'}, ctx) == ['Skipped "Clean: Ramen": its deadline changed since the preview.']
     assert [c for c in fake.calls if c[0] == 'update'] == []
+
+def test_digital_clean_up_is_reorganise_and_clean_is_physical() -> None:
+    """The user's rule: Clean: Keuken, but Reorganise: Google Drive."""
+    from automation_desk.groups.tasks.tasks.titles import SYSTEM
+
+    assert '"Clean" is only for physical cleaning' in SYSTEM and '"Reorganise: Google Drive"' in SYSTEM
+
+
+def test_when_every_task_already_has_that_deadline_nothing_is_shown(make_ctx) -> None:
+    from automation_desk.groups.tasks.tasks.deadlines import DeadlineArgs, LabelDeadline
+
+    has_it = task('c', 'Book: Tandarts', 'P1', None, ['this_week'], deadline={'date': '2026-09-25', 'lang': 'en'})
+    fake = FakeTodoist(PROJECTS, [has_it])
+    fake.label_names = ['this_week']
+    preview, _ = LabelDeadline().resolve(DeadlineArgs(status='ok', message='', label='this_week', deadline='friday'),
+                                         make_ctx(fake, 'give all tasks with label this_week a deadline friday'))
+    assert (preview.summary, preview.rows, preview.read_only) == (
+        'Nothing to set: every task with label @this_week already has deadline Fri 25 Sep 2026.', [], True)
+
+
+def test_tasks_keeping_their_own_deadline_come_last(make_ctx) -> None:
+    from automation_desk.groups.tasks.tasks.deadlines import DeadlineArgs, LabelDeadline
+
+    fake = FakeTodoist(PROJECTS, [
+        task('b', 'Pay: Rekeningen', 'P2', None, ['this_week'], deadline={'date': '2026-11-15', 'lang': 'en'}),
+        task('a', 'Clean: Ramen', 'P1', None, ['this_week']), task('c', 'Book: Tandarts', 'P1', None, ['this_week'])])
+    fake.label_names = ['this_week']
+    preview, _ = LabelDeadline().resolve(DeadlineArgs(status='ok', message='', label='this_week', deadline='friday'),
+                                         make_ctx(fake, 'give all tasks with label this_week a deadline friday'))
+    assert [(r.cells['Task'], r.selected) for r in preview.rows] == [('Clean: Ramen', True), ('Book: Tandarts', True),
+                                                                     ('Pay: Rekeningen', False)]

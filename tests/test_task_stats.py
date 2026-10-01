@@ -89,3 +89,53 @@ def test_the_share_of_the_day_s_planned_tasks_that_got_done() -> None:
     assert (today['planned'], today['planned_done']) == (3, 2) and today['completed'] == 4
     assert view['kpis']['plan_7d'] == {'planned': 3, 'done': 2}
     assert view['weekdays'][2]['plan_pct'] == 67, 'Wednesday: 2 of 3'
+
+
+def test_a_repeating_task_done_today_counts_as_done() -> None:
+    """Clean: living repeats daily: when done, Todoist keeps it open with tomorrow's date and adds one to its completed_count;
+    it never shows up among the completed tasks. A postponed task keeps its count, so it does not count as done."""
+    living = {**task('living', 'P1', day='2026-09-30'), 'due': {'date': '2026-09-30', 'is_recurring': True}, 'completed_count': 4}
+    moved = {**task('moved', 'P1', day='2026-09-30'), 'due': {'date': '2026-09-30', 'is_recurring': True}, 'completed_count': 2}
+    fake = FakeTodoist(PROJECTS, [living, moved])
+    stats.take_snapshot(fake, MORNING)
+    living.update(due={'date': '2026-10-01', 'is_recurring': True}, completed_count=5)
+    moved.update(due={'date': '2026-10-01', 'is_recurring': True})
+    stats.refresh_activity(fake, MORNING.replace(hour=22), days=1)
+    today = stats.overview(date(2026, 9, 30), period=30)['series'][-1]
+    assert (today['planned'], today['planned_done']) == (2, 1)
+
+
+def test_an_older_ledger_gets_the_new_column() -> None:
+    """A ledger made before completed_count existed is upgraded on start-up, its rows kept."""
+    import sqlite3
+
+    from automation_desk import ledger
+
+    with sqlite3.connect(ledger.DB) as db:
+        db.execute('CREATE TABLE task_day_planned (day TEXT NOT NULL, task_id TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0, '
+                   'PRIMARY KEY (day, task_id))')
+        db.execute("INSERT INTO task_day_planned (day, task_id) VALUES ('2026-09-29', 'x')")
+    with ledger.connect() as db:
+        columns = [r['name'] for r in db.execute('PRAGMA table_info(task_day_planned)')]
+        kept = db.execute('SELECT COUNT(*) FROM task_day_planned').fetchone()[0]
+    assert 'completed_count' in columns and kept == 1
+
+
+def test_a_repeating_task_done_a_day_late_does_not_count_for_its_day() -> None:
+    weekly = {**task('w', 'P1', day='2026-09-30'), 'due': {'date': '2026-09-30', 'is_recurring': True}, 'completed_count': 1}
+    fake = FakeTodoist(PROJECTS, [weekly])
+    stats.take_snapshot(fake, MORNING)
+    stats.refresh_activity(fake, MORNING.replace(hour=22), days=1)
+    weekly.update(due={'date': '2026-10-07', 'is_recurring': True}, completed_count=2)
+    stats.refresh_activity(fake, MORNING + timedelta(days=1, hours=3), days=2)
+    assert stats.days(date(2026, 9, 30), date(2026, 9, 30))[0]['planned_done'] == 0
+
+
+def test_the_next_morning_settles_yesterday_s_repeating_tasks() -> None:
+    """Done in the evening without opening the page: the next morning's count still credits the day it was planned for."""
+    daily = {**task('d', 'P1', day='2026-09-30'), 'due': {'date': '2026-09-30', 'is_recurring': True}, 'completed_count': 7}
+    fake = FakeTodoist(PROJECTS, [daily])
+    stats.take_snapshot(fake, MORNING)
+    daily.update(due={'date': '2026-10-01', 'is_recurring': True}, completed_count=8)
+    stats.take_snapshot(fake, MORNING + timedelta(days=1))
+    assert stats.days(date(2026, 9, 30), date(2026, 9, 30))[0]['planned_done'] == 1
