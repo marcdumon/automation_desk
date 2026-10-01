@@ -269,3 +269,40 @@ def test_task_stats_are_refreshed_when_the_page_asks(client: TestClient, monkeyp
                                                                           service=lambda *a: None, todoist_factory=lambda: fake))
     view = client.get('/api/tasks/stats', params={'period': 30}).json()
     assert view['kpis']['open']['now'] == 1 and view['series'][-1]['completed'] == 1 and view['series'][-1]['frog'] is True
+
+
+def test_a_sentence_the_chosen_task_cannot_do_goes_to_the_task_that_can(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The page kept 'Move unplanned tasks into Someday' chosen; 'move my planned tasks out of someday' is the other one."""
+    from automation_desk.groups.tasks.tasks.someday import PromoteArgs
+
+    asked = []
+
+    def fill(group: object, task: object, text: str) -> PromoteArgs:
+        """The chosen task says it cannot; the routed one can."""
+        asked.append(task.id)
+        if task.id == 'demote_unplanned':
+            return PromoteArgs(status='unsupported', message='This task moves unplanned tasks into Someday.')
+        return PromoteArgs(status='ok', message='')
+
+    promote = GROUPS['tasks'].task('promote_planned')
+    monkeypatch.setattr(api, 'fill_args', fill)
+    monkeypatch.setattr(api, 'route', lambda group, text: Route(task='promote_planned', message=''))
+    monkeypatch.setattr(promote, 'resolve', lambda args, ctx: (Preview(summary='Move 2', columns=[], rows=[]), {}))
+    body = client.post('/api/groups/tasks/interpret', json={'text': 'move my planned tasks out of someday',
+                                                            'task_id': 'demote_unplanned'}).json()
+    assert (body['status'], body['task_id'], asked) == ('preview', 'promote_planned', ['demote_unplanned', 'promote_planned'])
+
+
+def test_habits_page_round_trip(client: TestClient) -> None:
+    habit = client.post('/api/habits', json={'name': 'Measure: Weight', 'schedule': 'daily'}).json()
+    day = habit['day']
+    assert [h['name'] for h in habit['today']] == ['Measure: Weight']
+    hid = habit['today'][0]['id']
+    ticked = client.post(f'/api/habits/{hid}/check', json={'day': day, 'done': True}).json()
+    assert ticked['today'][0]['done'] is True
+    renamed = client.patch(f'/api/habits/{hid}', json={'name': 'Weigh: Morning', 'schedule': 'weekdays'}).json()
+    assert renamed['habits'][0]['name'] == 'Weigh: Morning'
+    bad = client.post('/api/habits', json={'name': 'x', 'schedule': 'monthly'})
+    assert bad.status_code == 422 and 'every day' in bad.json()['detail']
+    assert client.post('/api/habits/reminder', json={'at': '21:00'}).json()['reminder'] == '21:00'
+    assert client.delete(f'/api/habits/{hid}').json()['habits'] == []

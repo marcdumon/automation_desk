@@ -2,8 +2,9 @@
 
 Todoist remembers what got done, but not how many tasks were open on a day. So every morning, the first time the app runs
 after 07:00, it writes down what is open; what got done and added per day is read back from Todoist and can be refreshed
-at any time. The morning count also keeps which tasks are dated that day (planned), so the share of them done that day
-is known later, repeating ones included (Todoist keeps a done repeating task's id). No model is involved.
+at any time. The morning count also keeps which tasks are dated that day (planned) and how often each was completed so
+far: a repeating task that gets done stays open with its next date and only its completed_count goes up, so that count
+tells it was done. No model is involved.
 """
 
 from collections import Counter
@@ -33,13 +34,31 @@ def take_snapshot(todoist: Todoist, now: datetime) -> bool:
               'overdue': sum(1 for t in tasks if t.get('due') and t['due']['date'][:10] < today.isoformat()),
               'someday': sum(1 for t in tasks if t.get('section_id') in someday),
               **{h: sum(1 for t in tasks if h in t.get('labels', [])) for h in HORIZONS}}
-    planned = [t['id'] for t in tasks if t.get('due') and t['due']['date'][:10] == today.isoformat()]
+    _settle_last_day(today, {t['id']: t.get('completed_count', 0) for t in tasks})
+    planned = {t['id']: t.get('completed_count', 0) for t in tasks if t.get('due') and t['due']['date'][:10] == today.isoformat()}
     save_snapshot(today, counts, Counter(projects.get(t['project_id'], '?') for t in tasks), now, planned)
     return True
 
 
+def _rose(row: dict, counts_now: dict[str, int]) -> bool:
+    """Whether a planned repeating task was completed since its morning count: still open, with a higher completed_count."""
+    return row['completed_count'] is not None and row['task_id'] in counts_now and counts_now[row['task_id']] > row['completed_count']
+
+
+def _settle_last_day(today: date, counts_now: dict[str, int]) -> None:
+    """Before a new morning count: the repeating tasks done on the last counted day (in the evening, when the page was not
+    opened) are credited to that day, from how much their completed_count rose since its morning."""
+    with connect(write=True) as db:
+        last = db.execute('SELECT MAX(day) FROM task_days WHERE day < ?', (today.isoformat(),)).fetchone()[0]
+        if not last:
+            return
+        for row in db.execute('SELECT task_id, completed_count FROM task_day_planned WHERE day = ? AND done = 0', (last,)).fetchall():
+            if _rose(row, counts_now):
+                db.execute('UPDATE task_day_planned SET done = 1 WHERE day = ? AND task_id = ?', (last, row['task_id']))
+
+
 def save_snapshot(day: date, counts: dict, per_project: dict[str, int], taken: datetime | None = None,
-                  planned: list[str] | None = None) -> None:
+                  planned: dict[str, int] | None = None) -> None:
     """Store one morning's counts and the tasks planned for the day (dated that day)."""
     with connect(write=True) as db:
         columns, marks = ', '.join(COUNTS), ', '.join('?' * len(COUNTS))
@@ -49,7 +68,8 @@ def save_snapshot(day: date, counts: dict, per_project: dict[str, int], taken: d
         db.executemany('INSERT INTO task_day_projects (day, project, open) VALUES (?, ?, ?)',
                        [(day.isoformat(), name, count) for name, count in per_project.items()])
         db.execute('DELETE FROM task_day_planned WHERE day = ?', (day.isoformat(),))
-        db.executemany('INSERT INTO task_day_planned (day, task_id) VALUES (?, ?)', [(day.isoformat(), t) for t in planned or []])
+        db.executemany('INSERT INTO task_day_planned (day, task_id, completed_count) VALUES (?, ?, ?)',
+                       [(day.isoformat(), task_id, count) for task_id, count in (planned or {}).items()])
 
 
 def _local_day(stamp: str, now: datetime) -> date:
@@ -62,7 +82,9 @@ def refresh_activity(todoist: Todoist, now: datetime, days: int = 7) -> None:
     first = now.date() - timedelta(days=days - 1)
     since = datetime.combine(first, time.min, now.tzinfo)
     completed = todoist.completed(since, now)
-    added = Counter(_local_day(t['added_at'], now) for t in [*todoist.open_tasks(), *completed] if t.get('added_at'))
+    still_open = todoist.open_tasks()
+    added = Counter(_local_day(t['added_at'], now) for t in [*still_open, *completed] if t.get('added_at'))
+    counts_now = {t['id']: t.get('completed_count', 0) for t in still_open}
     finished = Counter(_local_day(t['completed_at'], now) for t in completed if t.get('completed_at'))
     frogs = {_local_day(t['completed_at'], now) for t in completed if t.get('completed_at') and FROG in t.get('labels', [])}
     rows = [((first + timedelta(days=n)).isoformat(), finished[d], added[d], int(d in frogs))
@@ -76,9 +98,12 @@ def refresh_activity(todoist: Todoist, now: datetime, days: int = 7) -> None:
         # CLAUDE> a planned task counts as done only when it was completed on its planned day
         for day, *_ in rows:
             finished_ids = done_on.get(day, set())
-            for row in db.execute('SELECT task_id FROM task_day_planned WHERE day = ?', (day,)).fetchall():
+            for row in db.execute('SELECT task_id, completed_count, done FROM task_day_planned WHERE day = ?', (day,)).fetchall():
+                # CLAUDE> a repeating task done today is still open, with a higher completed_count than this morning; a
+                # count that rose later says nothing about an earlier day, which the next morning settled already
+                repeated = day == now.date().isoformat() and _rose(row, counts_now)
                 db.execute('UPDATE task_day_planned SET done = ? WHERE day = ? AND task_id = ?',
-                           (int(row['task_id'] in finished_ids), day, row['task_id']))
+                           (int(row['task_id'] in finished_ids or repeated or row['done']), day, row['task_id']))
 
 
 def days(first: date, last: date) -> list[dict]:

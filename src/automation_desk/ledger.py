@@ -75,7 +75,14 @@ CREATE TABLE IF NOT EXISTS task_days (
 CREATE TABLE IF NOT EXISTS task_day_projects (day TEXT NOT NULL, project TEXT NOT NULL, open INTEGER NOT NULL,
     PRIMARY KEY (day, project));
 CREATE TABLE IF NOT EXISTS task_day_planned (day TEXT NOT NULL, task_id TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (day, task_id));
+    completed_count INTEGER, PRIMARY KEY (day, task_id));
+CREATE TABLE IF NOT EXISTS habits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, schedule TEXT NOT NULL, created TEXT NOT NULL,
+    paused INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS habit_checks (habit_id INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE, day TEXT NOT NULL,
+    PRIMARY KEY (habit_id, day));
+CREATE TABLE IF NOT EXISTS habit_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS task_activity (day TEXT PRIMARY KEY, completed INTEGER NOT NULL, added INTEGER NOT NULL,
     frog INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS watched_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -113,6 +120,10 @@ _ready: set[Path] = set()
 _ready_lock = threading.Lock()
 
 
+# CLAUDE> columns added after a table first shipped: (table, column, type); a ledger made before gets them on start-up
+ADDED_COLUMNS = [('task_day_planned', 'completed_count', 'INTEGER')]
+
+
 def _ensure_schema(target: Path) -> None:
     """Create the tables once per database file per process."""
     with _ready_lock:
@@ -123,6 +134,9 @@ def _ensure_schema(target: Path) -> None:
         try:
             connection.execute('PRAGMA journal_mode=WAL')
             connection.executescript(SCHEMA)
+            for table, column, kind in ADDED_COLUMNS:
+                if column not in {row[1] for row in connection.execute(f'PRAGMA table_info({table})')}:
+                    connection.execute(f'ALTER TABLE {table} ADD COLUMN {column} {kind}')
         finally:
             connection.close()
         _ready.add(target)

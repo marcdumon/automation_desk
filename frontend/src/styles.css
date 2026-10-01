@@ -9,6 +9,7 @@
   --gmail: #a83a34;
   --news: #7a5ea8;
   --tools: #a8327a;
+  --habits: #0e7682;
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --error: #a83a34;
@@ -29,6 +30,7 @@
     --gmail: #e2837c;
     --news: #b49be0;
     --tools: #e68ac2;
+    --habits: #5cc6cf;
     --series-1: #3987e5;
     --series-2: #d95926;
     --error: #e2837c;
@@ -41,6 +43,7 @@
 .accent-gmail { --accent: var(--gmail); }
 .accent-news { --accent: var(--news); }
 .accent-tools { --accent: var(--tools); }
+.accent-habits { --accent: var(--habits); }
 
 * { box-sizing: border-box; }
 
@@ -525,3 +528,51 @@ details.news-card[open] > summary { margin-bottom: 14px; }
 .bar-fill { display: block; height: 100%; border-radius: 4px; background: var(--series-1); min-width: 2px; }
 .bar-value { font-variant-numeric: tabular-nums; font-weight: 600; }
 .bar-value small { color: var(--muted); font-weight: 400; }
+
+/* CLAUDE> Habits: the check-in with big ticks, a month grid per habit, editing folded away */
+.habits { display: grid; gap: 20px; max-width: 1100px; }
+.habit-card { display: grid; gap: 14px; padding: 18px 22px; border: 1px solid var(--rule); border-radius: 12px; background: var(--surface); }
+.habit-card h2 { margin: 0; font-size: 17px; }
+.checkin-head { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; }
+.checkin-head p { margin: 2px 0 0; font-size: 14px; }
+.checkin-head button { font-size: 20px; padding: 2px 12px; }
+.habits-empty { margin: 0; color: var(--muted); }
+.checkin-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.habit-tick { width: 100%; display: flex; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid var(--rule);
+  border-radius: 10px; background: var(--paper); color: inherit; font: inherit; font-size: 16px; text-align: left; cursor: pointer; }
+.habit-tick:hover { border-color: var(--accent); }
+.habit-tick .tick-mark { display: inline-grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 50%;
+  border: 2px solid var(--accent); font-weight: 700; color: var(--surface); }
+.habit-tick.done .tick-mark { background: var(--accent); }
+.habit-tick.done .habit-name { color: var(--muted); }
+.habit-tick .habit-name { flex: 1; }
+.habit-streak { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.habit-table-wrap { overflow-x: auto; }
+.habit-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.habit-table th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 10px; border-bottom: 1px solid var(--rule); }
+.habit-table td { padding: 10px; border-bottom: 1px solid var(--rule); vertical-align: middle; white-space: nowrap; }
+.habit-table td small { display: block; font-size: 12px; }
+.habit-table .num { font-variant-numeric: tabular-nums; }
+.habit-table tr.paused { opacity: .55; }
+.habit-grid { display: inline-grid; grid-auto-flow: column; gap: 3px; }
+.cell { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.cell.done { background: var(--accent); }
+.cell.missed { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--error) 60%, transparent); }
+.cell.open { box-shadow: inset 0 0 0 2px var(--accent); }
+.cell.free { background: color-mix(in srgb, var(--rule) 60%, transparent); }
+.cell.future { box-shadow: inset 0 0 0 1px var(--rule); }
+.habit-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 16px; margin: 0; padding: 0; font-size: 13px; color: var(--muted); }
+.habit-legend li { display: flex; align-items: center; gap: 6px; }
+.manage summary { cursor: pointer; list-style: none; }
+.manage summary::-webkit-details-marker { display: none; }
+.manage summary h2::before { content: '▸ '; color: var(--muted); }
+.manage[open] summary h2::before { content: '▾ '; }
+.manage-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.manage-list li, .manage-add { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.manage-list input, .manage-add input, .reminder input, .rhythm select { padding: 7px 10px; border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--paper); color: var(--ink); font: inherit; }
+.manage-list input, .manage-add input { flex: 1 1 220px; min-width: 0; }
+.rhythm { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.danger { color: var(--error); }
+.reminder { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 14px; }
+.reminder input { width: 6em; }

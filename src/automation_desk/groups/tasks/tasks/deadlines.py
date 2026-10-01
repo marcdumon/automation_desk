@@ -47,20 +47,25 @@ class LabelDeadline(StandardTask):
         rows, targets = [], {}
         for task in (t for t in todoist.open_tasks() if label in t.get('labels', [])):
             now = _deadline(task)
-            same = now == day.isoformat()
+            # CLAUDE> a task that already has this deadline has nothing to change: not shown
+            if now == day.isoformat():
+                continue
             # CLAUDE> an existing deadline is the user's own: unticked, replaced only when the user ticks it
-            note = 'already has that deadline' if same else 'has its own deadline: tick to replace it' if now else ''
-            rows.append(Row(id=task['id'], selectable=not same, selected=not now, note=note,
+            note = 'has its own deadline: tick to replace it' if now else ''
+            rows.append(Row(id=task['id'], selected=not now, note=note,
                             cells={'Task': task.get('content') or '(untitled)', 'Project': projects.get(task['project_id'], '?'),
                                    'Deadline now': day_label(date.fromisoformat(now)) if now else '—',
                                    'New deadline': day_label(day)}))
-            if not same:
-                targets[task['id']] = {'title': task.get('content', ''), 'deadline': now, 'labels': sorted(task.get('labels', []))}
+            targets[task['id']] = {'title': task.get('content', ''), 'deadline': now, 'labels': sorted(task.get('labels', []))}
+        # CLAUDE> the tasks that will change first; those keeping their own deadline (unticked) last, in Todoist's order
+        rows.sort(key=lambda row: not row.selected)
         fresh = sum(1 for t in targets.values() if not t['deadline'])
         own = len(targets) - fresh
+        labelled = any(label in t.get('labels', []) for t in todoist.open_tasks())
         summary = (f'Set deadline {day_label(day)} on {fresh} task(s) with label @{label}'
-                   + (f'; {own} {"keeps its" if own == 1 else "keep their"} own unless you tick it.' if own else '.')
-                   if rows else f'No open task has the label @{label}.')
+                   + (f'; {own} {"keeps its" if own == 1 else "keep their"} own unless you tick it.' if own else '.') if rows
+                   else f'Nothing to set: every task with label @{label} already has deadline {day_label(day)}.' if labelled
+                   else f'No open task has the label @{label}.')
         return Preview(summary=summary, columns=['Task', 'Project', 'Deadline now', 'New deadline'], rows=rows,
                        read_only=not targets), {'day': day.isoformat(), 'label': label, 'targets': targets}
 

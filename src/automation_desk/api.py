@@ -7,6 +7,7 @@ execute:   plan id + ticked rows -> exactly the previewed changes are applied.
 import hashlib
 import logging
 import re
+import subprocess
 import threading
 import time
 from datetime import datetime
@@ -24,7 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from googleapiclient.errors import HttpError
 from pydantic import BaseModel
 
-from automation_desk import google_auth, jobs, ledger, llm, reminders, stop
+from automation_desk import google_auth, habits, jobs, ledger, llm, reminders, stop
 from automation_desk.capture import EXTENSION_DIR, Captured, CaptureError, broker
 from automation_desk.config import ROOT, config
 from automation_desk.dates import DateExprError
@@ -245,6 +246,13 @@ def _interpret(group: TaskGroup, task_id: str | None, text: str, job: jobs.Job,
     job.task_id, job.task_name = task.id, task.name
 
     args = fill_args(group, task, text)
+    if task_id and args.status == 'unsupported':
+        # CLAUDE> the page keeps a task chosen; a sentence meant for another task goes to the one that fits it
+        choice = route(group, text)
+        if choice.task not in ('none', task.id):
+            task = group.task(choice.task)
+            job.task_id, job.task_name = task.id, task.name
+            args = fill_args(group, task, text)
     if args.status != 'ok':
         job.status, job.message = args.status, args.message
         return InterpretResponse(status=args.status, message=args.message, task_id=task.id, task_name=task.name)
@@ -286,6 +294,83 @@ def watch_save(request: WatchList) -> dict:
     return _watch_state()
 
 
+class HabitIn(BaseModel):
+    """A habit as the Habits page sends it."""
+
+    name: str | None = None
+    schedule: str | None = None
+    paused: bool | None = None
+
+
+class HabitCheck(BaseModel):
+    """A tick, or its removal, for a day."""
+
+    day: str
+    done: bool
+
+
+class HabitReminder(BaseModel):
+    """The daily reminder time ('21:00'), or '' for off."""
+
+    at: str
+
+
+def _habits_view(day: str | None = None) -> dict:
+    """The Habits page for a day (today by default, in the user's timezone)."""
+    today = context('Habits').today
+    return habits.overview(datetime.strptime(day, '%Y-%m-%d').date() if day else today) | {'today_date': today.isoformat()}
+
+
+@app.get('/api/habits')
+def habits_list(day: str | None = None) -> dict:
+    """Today's check-in (or another day's) and every habit's streaks and month."""
+    return _habits_view(day)
+
+
+@app.post('/api/habits')
+def habits_add(habit: HabitIn) -> dict:
+    """Add a habit."""
+    try:
+        habits.add(habit.name or '', habit.schedule or 'daily', created=context('Habits').today)
+    except ValueError as error:
+        raise UserError(str(error)) from error
+    return _habits_view()
+
+
+@app.patch('/api/habits/{habit_id}')
+def habits_change(habit_id: int, habit: HabitIn) -> dict:
+    """Rename a habit, change its rhythm, pause or resume it."""
+    try:
+        habits.update(habit_id, name=habit.name, schedule=habit.schedule, paused=habit.paused)
+    except ValueError as error:
+        raise UserError(str(error)) from error
+    return _habits_view()
+
+
+@app.delete('/api/habits/{habit_id}')
+def habits_remove(habit_id: int) -> dict:
+    """Delete a habit and its ticks, at once."""
+    habits.delete(habit_id)
+    return _habits_view()
+
+
+@app.post('/api/habits/{habit_id}/check')
+def habits_check(habit_id: int, tick: HabitCheck) -> dict:
+    """Tick or untick a habit for a day."""
+    habits.check(habit_id, datetime.strptime(tick.day, '%Y-%m-%d').date(), tick.done)
+    return _habits_view(tick.day)
+
+
+@app.post('/api/habits/reminder')
+def habits_reminder(setting: HabitReminder) -> dict:
+    """Set or clear the daily reminder."""
+    try:
+        habits.set_reminder(setting.at)
+    except ValueError as error:
+        raise UserError('Type the reminder time as 21:00, or leave it empty for no reminder.') from error
+    return _habits_view()
+
+
 @app.get('/api/tasks/stats')
 def task_stats(period: int = 30) -> dict:
     """The Tasks page's statistics for the last `period` days (0 = all); today's done and added come fresh from Todoist."""
@@ -296,6 +381,13 @@ def task_stats(period: int = 30) -> dict:
     except TodoistError as error:
         log.warning('task statistics not refreshed: %s', error)
     return task_stats_store.overview(ctx.today, period)
+
+
+def _habit_reminder(now: datetime) -> None:
+    """Once a day, from the time the user set, a desktop notification while habits due today are still open."""
+    if text := habits.reminder_text(now):
+        subprocess.run(['notify-send', '--app-name=Automation desk', 'Habits', text], check=False, timeout=10)
+        habits.mark_reminded(now.date())
 
 
 def _task_stats_every_morning() -> None:
@@ -312,6 +404,10 @@ def _task_stats_every_morning() -> None:
                 task_stats_store.refresh_activity(ctx.todoist(), ctx.now, days=90)
         except Exception:
             log.exception('daily task statistics failed')
+        try:
+            _habit_reminder(context('Habit reminder').now)
+        except Exception:
+            log.exception('habit reminder failed')
         time.sleep(60)
 
 

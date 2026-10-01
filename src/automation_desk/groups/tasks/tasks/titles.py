@@ -19,8 +19,10 @@ COLUMN = 'New title'
 SYSTEM = """You rewrite to-do titles into the form "Verb: subject".
 - The verb is ONE English verb (two words only for phrasal verbs like "Back up"), capitalised, followed by a colon.
   Prefer these: Book, Buy, Call, Cancel, Check, Clean, Collect, Configure, Contact, Create, Deepclean, Email, File, Find,
-  Fix, Install, Meet, Message, Move, Order, Organise, Pay, Plan, Print, Process, Remove, Renew, Repair, Replace, Reply,
-  Research, Return, Review, Sell, Service, Update, Write.
+  Fix, Install, Meet, Message, Move, Order, Organise, Pay, Plan, Print, Process, Remove, Renew, Reorganise, Repair, Replace,
+  Reply, Research, Return, Review, Sell, Service, Update, Write.
+- "Clean" is only for physical cleaning (rooms, appliances, windows: "Clean: Keuken"); clearing out or ordering digital
+  things (mail, files, notes, accounts, bookmarks, a phone) is "Reorganise" ("Reorganise: Google Drive").
 - The subject keeps the user's own words and language (Dutch stays Dutch); do not translate it, keep names, numbers and
   details; start it with a capital letter. "Ramen poetsen" -> "Clean: Ramen", "Afspraak tandarts maken" -> "Book: Tandarts",
   "Research investment brokers" -> "Research: Investment brokers".

@@ -4,6 +4,7 @@ import { Link, Redirect, Route, Switch, useRoute } from 'wouter'
 
 import { getAuth, getGroups, getVersion, login, type Group } from './api'
 import GroupPage, { type LogEntry } from './GroupPage'
+import HabitsPage from './HabitsPage'
 import JobsPage from './JobsPage'
 import Reminders from './Reminders'
 import ToolsPage from './ToolsPage'
@@ -46,6 +47,7 @@ export default function App() {
               <GroupPage key={group.id} group={group} log={logs[group.id] ?? []} onLog={entry => append(group.id, entry)} />
             </Route>
           ))}
+          <Route path="/habits"><HabitsPage /></Route>
           <Route path="/tools"><ToolsPage /></Route>
           <Route path="/jobs"><JobsPage /></Route>
           <Route><Redirect to={`/${groups.data[0]?.id ?? ''}`} /></Route>
@@ -61,6 +63,7 @@ function Sidebar({ groups }: { groups: Group[] }) {
       <div className="brand">Automation desk</div>
       <ul className="group-list">
         {groups.map(group => <GroupLink key={group.id} group={group} />)}
+        <HabitsLink />
         <ToolsLink />
       </ul>
       <JobsLink />
@@ -78,6 +81,19 @@ function GroupLink({ group }: { group: Group }) {
             aria-current={active ? 'page' : undefined}>
         <span className="swatch" aria-hidden="true" />
         <span>{group.name}</span>
+      </Link>
+    </li>
+  )
+}
+
+// CLAUDE> the user's own habit tracker, listed with the task groups
+function HabitsLink() {
+  const [active] = useRoute('/habits')
+  return (
+    <li>
+      <Link href="/habits" className={`group-link accent-habits${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined}>
+        <span className="swatch" aria-hidden="true" />
+        <span>Habits</span>
       </Link>
     </li>
   )
