@@ -16,7 +16,7 @@ with a tick box per item, and changes nothing until you press Apply.
 | Tasks | Move planned tasks out of Someday (Todoist tasks in a Someday section with a this_week, this_month or this_year label go to the top of their project) | `move my planned tasks out of someday` |
 | Tasks | Move unplanned tasks into Someday (tasks at the top of a project without a this_ label and without a date go into its Someday section) | `move unplanned tasks back to someday` |
 | Tasks | Give tasks a Verb: title (the model proposes 'Clean: Ramen' for 'Ramen poetsen'; every new title can be edited in the preview; the titles go to the model) | `give my tasks a verb: title` |
-| Tasks | Give tasks with a label a deadline (Todoist's deadline, apart from the task's date; label and date found by code) | `give all tasks with label this_week a deadline friday` |
+| Tasks | Give tasks with a label a deadline (a task that has a deadline comes unticked and keeps it unless you tick it; Todoist's deadline, apart from the task's date; label and date found by code) | `give all tasks with label this_week a deadline friday` |
 | Gmail | Find a mail (read only, any language) | `wanneer is het resultaat van de bloedtest beschikbaar, label Health` |
 | Gmail | Label or mark mail (also archive) | `archive all newsletters older than 2 weeks` |
 | Gmail | Trash mail | `trash all mail from Zalando older than a month` |

@@ -156,24 +156,40 @@ def test_nothing_to_rename_asks_no_model(make_ctx, monkeypatch) -> None:
     assert (preview.summary, preview.read_only) == ('Nothing to rename: every task title already reads Verb: subject.', True)
 
 
-def test_tasks_with_a_label_get_a_deadline(make_ctx) -> None:
-    """'give all tasks with label this week a deadline friday' (Tuesday 22 Sep 2026): code finds the label and the date."""
+def test_tasks_with_a_label_get_a_deadline_and_an_existing_one_only_when_ticked(make_ctx) -> None:
+    """'give all tasks with label this week a deadline friday' (Tuesday 22 Sep 2026): code finds the label and the date. A
+    task that already has a deadline comes unticked; only when the user ticks it is its deadline replaced."""
     from automation_desk.groups.tasks.tasks.deadlines import DeadlineArgs, LabelDeadline
 
     fake = FakeTodoist(PROJECTS, [
         task('a', 'Clean: Ramen', 'P1', None, ['this_week']),
-        task('b', 'Pay: Rekeningen', 'P2', None, ['this_week'], deadline={'date': '2026-09-30', 'lang': 'en'}),
+        task('b', 'Pay: Rekeningen', 'P2', None, ['this_week'], deadline={'date': '2026-11-15', 'lang': 'en'}),
         task('c', 'Book: Tandarts', 'P1', None, ['this_week'], deadline={'date': '2026-09-25', 'lang': 'en'}),
         task('d', 'Other', 'P1', None, ['this_month']),
     ])
     fake.label_names = ['frog', 'this_week', 'this_month']
     ctx = make_ctx(fake, 'give all tasks with label this week a deadline friday')
     preview, payload = LabelDeadline().resolve(DeadlineArgs(status='ok', message='', label='this week', deadline='friday'), ctx)
-    assert [(r.cells['Task'], r.cells['Deadline now'], r.cells['New deadline'], r.selectable, r.note) for r in preview.rows] == [
-        ('Clean: Ramen', '—', 'Fri 25 Sep 2026', True, ''),
-        ('Pay: Rekeningen', 'Wed 30 Sep 2026', 'Fri 25 Sep 2026', True, 'replaces its deadline'),
-        ('Book: Tandarts', 'Fri 25 Sep 2026', 'Fri 25 Sep 2026', False, 'already has that deadline')]
-    assert preview.summary == "Set deadline Fri 25 Sep 2026 on 2 task(s) with label @this_week."
-    LabelDeadline().execute(payload, {'a', 'b'}, ctx)
-    assert [c[1:] for c in fake.calls if c[0] == 'update'] == [('a', {'deadline_date': '2026-09-25'}),
-                                                               ('b', {'deadline_date': '2026-09-25'})]
+    assert [(r.cells['Task'], r.cells['Deadline now'], r.cells['New deadline'], r.selectable, r.selected, r.note)
+            for r in preview.rows] == [
+        ('Clean: Ramen', '—', 'Fri 25 Sep 2026', True, True, ''),
+        ('Pay: Rekeningen', 'Sun 15 Nov 2026', 'Fri 25 Sep 2026', True, False, 'has its own deadline: tick to replace it'),
+        ('Book: Tandarts', 'Fri 25 Sep 2026', 'Fri 25 Sep 2026', False, False, 'already has that deadline')]
+    assert preview.summary == 'Set deadline Fri 25 Sep 2026 on 1 task(s) with label @this_week; 1 keeps its own unless you tick it.'
+    LabelDeadline().execute(payload, {'a'}, ctx)
+    assert [c[1:] for c in fake.calls if c[0] == 'update'] == [('a', {'deadline_date': '2026-09-25'})], 'b is left as it is'
+    LabelDeadline().execute(payload, {'b'}, ctx)
+    assert [c[1:] for c in fake.calls if c[0] == 'update'][-1] == ('b', {'deadline_date': '2026-09-25'}), 'ticked: replaced'
+
+
+def test_a_deadline_set_after_the_preview_is_not_overwritten(make_ctx) -> None:
+    from automation_desk.groups.tasks.tasks.deadlines import DeadlineArgs, LabelDeadline
+
+    tasks = [task('a', 'Clean: Ramen', 'P1', None, ['this_week'])]
+    fake = FakeTodoist(PROJECTS, tasks)
+    fake.label_names = ['this_week']
+    ctx = make_ctx(fake, 'give all tasks with label this_week a deadline friday')
+    _preview, payload = LabelDeadline().resolve(DeadlineArgs(status='ok', message='', label='this_week', deadline='friday'), ctx)
+    tasks[0]['deadline'] = {'date': '2026-12-01', 'lang': 'en'}
+    assert LabelDeadline().execute(payload, {'a'}, ctx) == ['Skipped "Clean: Ramen": its deadline changed since the preview.']
+    assert [c for c in fake.calls if c[0] == 'update'] == []

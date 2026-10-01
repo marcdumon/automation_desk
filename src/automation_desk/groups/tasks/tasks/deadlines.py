@@ -1,7 +1,8 @@
 """Standard task: give every task with a label a deadline ('give all tasks with label this_week a deadline friday').
 
 The label is matched and the date resolved in code; the model only copies the user's words. A deadline in Todoist is its
-own field, apart from the task's date, so the planned day stays as it is.
+own field, apart from the task's date, so the planned day stays as it is. A task that already has a deadline comes
+unticked: it keeps its deadline unless the user ticks it.
 """
 
 from datetime import date
@@ -32,8 +33,8 @@ class LabelDeadline(StandardTask):
 
     id = 'label_deadline'
     name = 'Give tasks with a label a deadline'
-    description = ("Sets the same deadline on every open task with the label you name, e.g. all @this_week tasks by friday. "
-                   "The task's own date stays as it is.")
+    description = ("Sets a deadline on every open task with the label you name, e.g. all @this_week tasks by friday. Tasks that "
+                   "already have a deadline come unticked and keep it unless you tick them; the tasks' own dates stay as they are.")
     example = 'give all tasks with label this_week a deadline friday'
     Args = DeadlineArgs
 
@@ -47,27 +48,35 @@ class LabelDeadline(StandardTask):
         for task in (t for t in todoist.open_tasks() if label in t.get('labels', [])):
             now = _deadline(task)
             same = now == day.isoformat()
-            rows.append(Row(id=task['id'], selectable=not same, selected=not same,
-                            note='already has that deadline' if same else 'replaces its deadline' if now else '',
+            # CLAUDE> an existing deadline is the user's own: unticked, replaced only when the user ticks it
+            note = 'already has that deadline' if same else 'has its own deadline: tick to replace it' if now else ''
+            rows.append(Row(id=task['id'], selectable=not same, selected=not now, note=note,
                             cells={'Task': task.get('content') or '(untitled)', 'Project': projects.get(task['project_id'], '?'),
                                    'Deadline now': day_label(date.fromisoformat(now)) if now else '—',
                                    'New deadline': day_label(day)}))
             if not same:
                 targets[task['id']] = {'title': task.get('content', ''), 'deadline': now, 'labels': sorted(task.get('labels', []))}
-        summary = (f'Set deadline {day_label(day)} on {len(targets)} task(s) with label @{label}.' if rows
-                   else f'No open task has the label @{label}.')
+        fresh = sum(1 for t in targets.values() if not t['deadline'])
+        own = len(targets) - fresh
+        summary = (f'Set deadline {day_label(day)} on {fresh} task(s) with label @{label}'
+                   + (f'; {own} {"keeps its" if own == 1 else "keep their"} own unless you tick it.' if own else '.')
+                   if rows else f'No open task has the label @{label}.')
         return Preview(summary=summary, columns=['Task', 'Project', 'Deadline now', 'New deadline'], rows=rows,
-                       read_only=not rows), {'day': day.isoformat(), 'label': label, 'targets': targets}
+                       read_only=not targets), {'day': day.isoformat(), 'label': label, 'targets': targets}
 
     def execute(self, payload: dict, selected: set[str], ctx: Context) -> list[str]:
-        """Set the deadline on each selected task, skipping any whose deadline or labels changed since the preview."""
+        """Set the deadline on each ticked task whose deadline is still the one shown in the preview."""
         todoist, results = ctx.todoist(), []
         shown = day_label(date.fromisoformat(payload['day']))
         for task_id, target in payload['targets'].items():
             if task_id not in selected:
                 continue
             current = todoist.task(task_id)
-            if _deadline(current) != target['deadline'] or sorted(current.get('labels', [])) != target['labels']:
+            # CLAUDE> the deadline the user saw in the preview is the one replaced; one changed meanwhile is left alone
+            if _deadline(current) != target['deadline']:
+                results.append(f'Skipped "{target["title"]}": its deadline changed since the preview.')
+                continue
+            if sorted(current.get('labels', [])) != target['labels']:
                 results.append(f'Skipped "{target["title"]}": it changed since the preview.')
                 continue
             todoist.update(task_id, {'deadline_date': payload['day']})
