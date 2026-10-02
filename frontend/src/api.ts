@@ -165,6 +165,7 @@ export type HabitsView = {
 export const getHabits = (day?: string) => call<HabitsView>(`/api/habits${day ? `?day=${day}` : ''}`)
 export const addHabit = (name: string, schedule: string) => call<HabitsView>('/api/habits', { name, schedule })
 export const checkHabit = (id: number, day: string, done: boolean) => call<HabitsView>(`/api/habits/${id}/check`, { day, done })
+export const reorderHabits = (ids: number[]) => call<HabitsView>('/api/habits/order', { ids })
 export const setHabitReminder = (at: string) => call<HabitsView>('/api/habits/reminder', { at })
 export async function changeHabit(id: number, fields: { name?: string; schedule?: string; paused?: boolean }): Promise<HabitsView> {
   const response = await reach(`/api/habits/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },

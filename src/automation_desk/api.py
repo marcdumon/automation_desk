@@ -361,6 +361,19 @@ def habits_check(habit_id: int, tick: HabitCheck) -> dict:
     return _habits_view(tick.day)
 
 
+class HabitOrder(BaseModel):
+    """The habits' ids in the order the user wants them."""
+
+    ids: list[int]
+
+
+@app.post('/api/habits/order')
+def habits_order(order: HabitOrder) -> dict:
+    """Put the habits in the user's order."""
+    habits.reorder(order.ids)
+    return _habits_view()
+
+
 @app.post('/api/habits/reminder')
 def habits_reminder(setting: HabitReminder) -> dict:
     """Set or clear the daily reminder."""

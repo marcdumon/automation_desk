@@ -576,3 +576,8 @@ details.news-card[open] > summary { margin-bottom: 14px; }
 .danger { color: var(--error); }
 .reminder { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 14px; }
 .reminder input { width: 6em; }
+
+.manage-list li.dragging { opacity: .45; }
+.drag-handle { cursor: grab; color: var(--muted); letter-spacing: -2px; user-select: none; padding: 0 2px; }
+.move-buttons { display: inline-flex; gap: 2px; }
+.move-buttons button { padding: 4px 8px; }
