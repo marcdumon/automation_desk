@@ -83,3 +83,15 @@ def test_the_reminder_fires_once_after_its_time_when_habits_are_open() -> None:
     assert habits.reminder_text(at) is None, 'once a day'
     habits.check(weight, date(2026, 10, 1), True)
     assert habits.reminder_text(at + timedelta(days=1)) is None, 'all done'
+
+
+def test_the_user_s_order_holds_everywhere() -> None:
+    weight = habits.add('Measure: Weight', 'daily', created=WED)
+    blood = habits.add('Measure: Bloodpressure', 'daily', created=WED)
+    jimms = habits.add('Goto: Jimms', 'weekdays', created=WED)
+    habits.reorder([jimms, weight, blood])
+    view = habits.overview(WED)
+    assert [h['id'] for h in view['habits']] == [jimms, weight, blood]
+    assert [h['id'] for h in view['today']] == [jimms, weight, blood]
+    sport = habits.add('Sport', 'daily', created=WED)
+    assert [h['id'] for h in habits.overview(WED)['habits']][-1] == sport, 'a new habit comes last'

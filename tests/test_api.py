@@ -306,3 +306,11 @@ def test_habits_page_round_trip(client: TestClient) -> None:
     assert bad.status_code == 422 and 'every day' in bad.json()['detail']
     assert client.post('/api/habits/reminder', json={'at': '21:00'}).json()['reminder'] == '21:00'
     assert client.delete(f'/api/habits/{hid}').json()['habits'] == []
+
+
+def test_habits_can_be_reordered(client: TestClient) -> None:
+    for name in ('A', 'B', 'C'):
+        view = client.post('/api/habits', json={'name': name, 'schedule': 'daily'}).json()
+    ids = [h['id'] for h in view['habits']]
+    view = client.post('/api/habits/order', json={'ids': [ids[2], ids[0], ids[1]]}).json()
+    assert [h['name'] for h in view['habits']] == ['C', 'A', 'B']

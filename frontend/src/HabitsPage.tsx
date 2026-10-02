@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
-import { addHabit, changeHabit, checkHabit, deleteHabit, getHabits, setHabitReminder, type Habit, type HabitsView } from './api'
+import {
+  addHabit, changeHabit, checkHabit, deleteHabit, getHabits, reorderHabits, setHabitReminder, type Habit, type HabitsView,
+} from './api'
 
 // CLAUDE> the user's own habit tracker, outside Todoist: one check-in (made for the evening), streaks and a month grid
 const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
@@ -157,13 +159,33 @@ function Manage({ data, onChange }: { data: HabitsView; onChange: (data: HabitsV
     changeHabit(id, fields), onSuccess: onChange })
   const remove = useMutation({ mutationFn: deleteHabit, onSuccess: onChange })
   const saveReminder = useMutation({ mutationFn: () => setHabitReminder(reminder), onSuccess: onChange })
-  const failed = add.error ?? change.error ?? remove.error ?? saveReminder.error
+  const order = useMutation({ mutationFn: reorderHabits, onSuccess: onChange })
+  const [dragging, setDragging] = useState<number | null>(null)
+  const ids = data.habits.map(h => h.id)
+  // CLAUDE> the habit `id` moves to `index`; the order then holds on the check-in and the overview too
+  const moveTo = (id: number, index: number) => {
+    const rest = ids.filter(x => x !== id)
+    rest.splice(Math.max(0, Math.min(index, rest.length)), 0, id)
+    if (rest.join() !== ids.join()) order.mutate(rest)
+  }
+  const failed = add.error ?? change.error ?? remove.error ?? saveReminder.error ?? order.error
   return (
     <details className="habit-card manage" open={data.habits.length === 0}>
       <summary><h2>Edit habits</h2></summary>
       <ul className="manage-list">
-        {data.habits.map(h => (
-          <li key={h.id}>
+        {data.habits.map((h, i) => (
+          <li key={h.id} className={dragging === h.id ? 'dragging' : ''} draggable
+              onDragStart={e => { setDragging(h.id); e.dataTransfer.effectAllowed = 'move' }}
+              onDragEnd={() => setDragging(null)}
+              onDragOver={e => { if (dragging !== null) e.preventDefault() }}
+              onDrop={e => { e.preventDefault(); if (dragging !== null) moveTo(dragging, i); setDragging(null) }}>
+            <span className="drag-handle" aria-hidden="true" title="Drag to reorder">⋮⋮</span>
+            <span className="move-buttons">
+              <button type="button" className="quiet" aria-label={`Move ${h.name} up`} disabled={i === 0 || order.isPending}
+                      onClick={() => moveTo(h.id, i - 1)}>↑</button>
+              <button type="button" className="quiet" aria-label={`Move ${h.name} down`}
+                      disabled={i === data.habits.length - 1 || order.isPending} onClick={() => moveTo(h.id, i + 1)}>↓</button>
+            </span>
             <input defaultValue={h.name} aria-label="Habit name"
                    onBlur={e => e.target.value.trim() && e.target.value !== h.name && change.mutate({ id: h.id, fields: { name: e.target.value } })} />
             <RhythmPicker value={h.schedule} onChange={s => change.mutate({ id: h.id, fields: { schedule: s } })} />

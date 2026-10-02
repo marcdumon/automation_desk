@@ -44,8 +44,9 @@ def add(name: str, schedule: str, created: date | None = None) -> int:
     if not name.strip():
         raise ValueError('A habit needs a name.')
     with connect(write=True) as db:
-        cursor = db.execute('INSERT INTO habits (name, schedule, created) VALUES (?, ?, ?)',
-                            (' '.join(name.split()), _valid(schedule), (created or date.today()).isoformat()))
+        last = db.execute('SELECT COALESCE(MAX(COALESCE(position, id)), 0) FROM habits').fetchone()[0]
+        cursor = db.execute('INSERT INTO habits (name, schedule, created, position) VALUES (?, ?, ?, ?)',
+                            (' '.join(name.split()), _valid(schedule), (created or date.today()).isoformat(), last + 1))
         return int(cursor.lastrowid)
 
 
@@ -58,6 +59,16 @@ def update(habit_id: int, name: str | None = None, schedule: str | None = None, 
             db.execute('UPDATE habits SET schedule = ? WHERE id = ?', (_valid(schedule), habit_id))
         if paused is not None:
             db.execute('UPDATE habits SET paused = ? WHERE id = ?', (int(paused), habit_id))
+
+
+def reorder(ids: list[int]) -> None:
+    """Put the habits in this order; habits not named keep their place after them."""
+    with connect(write=True) as db:
+        for position, habit_id in enumerate(ids, 1):
+            db.execute('UPDATE habits SET position = ? WHERE id = ?', (position, habit_id))
+        rest = [r[0] for r in db.execute('SELECT id FROM habits ORDER BY COALESCE(position, id), id').fetchall() if r[0] not in ids]
+        for position, habit_id in enumerate(rest, len(ids) + 1):
+            db.execute('UPDATE habits SET position = ? WHERE id = ?', (position, habit_id))
 
 
 def delete(habit_id: int) -> None:
@@ -144,7 +155,7 @@ def _month(habit: dict, done: set[date], today: date) -> tuple[list[dict], int |
 def _all() -> tuple[list[dict], dict[int, set[date]]]:
     """Every habit and its ticks."""
     with connect() as db:
-        rows = [dict(r) for r in db.execute('SELECT * FROM habits ORDER BY id').fetchall()]
+        rows = [dict(r) for r in db.execute('SELECT * FROM habits ORDER BY COALESCE(position, id), id').fetchall()]
         checks = db.execute('SELECT habit_id, day FROM habit_checks').fetchall()
     done: dict[int, set[date]] = {r['id']: set() for r in rows}
     for c in checks:

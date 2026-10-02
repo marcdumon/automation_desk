@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS task_day_planned (day TEXT NOT NULL, task_id TEXT NOT
     completed_count INTEGER, PRIMARY KEY (day, task_id));
 CREATE TABLE IF NOT EXISTS habits (
     id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, schedule TEXT NOT NULL, created TEXT NOT NULL,
-    paused INTEGER NOT NULL DEFAULT 0
+    paused INTEGER NOT NULL DEFAULT 0, position INTEGER
 );
 CREATE TABLE IF NOT EXISTS habit_checks (habit_id INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE, day TEXT NOT NULL,
     PRIMARY KEY (habit_id, day));
@@ -121,7 +121,7 @@ _ready_lock = threading.Lock()
 
 
 # CLAUDE> columns added after a table first shipped: (table, column, type); a ledger made before gets them on start-up
-ADDED_COLUMNS = [('task_day_planned', 'completed_count', 'INTEGER')]
+ADDED_COLUMNS = [('task_day_planned', 'completed_count', 'INTEGER'), ('habits', 'position', 'INTEGER')]
 
 
 def _ensure_schema(target: Path) -> None:
