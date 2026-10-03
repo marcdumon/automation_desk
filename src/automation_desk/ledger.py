@@ -106,6 +106,19 @@ CREATE TABLE IF NOT EXISTS news_seen (link TEXT PRIMARY KEY, source_id INTEGER, 
 CREATE TABLE IF NOT EXISTS news_suggestions (
     name TEXT PRIMARY KEY, examples TEXT, digest_id INTEGER, status TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS research (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, request TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'product', budget REAL,
+    countries TEXT NOT NULL, state TEXT NOT NULL, step TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
+    questions TEXT, answers TEXT, classes TEXT, plan TEXT, followups TEXT, followup_answers TEXT, result TEXT,
+    limits TEXT NOT NULL, searches_done INTEGER NOT NULL DEFAULT 0, cost_usd REAL NOT NULL DEFAULT 0,
+    created TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS research_pages (
+    research_id INTEGER NOT NULL REFERENCES research (id) ON DELETE CASCADE, url TEXT NOT NULL, query TEXT, title TEXT,
+    snippet TEXT, country TEXT, status TEXT NOT NULL DEFAULT 'found', via TEXT, error TEXT, facts TEXT,
+    PRIMARY KEY (research_id, url)
+);
+CREATE TABLE IF NOT EXISTS research_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 '''
 
 LLM_COLUMNS = ['stage', 'purpose', 'model_requested', 'model_used', 'provider', 'prompt_tokens', 'completion_tokens',
@@ -121,7 +134,8 @@ _ready_lock = threading.Lock()
 
 
 # CLAUDE> columns added after a table first shipped: (table, column, type); a ledger made before gets them on start-up
-ADDED_COLUMNS = [('task_day_planned', 'completed_count', 'INTEGER'), ('habits', 'position', 'INTEGER')]
+ADDED_COLUMNS = [('task_day_planned', 'completed_count', 'INTEGER'), ('habits', 'position', 'INTEGER'),
+                 ('research', 'requirements', 'TEXT'), ('research', 'title', 'TEXT')]
 
 
 def _ensure_schema(target: Path) -> None:
@@ -229,8 +243,19 @@ def totals() -> dict:
     with connect() as db:
         by_group = usage(db.execute(f'SELECT j.grp AS name, {aggregate} FROM llm_calls c JOIN jobs j ON j.id = c.job_id '
                                     'GROUP BY j.grp ORDER BY cost DESC'))
-        by_model = usage(db.execute(f"SELECT COALESCE(NULLIF(c.model_used, ''), c.model_requested) AS name, {aggregate} "
+        # CLAUDE> a web search call's cost is OpenRouter's search fee plus the model's tokens: the fee is the cost minus the
+        # model part (cost_details.upstream_inference_cost); it shows as a line of its own, the model keeps its tokens
+        fee = ("CASE WHEN json_extract(c.request, '$.plugins') IS NULL THEN 0 ELSE MAX(0, c.cost_usd - COALESCE("
+               "json_extract(c.response, '$.usage.cost_details.upstream_inference_cost'), c.cost_usd)) END")
+        by_model = usage(db.execute(f"SELECT COALESCE(NULLIF(c.model_used, ''), c.model_requested) AS name, COUNT(*) AS calls, "
+                                    f'SUM(c.prompt_tokens) AS tin, SUM(c.completion_tokens) AS tout, SUM(c.cost_usd - {fee}) AS cost '
                                     'FROM llm_calls c GROUP BY name ORDER BY cost DESC'))
+        searches = usage(db.execute(
+            f"SELECT UPPER(SUBSTR(engine, 1, 1)) || SUBSTR(engine, 2) || ' web search (via OpenRouter)' AS name, COUNT(*) AS calls, "
+            f'0 AS tin, 0 AS tout, SUM(fee) AS cost FROM (SELECT COALESCE(json_extract(c.request, \'$.plugins[0].engine\'), '
+            f"'web') AS engine, {fee} AS fee FROM llm_calls c WHERE json_extract(c.request, '$.plugins') IS NOT NULL) "
+            'GROUP BY name ORDER BY cost DESC'))
+        by_model = dict(sorted((by_model | searches).items(), key=lambda item: -(item[1]['cost_usd'] or 0)))
         total = db.execute('SELECT COALESCE(SUM(cost_usd), 0) FROM llm_calls').fetchone()[0]
     return {'total_cost_usd': total, 'by_group': by_group, 'by_model': by_model}
 

@@ -10,7 +10,8 @@ import JobTable from './JobTable'
 export default function JobsPage() {
   const [group, setGroup] = useState('')
   const [open, setOpen] = useState<string | null>(null)
-  const all = useQuery({ queryKey: ['jobs', 'all'], queryFn: () => getJobs() })
+  // CLAUDE> refreshed while open, so a research or a digest that runs shows its cost as it grows
+  const all = useQuery({ queryKey: ['jobs', 'all'], queryFn: () => getJobs(), refetchInterval: 10000 })
   if (all.isPending) return <p className="muted">Loading…</p>
   if (all.isError) return <p className="bad">{all.error.message}</p>
   const data = all.data

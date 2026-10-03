@@ -71,3 +71,19 @@ def test_writers_in_parallel_do_not_lose_jobs() -> None:
     assert errors == [], 'a writer failed instead of waiting its turn'
     assert len(ledger.summaries()) == 160
     assert round(ledger.totals()['total_cost_usd'], 6) == 0.16
+
+
+def test_web_search_fees_are_a_line_of_their_own_next_to_the_models() -> None:
+    """A search call costs OpenRouter's search fee plus the model's tokens; the fee is the cost minus the model part
+    (cost_details.upstream_inference_cost) and shows apart, not hidden in the model's cost."""
+    job = jobs.Job(group='research', sentence='r')
+    search = call(0.007421675, model='openai/gpt-6-luna')
+    search.request = {'plugins': [{'id': 'web', 'engine': 'exa', 'max_results': 10}], 'messages': []}
+    search.response = {'usage': {'cost': 0.007421675, 'cost_details': {'upstream_inference_cost': 0.000421675}}}
+    job.llm_calls += [search, call(0.0003, model='openai/gpt-6-luna')]
+    jobs.save(job)
+    by_model = ledger.totals()['by_model']
+    assert round(by_model['Exa web search (via OpenRouter)']['cost_usd'], 6) == 0.007
+    assert by_model['Exa web search (via OpenRouter)']['calls'] == 1
+    assert round(by_model['openai/gpt-6-luna']['cost_usd'], 6) == round(0.000421675 + 0.0003, 6)
+    assert round(ledger.totals()['total_cost_usd'], 6) == round(0.007421675 + 0.0003, 6), 'the total stays the same'

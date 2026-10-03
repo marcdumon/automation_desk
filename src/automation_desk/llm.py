@@ -259,3 +259,31 @@ def ask[T: BaseModel](system: str, user: str, schema: type[T], http: httpx.Clien
     finally:
         if http is None:
             client.close()
+
+
+def search_web(query: str, max_results: int = 10, http: httpx.Client | None = None) -> list[dict]:
+    """Search the web through OpenRouter's web plugin (engine Exa); the pages found, as the answer's citations.
+
+    The model only has to acknowledge; the search fee and the tokens of the results are on the recorded call.
+    """
+    body = {
+        'model': config().llm_model, 'temperature': 0, 'max_tokens': 16, 'usage': {'include': True},
+        'plugins': [{'id': 'web', 'engine': 'exa', 'max_results': max_results}],
+        'messages': [{'role': 'system', 'content': 'Reply with OK.'}, {'role': 'user', 'content': query}],
+    }
+    client = http or httpx.Client(timeout=120.0)
+    started = time.monotonic()
+    try:
+        reply = _post(body, client)
+    except LLMError as error:
+        _record(f'web search: {query}', body, None, started, str(error))
+        raise
+    finally:
+        if http is None:
+            client.close()
+    _record(f'web search: {query}', body, reply, started)
+    notes = (reply['choices'][0]['message'].get('annotations') or [])
+    # CLAUDE> a malformed citation (no url) is left out; the search keeps the others
+    cited = [n['url_citation'] for n in notes if isinstance(n, dict) and n.get('type') == 'url_citation'
+             and isinstance(n.get('url_citation'), dict) and n['url_citation'].get('url')]
+    return [{'url': c['url'], 'title': c.get('title') or '', 'content': c.get('content') or ''} for c in cited]

@@ -7,6 +7,7 @@ import GroupPage, { type LogEntry } from './GroupPage'
 import HabitsPage from './HabitsPage'
 import JobsPage from './JobsPage'
 import Reminders from './Reminders'
+import ResearchPage from './ResearchPage'
 import ToolsPage from './ToolsPage'
 
 export default function App() {
@@ -48,6 +49,8 @@ export default function App() {
             </Route>
           ))}
           <Route path="/habits"><HabitsPage /></Route>
+          <Route path="/research/:id"><ResearchPage /></Route>
+          <Route path="/research"><ResearchPage /></Route>
           <Route path="/tools"><ToolsPage /></Route>
           <Route path="/jobs"><JobsPage /></Route>
           <Route><Redirect to={`/${groups.data[0]?.id ?? ''}`} /></Route>
@@ -64,6 +67,7 @@ function Sidebar({ groups }: { groups: Group[] }) {
       <ul className="group-list">
         {groups.map(group => <GroupLink key={group.id} group={group} />)}
         <HabitsLink />
+        <ResearchLink />
         <ToolsLink />
       </ul>
       <JobsLink />
@@ -94,6 +98,19 @@ function HabitsLink() {
       <Link href="/habits" className={`group-link accent-habits${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined}>
         <span className="swatch" aria-hidden="true" />
         <span>Habits</span>
+      </Link>
+    </li>
+  )
+}
+
+// CLAUDE> the shop research, listed with the task groups
+function ResearchLink() {
+  const [active] = useRoute('/research/*?')
+  return (
+    <li>
+      <Link href="/research" className={`group-link accent-research${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined}>
+        <span className="swatch" aria-hidden="true" />
+        <span>Research</span>
       </Link>
     </li>
   )

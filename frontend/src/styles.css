@@ -10,6 +10,7 @@
   --news: #7a5ea8;
   --tools: #a8327a;
   --habits: #0e7682;
+  --research: #4b4fc4;
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --error: #a83a34;
@@ -31,6 +32,7 @@
     --news: #b49be0;
     --tools: #e68ac2;
     --habits: #5cc6cf;
+    --research: #9a9cf0;
     --series-1: #3987e5;
     --series-2: #d95926;
     --error: #e2837c;
@@ -44,6 +46,7 @@
 .accent-news { --accent: var(--news); }
 .accent-tools { --accent: var(--tools); }
 .accent-habits { --accent: var(--habits); }
+.accent-research { --accent: var(--research); }
 
 * { box-sizing: border-box; }
 
@@ -297,7 +300,7 @@ pre.params { max-height: none; margin: 0; padding: 6px; }
   .totals { grid-template-columns: 1fr; }
   .shell { grid-template-columns: minmax(0, 1fr); }
   .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--rule); padding: 12px 16px; gap: 8px; }
-  .group-list { grid-auto-flow: column; justify-content: start; }
+  .group-list { grid-auto-flow: row; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
   .google-status { margin-top: 0; }
   .main { padding: 24px 16px 64px; }
   .command textarea { font-size: 19px; }
@@ -579,5 +582,142 @@ details.news-card[open] > summary { margin-bottom: 14px; }
 
 .manage-list li.dragging { opacity: .45; }
 .drag-handle { cursor: grab; color: var(--muted); letter-spacing: -2px; user-select: none; padding: 0 2px; }
-.move-buttons { display: inline-flex; gap: 2px; }
-.move-buttons button { padding: 4px 8px; }
+
+/* CLAUDE> Research: history on the left, the work area on the right; one column on a narrow screen */
+.state-chip { font-weight: 600; color: var(--accent); }
+.state-failed { color: var(--error); }
+.research-text, .research-field input, .research-actions input {
+  padding: 8px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); }
+.research-text { width: 100%; resize: vertical; }
+.research-field { display: grid; gap: 6px; font-size: 14px; }
+.research-field > span { color: var(--muted); font-weight: 600; }
+.research-field input[aria-invalid='true'] { border-color: var(--error); }
+.research-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.country-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.choice-chip { padding: 5px 12px; border: 1px solid var(--rule); border-radius: 999px; background: transparent; cursor: pointer; font-size: 14px; }
+.choice-chip:hover { border-color: var(--accent); }
+.choice-chip.chosen, .other-input.chosen { background: var(--accent); color: var(--surface); border-color: var(--accent); font-weight: 600; }
+.other-input { width: 140px; padding: 5px 12px; border: 1px solid var(--rule); border-radius: 999px; background: var(--paper); font-size: 14px; }
+.research-questions { margin: 0; padding-left: 22px; display: grid; gap: 16px; }
+.research-question { margin: 0 0 8px; font-weight: 600; }
+.research-unknown, .research-list { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.research-classes { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.research-class { display: grid; gap: 4px; text-align: left; padding: 12px 14px; border: 1px solid var(--rule); border-radius: 10px;
+  background: var(--paper); cursor: pointer; }
+.research-class:hover:not(:disabled) { border-color: var(--accent); }
+.research-name { margin: 0; font-size: 18px; font-weight: 600; }
+.research-best { border-color: var(--accent); }
+.research-settings[open] summary { margin-bottom: 14px; }
+.research-limits { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.research-limits input { width: 100%; }
+.research-work .habit-card p { margin: 0; }
+.research .habit-card { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) {
+  .research { grid-template-columns: minmax(0, 1fr); }
+  .research-pair, .research-limits { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* CLAUDE> Research: the requirements editor, the recommendation and the ranking table */
+.research-req-text { padding: 7px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); min-width: 0;
+  resize: none; field-sizing: content; min-height: 2.3em; line-height: 1.4; }
+.research-actions > input[type='text'] { flex: 1 1 240px; padding: 7px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); }
+.check-sign { font-weight: 700; text-align: center; }
+.check-yes .check-sign { color: var(--tasks); }
+.check-partly .check-sign, .check-unknown .check-sign { color: var(--muted); }
+.check-no .check-sign { color: var(--error); }
+.research-proscons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.research-proscons h3 { margin: 0 0 6px; font-size: 14px; color: var(--muted); }
+.research-rank td { vertical-align: top; white-space: normal; }
+.research-rank td.num { white-space: nowrap; }
+.research-rank th:nth-child(1) { width: 26%; }
+.research-rank th:nth-last-child(-n+2) { width: 19%; }
+.research-rank td:first-child { min-width: 180px; }
+.research-rank th { white-space: normal; vertical-align: bottom; }
+.rank-points li.pro::marker { content: '+ '; color: var(--tasks); font-weight: 700; }
+.rank-points li.con::marker { content: '− '; color: var(--error); font-weight: 700; }
+.rank-points { margin: 0; padding-left: 14px; display: grid; gap: 2px; font-size: 13px; }
+.research-rank td small { display: block; }
+.research-rank tr.rank-best td { background: var(--accent-wash); }
+.rank-tag { display: inline-block; margin-left: 6px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  border: 1px solid var(--accent); color: var(--accent); white-space: nowrap; }
+.rank-tag.tag-recommended { background: var(--accent); color: var(--surface); }
+details.habit-card > summary { cursor: pointer; font-weight: 600; }
+@media (max-width: 640px) {
+  .research-proscons { grid-template-columns: minmax(0, 1fr); }
+  .research-score { margin-left: 0; }
+}
+
+/* CLAUDE> Research: the editable requirements table and the box that says why a research stopped early */
+.research-note { margin: 0; padding: 12px 16px; border-left: 4px solid var(--accent); border-radius: 8px; background: var(--accent-wash); }
+.research-req-table td { vertical-align: middle; white-space: normal; }
+.research-req-table th { white-space: normal; }
+.research-req-table th:nth-child(2) { width: 60%; }
+.research-req-table td:nth-child(2) { min-width: 220px; }
+.research-breakdown td.num, .research-req-table td.num, .research-rank td.num { white-space: nowrap; }
+.research-req-table .research-req-text { width: 100%; }
+.research-req-table select { padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); }
+.research-req-table td.check-new { color: var(--muted); }
+.research-points-help { font-size: 13px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.research-breakdown td { white-space: normal; vertical-align: top; }
+.research-breakdown tfoot td, .research-req-table tfoot td { font-weight: 600; border-bottom: 0; }
+.research-rank td.num span[title] { cursor: help; }
+.research-rank th, .research-rank td { padding: 8px 6px; }
+.research-rank th:nth-child(n+3):nth-child(-n+6) { width: 1%; }
+
+/* CLAUDE> Research page layout: a top bar, an overview with a start card and research cards, a research view with its own
+   header, and settings in a panel from the right */
+.research-page { max-width: 1180px; }
+.research-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; min-height: 44px; }
+.research-top h1 { margin: 0; font-size: 32px; line-height: 1.15; font-weight: 700; letter-spacing: -0.01em; }
+.research-back { background: none; border: 0; padding: 6px 0; font-size: 15px; font-weight: 600; color: var(--accent); cursor: pointer; }
+.research-back:hover { text-decoration: underline; }
+.research-page > * + * { margin-top: 18px; }
+.research-overview h2 { font-size: 17px; margin: 28px 0 12px; }
+.research-cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.research-card { width: 100%; height: 100%; display: grid; gap: 10px; align-content: start; text-align: left; padding: 16px 18px;
+  border: 1px solid var(--rule); border-radius: 12px; background: var(--surface); cursor: pointer; font: inherit; color: inherit; }
+.research-card:hover { border-color: var(--accent); }
+.research-card-title { font-size: 16px; font-weight: 650; line-height: 1.35; }
+.research-card-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; color: var(--muted); }
+.research-card-best { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center; padding-top: 10px;
+  border-top: 1px solid var(--rule); font-size: 14px; }
+.research-card-best > span:last-child { display: grid; gap: 2px; min-width: 0; }
+.research-card-product { font-weight: 600; overflow-wrap: anywhere; }
+.research-card-score { font-size: 26px; font-weight: 750; color: var(--accent); font-variant-numeric: tabular-nums; line-height: 1; }
+.research-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px 24px; align-items: start; padding-bottom: 18px;
+  border-bottom: 1px solid var(--rule); }
+.research-head-main { display: grid; gap: 10px; min-width: 0; }
+.research-title { font: inherit; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; color: inherit; width: 100%;
+  border: 1px solid transparent; border-radius: 8px; padding: 2px 6px; margin-left: -7px; background: transparent; }
+.research-title:hover { border-color: var(--rule); }
+.research-title:focus { border-color: var(--accent); background: var(--surface); outline: none; }
+.research-facts-list { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 0; font-size: 14px; }
+.research-facts-list div { display: flex; gap: 6px; }
+.research-facts-list dt { color: var(--muted); }
+.research-facts-list dd { margin: 0; font-weight: 600; }
+.research-request summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+.research-request p { margin: 8px 0 0; max-width: 75ch; white-space: pre-wrap; font-size: 14px; }
+.research-head-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; align-items: start; }
+.research-note-status { display: grid; gap: 6px; justify-items: end; font-size: 13px; }
+.research-best-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: start; }
+.research-best-head h2 { margin-bottom: 6px; }
+.research-price { margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.research-price strong { font-size: 20px; }
+.research-score-big { display: grid; justify-items: center; min-width: 120px; padding: 12px 16px; border-radius: 14px;
+  background: var(--accent); color: var(--surface); line-height: 1; }
+.research-score-number { font-size: 52px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.research-score-of { font-size: 13px; opacity: .85; margin-top: 2px; }
+.research-score-points { font-size: 12px; opacity: .85; margin-top: 8px; }
+.research-drawer-backdrop { position: fixed; inset: 0; background: color-mix(in srgb, var(--ink) 35%, transparent); z-index: 50;
+  display: flex; justify-content: flex-end; }
+.research-drawer { width: min(440px, 100vw); height: 100%; overflow-y: auto; background: var(--surface); padding: 22px 24px;
+  display: grid; gap: 18px; align-content: start; box-shadow: -8px 0 24px color-mix(in srgb, var(--ink) 18%, transparent); }
+.research-drawer-head { display: flex; justify-content: space-between; align-items: center; }
+.research-drawer-head h2 { margin: 0; font-size: 18px; }
+@media (max-width: 760px) {
+  .research-head, .research-best-head { grid-template-columns: minmax(0, 1fr); }
+  .research-head-actions, .research-note-status { justify-content: flex-start; justify-items: start; }
+  .research-title { font-size: 22px; }
+}
+.research-field input[inputmode="decimal"] { max-width: 240px; }

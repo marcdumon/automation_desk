@@ -10,6 +10,7 @@ import re
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -23,7 +24,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from googleapiclient.errors import HttpError
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from automation_desk import google_auth, habits, jobs, ledger, llm, reminders, stop
 from automation_desk.capture import EXTENSION_DIR, Captured, CaptureError, broker
@@ -42,6 +43,9 @@ from automation_desk.groups.tasks import stats as task_stats_store
 from automation_desk.interpret import fill_args, route
 from automation_desk.llm import LLMError
 from automation_desk.plans import Plan, PlanStore
+from automation_desk.research import export as research_export
+from automation_desk.research import run as research_run
+from automation_desk.research import store as research_store
 from automation_desk.todoist import TodoistError
 from automation_desk.tools import pdf_margin
 
@@ -427,7 +431,7 @@ def _task_stats_every_morning() -> None:
 @app.post('/api/stop/{action}')
 def stop_action(action: str) -> dict:
     """Ask a running long action to stop; it ends with what it has done so far."""
-    if action not in stop.ACTIONS:
+    if not stop.stoppable(action):
         raise HTTPException(404, f'Nothing called {action!r} can be stopped.')
     stop.request(action)
     return {'stopping': action}
@@ -737,6 +741,248 @@ def news_make() -> dict:
     return {'started': True}
 
 
+def _in_background(work: Callable[..., object], *args: object) -> None:
+    """Run long work in a thread; the page polls for its progress."""
+    threading.Thread(target=work, args=args, daemon=True).start()
+
+
+class ResearchIn(BaseModel):
+    """A new research."""
+
+    request: str
+    budget: float | None = None
+    countries: list[str]
+
+
+class ResearchAnswers(BaseModel):
+    """Answers to the question form or the follow-up questions."""
+
+    answers: dict[str, str]
+    kind: str = 'product'
+
+
+class ResearchBudget(BaseModel):
+    """The budget the user picked."""
+
+    amount: float
+
+
+class ResearchLimits(BaseModel):
+    """The limits of one research: whole searches and pages, a cost in dollars; each above zero."""
+
+    searches: int = Field(gt=0)
+    pages: int = Field(gt=0)
+    cost: float = Field(gt=0)
+
+
+class ResearchSettings(BaseModel):
+    """The Research page settings; only the given ones change."""
+
+    countries: list[str] | None = None
+    municipality: str | None = None
+    limits: ResearchLimits | None = None
+    vault: str | None = None
+    subdir: str | None = None
+
+
+class ResearchTitle(BaseModel):
+    """A research's new title."""
+
+    title: str
+
+
+class ResearchRequirement(BaseModel):
+    """One requirement as the user set it."""
+
+    text: str
+    weight: Literal['must', 'important', 'nice']
+
+
+class ResearchRequirements(BaseModel):
+    """The requirements the user checked."""
+
+    requirements: list[ResearchRequirement]
+
+
+def _save_note(research_id: int) -> None:
+    """Save a finished research to the Obsidian vault set on the Research page; without a vault nothing happens. The note's
+    place, or why it could not be saved, goes with the result."""
+    row = research_store.get(research_id)
+    settings = research_store.settings()
+    if not row or row['state'] not in ('done', 'stopped') or not settings['vault']:
+        return
+    try:
+        note = research_export.save(row, settings['vault'], settings['subdir']) | {'error': ''}
+    except (research_export.ExportError, OSError) as error:
+        note = {'path': '', 'obsidian_url': '', 'error': str(error)}
+    research_store.update(research_id, result=(row['result'] or {}) | {'note': note})
+
+
+def _research_run_and_save(research_id: int) -> None:
+    """Run a research on, and save it to Obsidian once it is finished: the user's notes were never saved by the button alone."""
+    research_run.advance(research_id)
+    _save_note(research_id)
+
+
+def _research(research_id: int) -> dict:
+    """A research with its pages (without their facts) and the progress, or 404."""
+    row = research_store.get(research_id)
+    if row is None:
+        raise HTTPException(404, f'There is no research {research_id}. It was deleted.')
+    found = [{k: v for k, v in p.items() if k != 'facts'} for p in research_store.pages(research_id)]
+    return row | {'pages': found, 'progress': research_run.progress(), 'stopped_text': research_run.stop_text(row)}
+
+
+@app.get('/api/research')
+def research_list() -> dict:
+    """The history, the settings, the cost estimate and what runs."""
+    settings = research_store.settings()
+    return {'researches': research_store.listing(), 'settings': settings, 'vaults': research_export.vaults(),
+            'estimate': research_run.estimate(settings['limits']), 'progress': research_run.progress()}
+
+
+@app.post('/api/research')
+def research_start(new: ResearchIn) -> dict:
+    """A new research: the question form is made at once."""
+    if not new.request.strip():
+        raise HTTPException(400, 'Write what you need first, for example "A pump that empties the lift pit".')
+    if not new.countries:
+        raise HTTPException(400, 'Select at least one country.')
+    return _research(research_run.start(new.request, new.budget, new.countries))
+
+
+@app.get('/api/research/{research_id}')
+def research_open(research_id: int) -> dict:
+    """One research."""
+    return _research(research_id)
+
+
+@app.post('/api/research/{research_id}/answers')
+def research_answers(research_id: int, given: ResearchAnswers) -> dict:
+    """The form is answered: the research runs."""
+    _research(research_id)
+    if not research_store.transition_state(research_id, 'questions', 'running'):
+        raise HTTPException(409, 'This research is not waiting for that. Reload the page.')
+    research_run.answer(research_id, given.answers, given.kind)
+    _in_background(_research_run_and_save, research_id)
+    return _research(research_id)
+
+
+@app.post('/api/research/{research_id}/requirements')
+def research_requirements(research_id: int, given: ResearchRequirements) -> dict:
+    """The user checked the requirements: the research runs on with them."""
+    _research(research_id)
+    if not any(r.text.strip() for r in given.requirements):
+        raise HTTPException(400, 'Keep at least one requirement: the products are scored against them.')
+    if not research_store.transition_state(research_id, 'requirements', 'running'):
+        raise HTTPException(409, 'This research is not waiting for that. Reload the page.')
+    research_run.confirm_requirements(research_id, [r.model_dump() for r in given.requirements])
+    _in_background(_research_run_and_save, research_id)
+    return _research(research_id)
+
+
+@app.post('/api/research/{research_id}/requirements/cancel')
+def research_requirements_cancel(research_id: int) -> dict:
+    """Keep the earlier result of a research the user wanted to score again, unchanged."""
+    _research(research_id)
+    try:
+        research_run.cancel_requirements(research_id)
+    except research_run.WrongState as error:
+        raise HTTPException(409, str(error)) from error
+    return _research(research_id)
+
+
+@app.post('/api/research/{research_id}/rescore')
+def research_rescore(research_id: int, given: ResearchRequirements | None = None) -> dict:
+    """Score a finished research again from the pages read: with the requirements as edited in the result's table, at
+    once; without, its requirements come back for changes first. Nothing is searched again."""
+    _research(research_id)
+    if given is not None and not any(r.text.strip() for r in given.requirements):
+        raise HTTPException(400, 'Keep at least one requirement: the products are scored against them.')
+    if not research_store.pages(research_id, 'read'):
+        raise HTTPException(409, 'This research read no shop page, so there is nothing to score again. Start a new research.')
+    if not any(research_store.transition_state(research_id, state, 'running') for state in ('done', 'stopped')):
+        raise HTTPException(409, 'Only a finished research can be scored again. Reload the page.')
+    research_run.rescore(research_id, [r.model_dump() for r in given.requirements] if given else None)
+    _in_background(_research_run_and_save, research_id)
+    return _research(research_id)
+
+
+@app.patch('/api/research/{research_id}')
+def research_rename(research_id: int, given: ResearchTitle) -> dict:
+    """Give a research another title; its saved note keeps its file name."""
+    _research(research_id)
+    title = ' '.join(given.title.split())
+    if not title:
+        raise HTTPException(400, 'Write a title, for example "Lift pit sump pump".')
+    research_store.update(research_id, title=title)
+    return _research(research_id)
+
+
+@app.post('/api/research/{research_id}/export')
+def research_export_note(research_id: int) -> dict:
+    """Save the research as a note in the Obsidian vault set on the Research page."""
+    row = _research(research_id)
+    settings = research_store.settings()
+    try:
+        note = research_export.save(row, settings['vault'], settings['subdir']) | {'error': ''}
+    except research_export.ExportError as error:
+        raise HTTPException(400, str(error)) from error
+    research_store.update(research_id, result=(row['result'] or {}) | {'note': note})
+    return note
+
+
+@app.post('/api/research/{research_id}/budget')
+def research_budget(research_id: int, given: ResearchBudget) -> dict:
+    """A budget is picked: the research runs."""
+    _research(research_id)
+    if not research_store.transition_state(research_id, 'budget', 'running'):
+        raise HTTPException(409, 'This research is not waiting for that. Reload the page.')
+    research_run.set_budget(research_id, given.amount)
+    _in_background(_research_run_and_save, research_id)
+    return _research(research_id)
+
+
+@app.post('/api/research/{research_id}/reply')
+def research_reply(research_id: int, given: ResearchAnswers) -> dict:
+    """The follow-up questions are answered: the advice is written."""
+    _research(research_id)
+    if not research_store.transition_state(research_id, 'waiting', 'running'):
+        raise HTTPException(409, 'This research is not waiting for that. Reload the page.')
+    research_run.reply(research_id, given.answers)
+    _in_background(_research_run_and_save, research_id)
+    return _research(research_id)
+
+
+@app.post('/api/research/{research_id}/continue')
+def research_continue(research_id: int) -> dict:
+    """A failed research goes on from its step."""
+    _research(research_id)
+    if not research_store.transition_state(research_id, 'failed', 'running'):
+        raise HTTPException(409, 'This research is not waiting for that. Reload the page.')
+    research_run.resume(research_id)
+    _in_background(_research_run_and_save, research_id)
+    return _research(research_id)
+
+
+@app.delete('/api/research/{research_id}')
+def research_delete(research_id: int) -> dict:
+    """Remove a research at once."""
+    row = research_store.get(research_id)
+    if row and row['state'] == 'running':
+        raise HTTPException(409, 'This research runs now. Press Stop, then delete it.')
+    if research_run.progress().get('id') == research_id:
+        raise HTTPException(409, 'This research runs now. Press Stop, then delete it.')
+    return {'deleted': research_store.delete(research_id)}
+
+
+@app.post('/api/research/settings')
+def research_settings(given: ResearchSettings) -> dict:
+    """Change the default countries, the municipality or the limits."""
+    return research_store.save_settings(given.countries, given.municipality,
+                                        given.limits.model_dump() if given.limits else None, given.vault, given.subdir)
+
+
 if STATIC.exists():
     app.mount('/assets', StaticFiles(directory=STATIC / 'assets'), name='assets')
 
@@ -751,5 +997,6 @@ if STATIC.exists():
 def main() -> None:
     """Serve the app on localhost only."""
     logging.basicConfig(level=logging.INFO)
+    research_store.fail_running()
     threading.Thread(target=_task_stats_every_morning, daemon=True).start()
     uvicorn.run(app, host='127.0.0.1', port=config().port)

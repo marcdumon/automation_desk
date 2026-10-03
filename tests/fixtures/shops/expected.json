@@ -1,0 +1,58 @@
+{
+  "bricodepot_fr.html": {
+    "url": "https://www.bricodepot.fr/p/5059340250342/pompe-vide-cave-a-eaux-claires-250-w-6000-l-h",
+    "products": [
+      {
+        "name": "Pompe vide-cave à eaux claires 250 W 6000 L/h.",
+        "price": 26.9,
+        "currency": "EUR",
+        "gtin": "5059340250342"
+      }
+    ]
+  },
+  "hubo_be.html": {
+    "url": "https://www.hubo.be/nl/p/dab-nova-up-180-vlakzuigende-dompelpomp-120w-zuiver-licht-vervuild-water/527952/",
+    "products": [
+      {
+        "name": "DAB Nova Up 180 vlakzuigende dompelpomp 120W zuiver/licht vervuild water",
+        "price": 159.0,
+        "currency": "EUR",
+        "gtin": "8059893025968"
+      }
+    ]
+  },
+  "kaercher_be.html": {
+    "url": "https://www.kaercher.com/be/home-garden/pompen/dompelpompen/sp-2-flat-16455010.html",
+    "products": [
+      {
+        "name": "SP 2 Flat",
+        "price": null,
+        "currency": "",
+        "gtin": "4054278059402"
+      }
+    ]
+  },
+  "lenntech.html": {
+    "url": "https://www.lenntech.com/products/grundfos/unilift-ap/unilift-ap35b/index.htm",
+    "products": []
+  },
+  "manutan_cat.html": {
+    "url": "https://www.manutan.be/nl/mab/vatpomp?page=2",
+    "products": []
+  },
+  "toom_de.html": {
+    "url": "https://toom.de/p/klarwasser-tauchpumpe-20000-basic-550-w-20000lh/10419764",
+    "products": []
+  },
+  "gereedschapspecialist_nl.html": {
+    "url": "https://www.gereedschapspecialist.nl/dompelpomp-rvs-met-vlotter-0-55kw-230v",
+    "products": [
+      {
+        "name": "Dompelpomp RVS met vlotter 0,55kW 230V",
+        "price": 290.07,
+        "currency": "EUR",
+        "gtin": "8720028064915"
+      }
+    ]
+  }
+}

@@ -178,6 +178,86 @@ export async function deleteHabit(id: number): Promise<HabitsView> {
   const response = await reach(`/api/habits/${id}`, { method: 'DELETE' })
   return response.json() as Promise<HabitsView>
 }
+export type ResearchQuestion = { id: string; text: string; choices: string[] }
+export type ResearchOffer = {
+  shop: string; url: string; country: string; price: number | null; currency: string; delivery: number | null
+  total: number | null; ships_to_belgium: string; in_stock: boolean | null
+  ex_vat?: boolean; contact?: string; region?: string; reviews?: string
+}
+export type ResearchProduct = {
+  n: number; name: string; title?: string; brand: string; model: string; specs: Record<string, string>; offers: ResearchOffer[]
+  best_total: number | null
+}
+export type Weight = 'must' | 'important' | 'nice'
+export type Verdict = 'yes' | 'partly' | 'no' | 'unknown'
+export type ResearchRequirement = { id?: string; text: string; weight: Weight }
+// CLAUDE> one scored product; tag 'recommended', 'cheapest good choice' or 'best above your budget'
+export type RankedProduct = {
+  n: number; name: string; title: string; brand: string; model: string; url: string; shop: string; shops: number
+  total: number | null; price_seen: boolean; delivery_known?: boolean; score: number; checks: Record<string, Verdict>
+  notes?: Record<string, string>; points?: Record<string, number>; points_total?: number; points_max?: number
+  pros: string[]; cons: string[]
+  fails: string[]; unconfirmed: string[]; over_budget: boolean; tag: string; why_not: string
+  contact: string; region: string; reviews: string
+}
+export type ResearchResult = {
+  comparison?: { products: ResearchProduct[]; over_budget: ResearchProduct[]; no_price: ResearchProduct[] }
+  ranking?: RankedProduct[]; best?: RankedProduct | null; requirements?: ResearchRequirement[]
+  reasons?: string; risks?: string[]; summary?: string; stopped_by?: string; unread?: string[]
+  note?: { path: string; obsidian_url: string; error: string }
+}
+export type ResearchProgress = { id?: number; step?: string; done?: number; total?: number; cost_usd?: number }
+export type Research = {
+  id: number; request: string; title: string | null; kind: 'product' | 'service'; budget: number | null; countries: string[]
+  state: 'questions' | 'requirements' | 'budget' | 'running' | 'waiting' | 'done' | 'failed' | 'stopped'; step: string; note: string
+  requirements: ResearchRequirement[] | null
+  questions: ResearchQuestion[] | null; answers: Record<string, string> | null
+  classes: { name: string; low: number; high: number; difference: string }[] | null
+  followups: ResearchQuestion[] | null; result: ResearchResult | null; cost_usd: number; created: string
+  pages: { url: string; status: string; country: string; error: string | null }[]; progress: ResearchProgress
+  stopped_text?: string
+}
+export type ResearchSettings = {
+  countries: string[]; municipality: string; limits: { searches: number; pages: number; cost: number }; vault: string; subdir: string
+}
+export type ResearchList = {
+  researches: {
+    id: number; request: string; title: string | null; kind: string; state: string; created: string; cost_usd: number
+    best: { title: string; score: number; total: number | null } | null
+  }[]
+  settings: ResearchSettings; vaults: { name: string; path: string }[]; estimate: number; progress: ResearchProgress
+}
+export const getResearchList = () => call<ResearchList>('/api/research')
+export const getResearch = (id: number) => call<Research>(`/api/research/${id}`)
+export const startResearch = (request: string, budget: number | null, countries: string[]) =>
+  call<Research>('/api/research', { request, budget, countries })
+export const answerResearch = (id: number, answers: Record<string, string>, kind: string) =>
+  call<Research>(`/api/research/${id}/answers`, { answers, kind })
+export const setResearchBudget = (id: number, amount: number) => call<Research>(`/api/research/${id}/budget`, { amount })
+export const replyResearch = (id: number, answers: Record<string, string>) =>
+  call<Research>(`/api/research/${id}/reply`, { answers })
+export const continueResearch = (id: number) => call<Research>(`/api/research/${id}/continue`, {})
+export const confirmRequirements = (id: number, requirements: ResearchRequirement[]) =>
+  call<Research>(`/api/research/${id}/requirements`, { requirements })
+export const rescoreResearch = (id: number, requirements: ResearchRequirement[]) =>
+  call<Research>(`/api/research/${id}/rescore`, { requirements })
+export const cancelRequirements = (id: number) => call<Research>(`/api/research/${id}/requirements/cancel`, {})
+export const exportResearch = (id: number) => call<{ path: string; obsidian_url: string }>(`/api/research/${id}/export`, {})
+export async function renameResearch(id: number, title: string): Promise<Research> {
+  const response = await reach(`/api/research/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                                                     body: JSON.stringify({ title }) })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throw new ApiError(typeof data.detail === 'string' ? data.detail : `Request failed (${response.status})`, false)
+  return data as Research
+}
+export const saveResearchSettings = (settings: Partial<ResearchSettings>) =>
+  call<ResearchSettings>('/api/research/settings', settings)
+export async function deleteResearch(id: number): Promise<{ deleted: boolean }> {
+  const response = await reach(`/api/research/${id}`, { method: 'DELETE' })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throw new ApiError(typeof data.detail === 'string' ? data.detail : `Request failed (${response.status})`, false)
+  return data
+}
 export const stopAction = (action: string) => call<{ stopping: string }>(`/api/stop/${action}`, {})
 export const watchFromEvents = () => call<WatchState & { added: number; unmatched: number }>('/api/calendar/watch/from-events', {})
 export const checkWatch = (viaBrowser: boolean, only: number[] | null = null) =>
