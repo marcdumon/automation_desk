@@ -5,6 +5,7 @@ Downloaded when the shop allows it, else read through the user's browser in a ba
 
 import json
 from dataclasses import dataclass, field
+from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup
@@ -28,6 +29,8 @@ class Read:
     text: str
     products: list[dict] = field(default_factory=list)
     via: str = 'download'
+    # CLAUDE> the links of the page by the number marked in the text ([L12]), so a product's own page can be named
+    links: dict[int, str] = field(default_factory=dict)
 
 
 def page_text(soup: BeautifulSoup, limit: int = 6000) -> str:
@@ -78,7 +81,14 @@ def _products(node: object) -> list[dict]:
     return [found for value in node.values() for found in _products(value)]
 
 
-def jsonld_products(soup: BeautifulSoup) -> list[dict]:
+def _own_url(node: dict, base: str) -> str | None:
+    """A product's own page as its data gives it (its url, else its offer's url), made absolute; None when none."""
+    offer = node.get('offers') if isinstance(node.get('offers'), dict) else {}
+    found = node.get('url') or offer.get('url')
+    return urljoin(base, found) if isinstance(found, str) and found.strip() else None
+
+
+def jsonld_products(soup: BeautifulSoup, base: str = '') -> list[dict]:
     """The schema.org Products on a page, with brand, GTIN, price, currency, stock and VAT where the shop gives them."""
     products = []
     for script in soup.find_all('script', type='application/ld+json'):
@@ -93,8 +103,31 @@ def jsonld_products(soup: BeautifulSoup) -> list[dict]:
                              'brand': (brand.get('name', '') if isinstance(brand, dict) else str(brand or '')).strip(),
                              'gtin': str(next((node[k] for k in ('gtin13', 'gtin', 'gtin14', 'gtin12', 'gtin8') if node.get(k)),
                                               '')),
-                             'price': price, 'currency': currency, 'in_stock': in_stock, 'vat_included': vat})
+                             'price': price, 'currency': currency, 'in_stock': in_stock, 'vat_included': vat,
+                             'url': _own_url(node, base)})
     return products
+
+
+MAX_LINKS = 400
+
+
+def marked_text(soup: BeautifulSoup, base: str, limit: int = 6000) -> tuple[str, dict[int, str]]:
+    """The visible words of a page, each link followed by its number ("Einhell GC-DP 7835 [L1]"), one number per address,
+    and the addresses by number. A list page then lets the model name each product's own page by its number."""
+    for tag in soup(NOISE):
+        tag.decompose()
+    numbers: dict[str, int] = {}
+    for anchor in soup.find_all('a', href=True):
+        address = urljoin(base, anchor['href']).split('#')[0]
+        # CLAUDE> a link to the page itself ('#top') names no product
+        if not address.startswith(('http://', 'https://')) or address == base.split('#')[0] or not anchor.get_text(strip=True):
+            continue
+        if address not in numbers:
+            if len(numbers) >= MAX_LINKS:
+                continue
+            numbers[address] = len(numbers) + 1
+        anchor.append(f' [L{numbers[address]}]')
+    return ' '.join(soup.get_text(' ', strip=True).split()[:limit]), {n: a for a, n in numbers.items()}
 
 
 def read(url: str, http: httpx.Client) -> Read:
@@ -110,5 +143,6 @@ def read(url: str, http: httpx.Client) -> Read:
         # CLAUDE> a PDF or an empty page has no shop text: no model call is paid for it
         raise Unreadable(f'{url}: a PDF or an empty page, not a shop page')
     soup = BeautifulSoup(page.html, 'lxml')
-    products = jsonld_products(soup)
-    return Read(url=page.url, text=page_text(soup), products=products, via=page.via)
+    products = jsonld_products(soup, page.url)
+    text, links = marked_text(soup, page.url)
+    return Read(url=page.url, text=text, products=products, via=page.via, links=links)

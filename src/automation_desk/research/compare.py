@@ -95,7 +95,8 @@ def table(pages: list[dict], budget: float | None, countries: list[str] | None =
             row['specs'] |= {k: v for k, v in product.get('specs', {}).items() if k not in row['specs']}
             price, delivery = product.get('price'), facts.get('delivery_cost')
             total = None if price is None else round(price + (delivery or 0), 2)
-            row['offers'].append({'shop': urlsplit(page['url']).netloc.removeprefix('www.'), 'url': page['url'],
+            # CLAUDE> the product's own page when the shop page names it (a list page lists many); else the page read
+            row['offers'].append({'shop': urlsplit(page['url']).netloc.removeprefix('www.'), 'url': product.get('url') or page['url'],
                                   'country': page.get('country', ''), 'price': price, 'currency': product.get('currency', ''),
                                   'delivery': delivery, 'total': total, 'ships_to_belgium': facts.get('ships_to_belgium'),
                                   'in_stock': product.get('in_stock'), 'ex_vat': product.get('vat_included') is False,
