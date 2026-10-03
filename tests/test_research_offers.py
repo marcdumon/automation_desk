@@ -119,3 +119,15 @@ def test_one_product_named_twice_on_a_page_is_one(monkeypatch) -> None:
          'gtin': '4078500053310', 'price': 142.79, 'currency': 'EUR', 'in_stock': None, 'vat_included': None}])
     products = offers.extract(read, 'pump', 'product', 'NL')['products']
     assert [(p['price'], p['gtin'], p['model']) for p in products] == [(142.79, '4078500053310', '970486101'), (179.95, '', '')]
+
+
+def test_each_product_gets_its_own_link_from_its_number(monkeypatch) -> None:
+    """The model names the link number; code turns it into the address. A number not on the page gives no link."""
+    read = pages.Read(url='https://amazon.com.be/b?node=1', text='Einhell GC-DP 7835 [L1] € 53,77 VONROC [L2] € 49,95',
+                      products=[], links={1: 'https://amazon.com.be/dp/B01', 2: 'https://amazon.com.be/dp/B02'})
+    monkeypatch.setattr(offers, 'ask', lambda *a, **k: offers.Facts(products=[
+        offers.FoundProduct(name='Einhell GC-DP 7835', brand='Einhell', model='GC-DP 7835', price=53.77, specs=[], contact='', link=1),
+        offers.FoundProduct(name='VONROC', brand='', model='', price=49.95, specs=[], contact='', link=9)],
+        ships_to_belgium='yes', delivery_cost=None))
+    found = offers.extract(read, 'pump', 'product', 'BE')['products']
+    assert [p.get('url') for p in found] == ['https://amazon.com.be/dp/B01', None]

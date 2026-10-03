@@ -18,7 +18,8 @@ def test_text_and_products_from_a_downloaded_page(monkeypatch) -> None:
     read = pages.read('https://shop.be/nova', httpx.Client())
     assert read.text == 'DAB Nova 300 Opvoerhoogte 7 m'
     assert read.products == [{'name': 'DAB Nova 300', 'brand': 'DAB', 'gtin': '8051006000000', 'price': 129.95,
-                              'currency': 'EUR', 'in_stock': True, 'vat_included': None}]
+                              'currency': 'EUR', 'in_stock': True, 'vat_included': None,
+                              'url': None}]
 
 
 def test_a_refused_page_goes_through_the_browser_in_a_background_tab(monkeypatch) -> None:
@@ -82,3 +83,23 @@ def test_a_price_of_zero_is_no_price() -> None:
     soup = BeautifulSoup('<script type="application/ld+json">{"@type": "Product", "name": "TROTEC TWP 4006 E", "offers": '
                          '{"@type": "AggregateOffer", "lowPrice": 0, "highPrice": 0, "priceCurrency": "EUR"}}</script>', 'lxml')
     assert pages.jsonld_products(soup)[0]['price'] is None
+
+
+LIST_PAGE = '''<html><body><nav><a href="/account">Account</a></nav>
+<h1>Dompelpompen</h1>
+<div><a href="/p/einhell-gc-dp-7835">Einhell GC-DP 7835</a> € 53,77</div>
+<div><a href="https://shop.be/p/vonroc">VONROC Dompelpomp</a> € 49,95</div>
+<div><a href="/p/einhell-gc-dp-7835">Bekijk</a> <a href="#top">Top</a> <a href="mailto:x@y.be">Mail</a></div>
+<script type="application/ld+json">{"@type": "Product", "name": "Gardena 9000", "url": "/p/gardena-9000",
+ "offers": {"@type": "Offer", "price": "73.59", "priceCurrency": "EUR"}}</script></body></html>'''
+
+
+def test_a_list_page_marks_each_product_link_with_a_number(monkeypatch) -> None:
+    """Research 3 recommended a pump from an Amazon list page and linked the list: each link is now numbered in the text,
+    once per address, so the model can name a product's own link by its number."""
+    monkeypatch.setattr(web_page, 'fetch', lambda url, http, use_browser=False: web_page.Page(url=url, html=LIST_PAGE))
+    read = pages.read('https://shop.be/c/dompelpompen', httpx.Client())
+    assert 'Einhell GC-DP 7835 [L1] € 53,77' in read.text and 'VONROC Dompelpomp [L2]' in read.text
+    assert 'Bekijk [L1]' in read.text and 'Account' not in read.text and '[L3]' not in read.text
+    assert read.links == {1: 'https://shop.be/p/einhell-gc-dp-7835', 2: 'https://shop.be/p/vonroc'}
+    assert read.products[0]['url'] == 'https://shop.be/p/gardena-9000', 'the product data gives its own link'

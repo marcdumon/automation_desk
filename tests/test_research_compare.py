@@ -109,3 +109,10 @@ def test_shops_from_countries_not_chosen_are_left_out() -> None:
              page('https://shop.com/p', '', [{'name': 'Global pomp', 'price': 160.0}])]
     result = compare.table(pages, budget=500, countries=['BE', 'NL'])
     assert [p['name'] for p in result['products']] == ['Pomp', 'Global pomp']
+
+
+def test_an_offer_links_to_the_product_itself_when_known() -> None:
+    result = compare.table([page('https://amazon.com.be/b?node=1', 'BE', [
+        {'name': 'Einhell', 'price': 53.77, 'url': 'https://amazon.com.be/dp/B01'}, {'name': 'Vonroc', 'price': 49.95}])], budget=None)
+    assert {p['name']: p['offers'][0]['url'] for p in result['products']} == {
+        'Einhell': 'https://amazon.com.be/dp/B01', 'Vonroc': 'https://amazon.com.be/b?node=1'}
