@@ -180,12 +180,6 @@ function Manage({ data, onChange }: { data: HabitsView; onChange: (data: HabitsV
               onDragOver={e => { if (dragging !== null) e.preventDefault() }}
               onDrop={e => { e.preventDefault(); if (dragging !== null) moveTo(dragging, i); setDragging(null) }}>
             <span className="drag-handle" aria-hidden="true" title="Drag to reorder">⋮⋮</span>
-            <span className="move-buttons">
-              <button type="button" className="quiet" aria-label={`Move ${h.name} up`} disabled={i === 0 || order.isPending}
-                      onClick={() => moveTo(h.id, i - 1)}>↑</button>
-              <button type="button" className="quiet" aria-label={`Move ${h.name} down`}
-                      disabled={i === data.habits.length - 1 || order.isPending} onClick={() => moveTo(h.id, i + 1)}>↓</button>
-            </span>
             <input defaultValue={h.name} aria-label="Habit name"
                    onBlur={e => e.target.value.trim() && e.target.value !== h.name && change.mutate({ id: h.id, fields: { name: e.target.value } })} />
             <RhythmPicker value={h.schedule} onChange={s => change.mutate({ id: h.id, fields: { schedule: s } })} />
