@@ -263,6 +263,8 @@ export default function GroupPage({ group, log, onLog }: Props) {
               onConfirm={() => run.mutate()}
               onAddSection={name => addSection.mutate(name)}
               addingSection={addSection.isPending ? addSection.variables ?? null : null}
+              sectionError={addSection.isError && addSection.variables
+                ? { name: addSection.variables, message: addSection.error.message } : null}
               onCancel={() => setResult(null)}
               busy={run.isPending}
               cost={result.job && <JobCost job={result.job} onOpen={setOpenJob} />}
