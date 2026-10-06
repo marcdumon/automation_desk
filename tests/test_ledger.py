@@ -87,3 +87,15 @@ def test_web_search_fees_are_a_line_of_their_own_next_to_the_models() -> None:
     assert by_model['Exa web search (via OpenRouter)']['calls'] == 1
     assert round(by_model['openai/gpt-6-luna']['cost_usd'], 6) == round(0.000421675 + 0.0003, 6)
     assert round(ledger.totals()['total_cost_usd'], 6) == round(0.007421675 + 0.0003, 6), 'the total stays the same'
+
+
+def test_a_job_with_nothing_to_tick_cannot_be_applied() -> None:
+    """News digests and research showed 'Applied: no' while they have nothing to apply."""
+    tickable = jobs.Job(group='calendar', sentence='add events')
+    tickable.preview = {'summary': '2 new', 'rows': [{'id': 'a', 'selectable': True}, {'id': 'b', 'selectable': False}]}
+    answer = jobs.Job(group='news', sentence='digest')
+    answer.preview = {'summary': 'Digest made', 'rows': []}
+    for job in (tickable, answer):
+        jobs.save(job)
+    assert {s['sentence']: s['appliable'] for s in ledger.summaries()} == {'add events': True, 'digest': False}
+    assert tickable.summary()['appliable'] is True and jobs.Job(group='research', sentence='r').summary()['appliable'] is False

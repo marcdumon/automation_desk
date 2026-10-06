@@ -80,6 +80,8 @@ class FindMail(StandardTask):
                    "English): 'wanneer…', 'when…', 'where is…', 'which mail…', or a request to find, search or look "
                    'up mail. A label named in a question is where to look. The best matching mails are read to answer '
                    'it, with quotes; nothing in the mailbox changes.')
+    summary = ('Answers a question about your mail, in any language, from the mails that match it best, with quotes. Nothing '
+               'in your mailbox changes.')
     example = 'wanneer is het resultaat van de bloedtest beschikbaar'
     Args = FindMailArgs
 

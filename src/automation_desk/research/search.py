@@ -11,7 +11,7 @@ from automation_desk import llm
 SKIPPED_SITES = ('youtube.com', 'facebook.com', 'instagram.com', 'pinterest.', 'tiktok.com', 'reddit.com', 'x.com',
                  'twitter.com', 'wikipedia.org', 'linkedin.com')
 COUNTRY_ENDINGS = {'.be': 'BE', '.nl': 'NL', '.de': 'DE', '.fr': 'FR', '.lu': 'LU', '.at': 'AT', '.it': 'IT', '.es': 'ES',
-                   '.co.uk': 'UK', '.uk': 'UK', '.pl': 'PL'}
+                   '.co.uk': 'UK', '.uk': 'UK', '.pl': 'PL', '.us': 'US'}
 
 
 @dataclass(frozen=True)
@@ -38,18 +38,22 @@ def country_of(url: str) -> str:
     return next((country for ending, country in COUNTRY_ENDINGS.items() if host.endswith(ending)), '')
 
 
+def skipped(url: str, sites: tuple[str, ...] = SKIPPED_SITES) -> bool:
+    """Whether a page is on one of the sites skipped (the site or a subdomain of it; any Pinterest domain)."""
+    host = urlsplit(url).hostname or ''
+    return any(
+        (site == 'pinterest.' and any('pinterest' in label for label in host.split('.')))
+        or (site != 'pinterest.' and (host == site or host.endswith('.' + site)))
+        for site in sites
+    )
+
+
 def run(query: str, http: httpx.Client | None = None) -> list[Hit]:
     """One search: the pages found, each once, without skipped sites."""
     hits, seen = [], set()
     for found in llm.search_web(query, http=http):
         url = normal_url(found['url'])
-        host = urlsplit(url).hostname or ''
-        skipped = any(
-            (site == 'pinterest.' and any('pinterest' in label for label in host.split('.')))
-            or (site != 'pinterest.' and (host == site or host.endswith('.' + site)))
-            for site in SKIPPED_SITES
-        )
-        if url in seen or skipped:
+        if url in seen or skipped(url):
             continue
         seen.add(url)
         hits.append(Hit(url=url, title=found['title'], snippet=found['content'][:500], country=country_of(url)))

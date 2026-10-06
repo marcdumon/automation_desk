@@ -47,3 +47,7 @@ def test_malformed_citations_are_skipped(monkeypatch) -> None:
                                                      {'type': 'url_citation', 'url_citation': 'x'}]
     monkeypatch.setattr(llm, '_post', lambda body, http: good)
     assert [h['url'] for h in llm.search_web('pomp')] == ['https://a.be/p']
+
+
+def test_a_us_address_is_from_the_usa() -> None:
+    assert search.country_of('https://shop.us/pump') == 'US'

@@ -145,3 +145,32 @@ def test_the_question_form_brings_a_short_title(monkeypatch) -> None:
     monkeypatch.setattr(questions, 'ask', lambda *a, **k: questions.Form(kind='product', unknowns=[], questions=[],
                                                                           title='  Lift pit   sump pump. '))
     assert questions.make('i live in a 8 story apartment building…', None, ['BE']).title == 'Lift pit sump pump'
+
+
+def test_a_converted_price_is_told_as_such(monkeypatch) -> None:
+    """A US shop's price in euros is the dollar price at the day's rate plus import VAT: the advice says so."""
+    seen = {}
+    said = advice.Advice(summary='Costs $125.00 there.', risks=[], reasons='')
+    monkeypatch.setattr(advice, 'ask', lambda system, user, *a, **k: (seen.setdefault('user', user), said)[1])
+    us = entry('US pump', 121.0, 'recommended') | {'original': {'price': 100.0, 'total': 125.0, 'currency': 'USD', 'rate': 1.25,
+                                                                'date': '2026-10-02'}}
+    result = advice.write('pump', {}, REQS, [us], stopped_by='')
+    assert 'about € 121.00: USD 125.00 at the ECB rate of 2026-10-02 plus 21% Belgian import VAT' in seen['user']
+    assert 'customs duties and fees not included' in seen['user']
+    assert result['summary'] == 'Costs $125.00 there.', 'the original amount is a known amount'
+
+
+def test_a_free_product_is_told_as_free(monkeypatch) -> None:
+    seen = {}
+    said = advice.Advice(summary='Freeplane fits.', risks=[], reasons='')
+    monkeypatch.setattr(advice, 'ask', lambda system, user, *a, **k: (seen.setdefault('user', user), said)[1])
+    advice.write('mindmap program', {}, REQS, [entry('Freeplane', 0.0, 'recommended')], stopped_by='', budget=0.0)
+    assert 'Price: free' in seen['user'] and '€ 0.00' not in seen['user']
+
+
+def test_the_search_plan_asks_for_the_fewest_searches_that_cover_the_need(monkeypatch) -> None:
+    """Plans filled the limit (16 to 24 searches): searches are a third of all spend."""
+    seen = {}
+    monkeypatch.setattr(plan, 'ask', lambda system, user, *a, **k: (seen.setdefault('system', system), plan.Plan(queries=[]))[1])
+    plan.make('pump', 'product', {}, 200, ['BE', 'NL'], '', max_searches=50)
+    assert 'fewest searches' in seen['system'] and 'about 3 per country' in seen['system'] and 'never more than 50' in seen['system']

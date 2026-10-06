@@ -33,7 +33,7 @@ def _address(site: str) -> str:
     return site if site.startswith('http') else f'https://{site}'
 
 
-def _label(site: str) -> str:
+def site_label(site: str) -> str:
     """A site as people write it: kmska.be/nl/agenda."""
     return site.removeprefix('https://').removeprefix('http://').removeprefix('www.').rstrip('/')
 
@@ -57,13 +57,13 @@ def save_list(lines: list[str]) -> None:
     for line in lines:
         site, calendar = _parse(line)
         if site:
-            wanted.setdefault(_label(site), (site, calendar))
+            wanted.setdefault(site_label(site), (site, calendar))
     with connect(write=True) as db:
         for row in db.execute('SELECT id, site FROM watched_sites').fetchall():
-            if _label(row['site']) not in wanted:
+            if site_label(row['site']) not in wanted:
                 db.execute('DELETE FROM watched_sites WHERE id = ?', (row['id'],))
                 db.execute('DELETE FROM watched_browser WHERE site_id = ?', (row['id'],))
-        known = {_label(r['site']): r['site'] for r in db.execute('SELECT site FROM watched_sites')}
+        known = {site_label(r['site']): r['site'] for r in db.execute('SELECT site FROM watched_sites')}
         for label, (site, calendar) in wanted.items():
             db.execute('INSERT INTO watched_sites (site, calendar) VALUES (?, ?) '
                        'ON CONFLICT (site) DO UPDATE SET calendar = excluded.calendar', (known.get(label, site), calendar))
@@ -71,14 +71,14 @@ def save_list(lines: list[str]) -> None:
 
 def add_sites(found: list[tuple[str, str]]) -> int:
     """Add (site, calendar) pairs after the existing lines, skipping sites already watched; returns how many were added."""
-    existing = {_label(s.site) for s in sites()}
+    existing = {site_label(s.site) for s in sites()}
     default = default_calendar().casefold()
     added = 0
     with connect(write=True) as db:
         for site, calendar in found:
-            if _label(site) in existing:
+            if site_label(site) in existing:
                 continue
-            existing.add(_label(site))
+            existing.add(site_label(site))
             own = '' if calendar.casefold() == default else calendar
             db.execute('INSERT INTO watched_sites (site, calendar) VALUES (?, ?)', (site, own))
             added += 1
@@ -87,7 +87,7 @@ def add_sites(found: list[tuple[str, str]]) -> int:
 
 def as_lines() -> list[str]:
     """The list as the user edits it."""
-    return [f'{_label(s.site)} → {s.calendar}' if s.calendar else _label(s.site) for s in sites()]
+    return [f'{site_label(s.site)} → {s.calendar}' if s.calendar else site_label(s.site) for s in sites()]
 
 
 def default_calendar() -> str:

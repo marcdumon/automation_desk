@@ -116,3 +116,26 @@ def test_an_offer_links_to_the_product_itself_when_known() -> None:
         {'name': 'Einhell', 'price': 53.77, 'url': 'https://amazon.com.be/dp/B01'}, {'name': 'Vonroc', 'price': 49.95}])], budget=None)
     assert {p['name']: p['offers'][0]['url'] for p in result['products']} == {
         'Einhell': 'https://amazon.com.be/dp/B01', 'Vonroc': 'https://amazon.com.be/b?node=1'}
+
+
+def test_dollar_and_pound_prices_compete_in_euros_with_import_vat() -> None:
+    """A US research gave only 'no price': only euro totals competed. Converted, they compete; the original stays shown."""
+    day = {'date': '2026-10-02', 'USD': 1.25, 'GBP': 0.8}
+    pages = [page('https://a.com/1', '', [{'name': 'US pump', 'price': 100.0, 'currency': 'USD'}], delivery=25.0),
+             page('https://b.co.uk/1', 'UK', [{'name': 'UK pump', 'price': 80.0, 'currency': 'GBP'}]),
+             page('https://c.be/1', 'BE', [{'name': 'BE pump', 'price': 130.0}])]
+    result = compare.table(pages, budget=150, rates=day)
+    totals = {p['name']: p['best_total'] for p in result['products']}
+    assert totals == {'US pump': 121.0, 'UK pump': 121.0, 'BE pump': 130.0}, '(100 + 25 delivery) / 1.25 * 1.21'
+    us = next(p for p in result['products'] if p['name'] == 'US pump')['offers'][0]
+    assert us['original'] == {'price': 100.0, 'total': 125.0, 'currency': 'USD', 'rate': 1.25, 'date': '2026-10-02'}
+    unconverted = compare.table(pages, budget=150)
+    assert [p['name'] for p in unconverted['no_price']] == ['US pump', 'UK pump'], 'without rates, as before'
+
+
+def test_free_products_compete_inside_a_budget_of_nothing() -> None:
+    result = compare.table([page('https://f.org', '', [{'name': 'Freeplane', 'price': 0.0, 'free': True},
+                                                       {'name': 'XMind Pro', 'price': 59.0},
+                                                       {'name': 'Odd zero', 'price': 0.0}])], budget=0)
+    assert [(p['name'], p['best_total']) for p in result['products']] == [('Freeplane', 0.0)]
+    assert [p['name'] for p in result['over_budget']] == ['XMind Pro'] and [p['name'] for p in result['no_price']] == ['Odd zero']

@@ -30,6 +30,8 @@ class LabelMail(StandardTask):
     description = ('Only when the user asks to CHANGE mails: add or remove labels, archive, or mark read or unread. '
                    "Removing the label 'inbox' archives. A label that does not exist yet is created. Not for questions "
                    'or searches.')
+    summary = ('Adds or removes labels, archives, or marks mail read or unread, for the mails you describe. A label that does '
+               'not exist yet is made.')
     example = 'label all mail from the accountant as Taxes and mark it read'
     Args = LabelMailArgs
     guidance = ("The mails to change are chosen by from_contains, subject_contains, words, label_name, state, age; what "

@@ -362,3 +362,51 @@ def test_a_check_can_be_stopped_and_shows_what_was_read(make_ctx, sites: dict, m
     preview, _payload = CheckWatchedSites().check(make_ctx(sites['google'], 'x'))
     assert [(g.name, g.note) for g in preview.groups] == [('a.be/agenda', '1 new'),
                                                           ('b.be/agenda', 'not checked: you stopped the check')]
+
+
+def test_an_event_typed_in_hides_only_its_own_page_not_the_pages_it_mentions(make_ctx, sites: dict,
+                                                                             monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bozar: the user's own 'Expo William Kentridge' holds Bozar's ticket text, which links four other exhibitions. Each
+    of those counted as typed in, so Jean Brusselmans and three more never showed up."""
+    mine = {'id': 'mine', 'summary': 'Expo Eigen', 'start': {'date': '2026-09-19'}, 'end': {'date': '2026-09-20'},
+            'description': '<a href="https://a.be/agenda/eigen">https://a.be/agenda/eigen</a><br>'
+                           'Een ticket voor <a href="https://a.be/agenda/nieuw">Nieuw</a> en meer.'}
+    calls = sites['google'].handlers
+    earlier = calls['events.list']
+    calls['events.list'] = lambda **kw: {'items': earlier(**kw)['items'] + [mine]}
+    pages = {**PAGES, A: [ev('Nieuw', date(2026, 10, 3), 'https://a.be/agenda/nieuw'), *PAGES[A][1:]]}
+    monkeypatch.setattr(module, 'read_events', lambda url, *a: (pages[url], [], ''))
+    preview, _payload = CheckWatchedSites().check(make_ctx(sites['google'], 'x'))
+    assert 'Nieuw' in [r.cells['Title'] for r in preview.rows], 'a page the event only mentions is still new'
+    own = {**PAGES, A: [ev('Eigen', date(2026, 10, 5), 'https://a.be/agenda/eigen'), *PAGES[A][1:]]}
+    monkeypatch.setattr(module, 'read_events', lambda url, *a: (own[url], [], ''))
+    preview, _payload = CheckWatchedSites().check(make_ctx(sites['google'], 'x'))
+    assert 'Eigen' not in [r.cells['Title'] for r in preview.rows], 'its own page, the first link of that site, stays hidden'
+
+
+def test_a_second_check_while_one_runs_is_refused_plainly(make_ctx, sites: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two checks at once shared one progress record: the first one's end cleared it and the second failed with 'sites'."""
+    import threading
+
+    from automation_desk.groups.base import UserError
+
+    reading, release = threading.Event(), threading.Event()
+
+    def slow(url: str, *a: object) -> tuple:
+        """The first site takes its time."""
+        reading.set()
+        release.wait(5)
+        return PAGES[url], [], ''
+
+    monkeypatch.setattr(module, 'read_events', slow)
+    first: dict = {}
+    runner = threading.Thread(target=lambda: first.update(preview=CheckWatchedSites().check(make_ctx(sites['google'], 'x'))[0]))
+    runner.start()
+    assert reading.wait(5)
+    with pytest.raises(UserError, match='runs already'):
+        CheckWatchedSites().check(make_ctx(sites['google'], 'x'))
+    release.set()
+    runner.join(5)
+    assert first['preview'].rows, 'the first check ends as normal'
+    monkeypatch.setattr(module, 'read_events', lambda url, *a: (PAGES[url], [], ''))
+    assert CheckWatchedSites().check(make_ctx(sites['google'], 'x'))[0].rows, 'after it, a new check runs'
