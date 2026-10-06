@@ -910,3 +910,5 @@ details.habit-card > summary { cursor: pointer; font-weight: 600; }
 .health-name { font-weight: 600; white-space: nowrap; }
 .health-dose { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .health-effects { width: 42%; font-size: 13px; line-height: 1.45; }
+/* CLAUDE> why adding one watched site's events failed, under that site's name and button */
+.group-error { margin: 6px 0 0; max-width: 70ch; white-space: normal; }

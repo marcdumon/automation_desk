@@ -13,6 +13,9 @@ from typing import Any
 from automation_desk.jobs import Job
 
 TTL_SECONDS = 15 * 60
+# CLAUDE> a check of the watched sites can list 100 new events: ticking them took longer than 15 minutes (De Singel,
+# 2026-10-07). Its add step looks in the calendar again and skips what is there, so an older list adds no duplicates.
+CHECK_TTL_SECONDS = 24 * 3600
 
 
 @dataclass
@@ -25,6 +28,7 @@ class Plan:
     row_ids: set[str]
     job: Job
     created: float = field(default_factory=time.monotonic)
+    lifetime_s: float = TTL_SECONDS
 
 
 class PlanStore:
@@ -55,7 +59,7 @@ class PlanStore:
             return self._plans.pop(plan_id, None)
 
     def _expire(self) -> None:
-        """Drop plans older than the TTL."""
-        cutoff = time.monotonic() - TTL_SECONDS
-        for plan_id in [k for k, p in self._plans.items() if p.created < cutoff]:
+        """Drop plans older than their lifetime."""
+        now = time.monotonic()
+        for plan_id in [k for k, p in self._plans.items() if p.created < now - p.lifetime_s]:
             del self._plans[plan_id]

@@ -11,6 +11,8 @@ type Props = {
   onSetMany: (ids: string[], on: boolean) => void
   onAddSection: (name: string) => void
   addingSection: string | null
+  // CLAUDE> why adding one site's events failed, shown at that site: the page-wide message sat 100 rows away from the button
+  sectionError: { name: string; message: string } | null
   onConfirm: () => void
   onCancel: () => void
   busy: boolean
@@ -20,7 +22,8 @@ type Props = {
 }
 
 // CLAUDE> the frozen plan as a table of changes; nothing reaches Google until "Apply" is pressed
-export default function ChangeSheet({ taskName, preview, selected, onToggle, onToggleAll, onSetMany, onAddSection, addingSection, onConfirm, onCancel, busy, cost, onAdjust, adjusting }: Props) {
+export default function ChangeSheet({ taskName, preview, selected, onToggle, onToggleAll, onSetMany, onAddSection, addingSection,
+  sectionError, onConfirm, onCancel, busy, cost, onAdjust, adjusting }: Props) {
   const selectable = preview.rows.filter(r => r.selectable)
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(preview.options.map(o => [o.name, o.value])))
   const [cellValues, setCellValues] = useState<Record<string, string>>({})
@@ -115,7 +118,8 @@ export default function ChangeSheet({ taskName, preview, selected, onToggle, onT
               <tbody key={g.name} className="group">
                 <GroupHead group={g} rows={preview.rows.filter(r => r.group === g.name)} span={preview.columns.length}
                            tick={!preview.read_only} selected={selected} onSetMany={onSetMany}
-                           onAdd={() => onAddSection(g.name)} adding={addingSection === g.name} busy={busy || addingSection !== null} />
+                           onAdd={() => onAddSection(g.name)} adding={addingSection === g.name} busy={busy || addingSection !== null}
+                           error={sectionError?.name === g.name ? sectionError.message : ''} />
                 {preview.rows.filter(r => r.group === g.name).map(renderRow)}
               </tbody>
             ))
@@ -174,9 +178,9 @@ function Options({ preview, values, setValues, changed, onUpdate, adjusting }: {
 }
 
 // CLAUDE> the head of one source's section: its name, the calendar its events go to, what it gave, and a tick for all its rows
-function GroupHead({ group, rows, span, tick, selected, onSetMany, onAdd, adding, busy }: {
+function GroupHead({ group, rows, span, tick, selected, onSetMany, onAdd, adding, busy, error }: {
   group: PreviewGroup; rows: Row[]; span: number; tick: boolean; selected: Set<string>; onSetMany: (ids: string[], on: boolean) => void
-  onAdd: () => void; adding: boolean; busy: boolean
+  onAdd: () => void; adding: boolean; busy: boolean; error: string
 }) {
   const ids = rows.filter(r => r.selectable).map(r => r.id)
   const allOn = ids.length > 0 && ids.every(id => selected.has(id))
@@ -204,6 +208,7 @@ function GroupHead({ group, rows, span, tick, selected, onSetMany, onAdd, adding
             </button>
           )}
         </div>
+        {error && <p className="cap-error group-error" role="alert">{error}</p>}
       </td>
     </tr>
   )

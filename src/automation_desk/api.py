@@ -47,7 +47,7 @@ from automation_desk.groups.news.sites import save_site_list
 from automation_desk.groups.tasks import stats as task_stats_store
 from automation_desk.interpret import fill_args, route
 from automation_desk.llm import LLMError
-from automation_desk.plans import Plan, PlanStore
+from automation_desk.plans import CHECK_TTL_SECONDS, Plan, PlanStore
 from automation_desk.research import export as research_export
 from automation_desk.research import note_text as research_note_text
 from automation_desk.research import run as research_run
@@ -478,7 +478,7 @@ def watch_check(request: WatchCheck) -> InterpretResponse:
     with jobs.run(job):
         preview, payload = task.check(context(job.sentence), request.via_browser, set(request.only) if request.only else None)
         plan_id = plans.put(Plan(group_id=group.id, task_id=task.id, payload=payload, job=job,
-                                 row_ids={row.id for row in preview.rows if row.selectable}))
+                                 row_ids={row.id for row in preview.rows if row.selectable}, lifetime_s=CHECK_TTL_SECONDS))
         job.message, job.preview = preview.summary, preview.model_dump()
     response = InterpretResponse(status='preview', task_id=task.id, task_name=task.name, plan_id=plan_id, arguments={},
                                  preview=preview)
@@ -522,6 +522,11 @@ def execute(group_id: str, request: ExecuteRequest) -> dict:
     """Apply a frozen plan to the ticked rows, as the 'apply' step of the job that previewed it. Runs at most once."""
     group = group_or_404(group_id)
     plan = plans.get(request.plan_id) if request.section else plans.take(request.plan_id)
+    if plan is None and request.section:
+        # CLAUDE> only a check of the watched sites has sections: the page shows this next to the site's add button
+        raise HTTPException(410, 'This list of new events is gone: it is more than a day old, or the app restarted after the '
+                                 'check. Check the sites again with the button at the top of Watched agenda sites, then tick '
+                                 'the events again.')
     if plan is None or plan.group_id != group.id:
         raise HTTPException(410, 'This preview expired or was already executed. Run the command again.')
     job = plan.job

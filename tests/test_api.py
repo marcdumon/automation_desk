@@ -192,6 +192,37 @@ def test_watched_agenda_sites(client: TestClient, monkeypatch: pytest.MonkeyPatc
     assert asked == {'via_browser': True, 'only': {1}}
 
 
+def test_a_site_check_list_stays_for_a_day_and_says_how_to_get_a_new_one(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """De Singel gave 100 new events; ticking them took 17 minutes, and the list was gone after 15."""
+    from automation_desk import plans
+    from automation_desk.groups.calendar.tasks.check_watched import CheckWatchedSites
+
+    monkeypatch.setattr(CheckWatchedSites, 'check', lambda self, ctx, via_browser=False, only=None: (
+        Preview(summary='1 new event(s)', columns=['Title'], rows=[Row(id='k1', cells={'Title': 'Expo'}, group='desingel.be')]),
+        {'offered': ['k1']}))
+    monkeypatch.setattr(CheckWatchedSites, 'execute_group', lambda self, payload, selected, section, ctx: (['Added'], {'k1'}))
+    plan_id = client.post('/api/calendar/watch/check', json={}).json()['plan_id']
+    start = time.monotonic()
+    monkeypatch.setattr(plans.time, 'monotonic', lambda: start + 17 * 60)
+    add = {'plan_id': plan_id, 'selected': ['k1'], 'section': 'desingel.be'}
+    assert client.post('/api/groups/calendar/execute', json=add).json()['results'] == ['Added']
+    monkeypatch.setattr(plans.time, 'monotonic', lambda: start + 25 * 3600)
+    gone = client.post('/api/groups/calendar/execute', json=add)
+    assert gone.status_code == 410 and 'button at the top of Watched agenda sites' in gone.json()['detail'], 'it says what to press'
+
+
+def test_a_command_preview_still_ends_after_15_minutes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A command (delete events, move tasks) shows what is there now: an old preview could change the wrong things."""
+    from automation_desk import jobs, plans
+
+    store = plans.PlanStore()
+    plan_id = store.put(plans.Plan(group_id='calendar', task_id='delete_events', payload={}, row_ids=set(),
+                                   job=jobs.Job(group='calendar', sentence='x')))
+    start = time.monotonic()
+    monkeypatch.setattr(plans.time, 'monotonic', lambda: start + 16 * 60)
+    assert store.get(plan_id) is None
+
+
 def test_watched_sites_from_imported_events(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     from automation_desk.groups.calendar.tasks import check_watched
 
