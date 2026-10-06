@@ -812,7 +812,12 @@ details.habit-card > summary { cursor: pointer; font-weight: 600; }
   background: var(--paper); font: inherit; color: inherit; }
 /* CLAUDE> the watched sites, each with a tick: which ones a check reads */
 .watch-sites { margin-top: 12px; }
-.watch-sites-head { display: flex; gap: 12px; align-items: baseline; font-size: 14px; color: var(--muted); }
+.watch-sites-head { display: flex; gap: 12px; align-items: baseline; margin-top: 8px; font-size: 14px; color: var(--muted); }
+/* CLAUDE> the browser's own arrow, as on the other folding lines of the card */
+.watch-sites > summary { cursor: pointer; font-size: 14px; }
+.watch-sites > summary > span { margin-right: 12px; }
+.watch-sites-title { font-weight: 600; }
+.watch-sites-news { color: var(--accent); font-weight: 600; overflow-wrap: anywhere; }
 .watch-sites ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
 .watch-site { display: flex; gap: 8px; align-items: baseline; min-width: 0; font-size: 14px; }
 .watch-site input { flex: none; transform: translateY(1px); }

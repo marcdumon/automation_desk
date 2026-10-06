@@ -13,6 +13,12 @@ const UNTICKED_KEY = 'watch-unticked'
 const storedUnticked = (): number[] => {
   try { return JSON.parse(localStorage.getItem(UNTICKED_KEY) ?? '[]') } catch { return [] }
 }
+// CLAUDE> the site list folds away (closed unless the user opened it in this browser): open, it took the whole screen
+const OPEN_KEY = 'watch-sites-open'
+const storedOpen = (): boolean => {
+  try { return localStorage.getItem(OPEN_KEY) === 'yes' } catch { return false }
+}
+const shortName = (label: string) => label.split('/')[0]
 
 // CLAUDE> the agenda sites the user watches: checked only when they press the button, all of them or the ones ticked; the
 // new events open in the preview
@@ -83,10 +89,22 @@ export default function WatchPanel({ onPreview }: { onPreview: (data: Interpreta
 function SiteChoices({ sites, unticked, onChange, disabled }: {
   sites: WatchedSite[]; unticked: number[]; onChange: (next: number[]) => void; disabled: boolean
 }) {
+  const [open, setOpen] = useState(storedOpen)
+  const toggle = (next: boolean) => {
+    setOpen(next)
+    try { localStorage.setItem(OPEN_KEY, next ? 'yes' : 'no') } catch { /* CLAUDE> no storage: the choice lasts this visit */ }
+  }
+  const ticked = sites.filter(s => !unticked.includes(s.id)).length
+  // CLAUDE> closed, the line still says what the last check found, e.g. "bozar.be: 9 new"
+  const news = sites.filter(s => /^\d+ new/.test(s.last_result)).map(s => `${shortName(s.label)}: ${s.last_result}`)
   return (
-    <div className="watch-sites">
+    <details className="watch-sites" open={open} onToggle={e => toggle(e.currentTarget.open)}>
+      <summary>
+        <span className="watch-sites-title">Sites to check</span>
+        <span className="muted">{ticked} of {sites.length} ticked</span>
+        {news.length > 0 && <span className="watch-sites-news">{news.join(', ')}</span>}
+      </summary>
       <div className="watch-sites-head">
-        <span>Sites to check</span>
         <button type="button" className="link-button" disabled={disabled} onClick={() => onChange([])}>All</button>
         <button type="button" className="link-button" disabled={disabled} onClick={() => onChange(sites.map(s => s.id))}>None</button>
       </div>
@@ -101,7 +119,7 @@ function SiteChoices({ sites, unticked, onChange, disabled }: {
           </li>
         ))}
       </ul>
-    </div>
+    </details>
   )
 }
 
