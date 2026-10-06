@@ -119,6 +119,17 @@ CREATE TABLE IF NOT EXISTS research_pages (
     PRIMARY KEY (research_id, url)
 );
 CREATE TABLE IF NOT EXISTS research_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS chats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, model TEXT NOT NULL, created TEXT NOT NULL,
+    updated TEXT NOT NULL, target TEXT, note TEXT
+);
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL REFERENCES chats (id) ON DELETE CASCADE,
+    turn INTEGER NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '',
+    web INTEGER NOT NULL DEFAULT 0, sources TEXT, chosen INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'done',
+    error TEXT NOT NULL DEFAULT '', cost_usd REAL, seconds REAL, job_id TEXT NOT NULL DEFAULT '',
+    generation_id TEXT NOT NULL DEFAULT '', created TEXT NOT NULL
+);
 '''
 
 LLM_COLUMNS = ['stage', 'purpose', 'model_requested', 'model_used', 'provider', 'prompt_tokens', 'completion_tokens',
@@ -135,7 +146,7 @@ _ready_lock = threading.Lock()
 
 # CLAUDE> columns added after a table first shipped: (table, column, type); a ledger made before gets them on start-up
 ADDED_COLUMNS = [('task_day_planned', 'completed_count', 'INTEGER'), ('habits', 'position', 'INTEGER'),
-                 ('research', 'requirements', 'TEXT'), ('research', 'title', 'TEXT')]
+                 ('research', 'requirements', 'TEXT'), ('research', 'title', 'TEXT'), ('research', 'target', 'TEXT')]
 
 
 def _ensure_schema(target: Path) -> None:
@@ -212,6 +223,11 @@ def store(job: 'Job') -> None:
                 db.executemany(f"INSERT INTO {table} (job_id, seq, {', '.join(columns)}) VALUES ({marks})", rows)
 
 
+def appliable(preview: dict | None) -> bool:
+    """Whether a job had anything to apply: a preview row the user could tick (a digest, an answer or a research has none)."""
+    return any(row.get('selectable') for row in (preview or {}).get('rows', []))
+
+
 def _summary(row: sqlite3.Row) -> dict:
     """A job row as the lists and cost lines show it."""
     return {
@@ -219,6 +235,7 @@ def _summary(row: sqlite3.Row) -> dict:
         'task_name': row['task_name'], 'started': row['started'], 'status': row['status'], 'message': row['message'],
         'applied_at': row['applied_at'], 'apply_status': row['apply_status'], 'apply_message': row['apply_message'],
         'results': len(json.loads(row['results'] or '[]')), 'preview_ms': row['preview_ms'], 'apply_ms': row['apply_ms'],
+        'appliable': appliable(json.loads(row['preview'] or '{}')),
         'duration_ms': (row['preview_ms'] or 0) + (row['apply_ms'] or 0), 'models': json.loads(row['models'] or '[]'),
         'llm_calls': row['llm_call_count'], 'prompt_tokens': row['prompt_tokens'],
         'completion_tokens': row['completion_tokens'], 'cost_usd': row['cost_usd'],

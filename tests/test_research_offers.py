@@ -131,3 +131,16 @@ def test_each_product_gets_its_own_link_from_its_number(monkeypatch) -> None:
         ships_to_belgium='yes', delivery_cost=None))
     found = offers.extract(read, 'pump', 'product', 'BE')['products']
     assert [p.get('url') for p in found] == ['https://amazon.com.be/dp/B01', None]
+
+
+def test_a_product_the_page_calls_free_costs_nothing(monkeypatch) -> None:
+    """'Free Linux mindmap software': Freeplane is free, and a price of 0 counted as no price, so nothing could be advised."""
+    read = pages.Read(url='https://freeplane.org', text='Freeplane — free mind mapping software. Download for Linux.', products=[])
+    monkeypatch.setattr(offers, 'ask', lambda *a, **k: offers.Facts(products=[
+        offers.FoundProduct(name='Freeplane', brand='', model='', price=None, specs=[], contact='', free=True),
+        offers.FoundProduct(name='Pro edition', brand='', model='', price=0.0, specs=[], contact='')],
+        ships_to_belgium='unknown', delivery_cost=None))
+    products = {p['name']: p for p in offers.extract(read, 'free mindmap program', 'product', '')['products']}
+    assert {k: products['Freeplane'][k] for k in ('price', 'currency', 'price_seen', 'free')} == {
+        'price': 0.0, 'currency': 'EUR', 'price_seen': True, 'free': True}
+    assert products['Pro edition']['price'] is None, 'a 0 the page does not call free is still no price (e.leclerc)'

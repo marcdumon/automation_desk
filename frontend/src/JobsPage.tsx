@@ -21,7 +21,12 @@ export default function JobsPage() {
   return (
     <section className="page">
       <header className="page-head"><h1>Jobs &amp; costs</h1></header>
-      <p className="muted">Configured model: <strong>{data.configured_model}</strong>. Costs are what OpenRouter reported for each call.</p>
+      <p className="muted">
+        Configured model: <strong>{data.configured_model}</strong>. Costs are what OpenRouter reported for each call. Compare them
+        with OpenRouter's own list: <a href="https://openrouter.ai/activity" target="_blank" rel="noreferrer">Activity</a> (every
+        call and its cost) and <a href="https://openrouter.ai/settings/credits" target="_blank" rel="noreferrer">Credits</a> (what
+        is left).
+      </p>
 
       <div className="totals">
         <div className="total-main"><span className="total-label">Spent in total</span><span className="total-value">{usd(data.total_cost_usd)}</span></div>

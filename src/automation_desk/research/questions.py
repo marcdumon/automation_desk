@@ -33,6 +33,7 @@ class Form(BaseModel):
     questions: list[Question]
     unknowns: list[str]
     title: str = Field('', description='A short title for the research, 2 to 5 words, what is needed: "Lift pit sump pump".')
+    free: bool = Field(False, description='True when the user wants something that costs nothing (free software, a free app).')
 
 
 class PriceClass(BaseModel):

@@ -11,8 +11,8 @@ from googleapiclient.errors import HttpError
 from pydantic import Field
 
 from automation_desk.dates import label, period_label, resolve_range
-from automation_desk.groups.base import Context, Preview, Row, StandardTask, TaskArgs, UserError, match_name
-from automation_desk.groups.calendar.client import events_between, writable_calendars
+from automation_desk.groups.base import Context, Preview, Row, StandardTask, TaskArgs, UserError
+from automation_desk.groups.calendar.client import events_between, pick_calendar, writable_calendars
 
 SOURCE = re.compile(r'Source:\s*(\S+)')
 # CLAUDE> words that mean 'no period' rather than a period
@@ -65,7 +65,7 @@ class DeleteEvents(StandardTask):
     def resolve(self, args: DeleteEventsArgs, ctx: Context) -> tuple[Preview, dict]:
         """List the calendar's events that pass every filter."""
         svc = ctx.google('calendar', 'v3')
-        calendar = match_name(args.calendar_name, writable_calendars(svc), 'summary', 'calendar')
+        calendar = pick_calendar(args.calendar_name, writable_calendars(svc))
         no_period = _norm(args.date_range) in NO_LIMIT
         period = None if no_period else resolve_range(args.date_range, ctx.today, ctx.sentence)
         time_min = time_max = None

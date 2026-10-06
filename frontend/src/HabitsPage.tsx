@@ -79,13 +79,26 @@ const STATE_NAMES = { done: 'done', missed: 'missed', open: 'still open', free: 
 
 function Overview({ habits }: { habits: Habit[] }) {
   const month = new Date(`${habits[0].days[0].day}T12:00:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+  // CLAUDE> the grid had no day numbers: every fifth day, the 1st and today are numbered above their column
+  const today = new Date().toLocaleDateString('en-CA')
   return (
     <article className="habit-card">
       <h2>{month}</h2>
       <div className="habit-table-wrap">
         <table className="habit-table">
           <thead>
-            <tr><th>Habit</th><th>Streak</th><th>Best</th><th>This month</th><th className="grid-head">Days</th></tr>
+            <tr>
+              <th>Habit</th><th>Streak</th><th>Best</th><th>This month</th>
+              <th className="grid-head" aria-label="Days">
+                <span className="habit-grid" aria-hidden="true">
+                  {habits[0].days.map(d => {
+                    const n = Number(d.day.slice(8))
+                    return <i key={d.day} className={`day-number${d.day === today ? ' today' : ''}`}>
+                      {n === 1 || n % 5 === 0 || d.day === today ? n : ''}</i>
+                  })}
+                </span>
+              </th>
+            </tr>
           </thead>
           <tbody>
             {habits.map(h => (

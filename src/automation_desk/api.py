@@ -5,12 +5,13 @@ execute:   plan id + ticked rows -> exactly the previewed changes are applied.
 """
 
 import hashlib
+import json
 import logging
 import re
 import subprocess
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -21,13 +22,17 @@ from zoneinfo import ZoneInfo
 import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from googleapiclient.errors import HttpError
 from pydantic import BaseModel, Field
 
 from automation_desk import google_auth, habits, jobs, ledger, llm, reminders, stop
 from automation_desk.capture import EXTENSION_DIR, Captured, CaptureError, broker
+from automation_desk.chat import models as chat_models
+from automation_desk.chat import note as chat_note
+from automation_desk.chat import store as chat_store
+from automation_desk.chat import talk as chat_talk
 from automation_desk.config import ROOT, config
 from automation_desk.dates import DateExprError
 from automation_desk.google_auth import AuthError
@@ -44,8 +49,11 @@ from automation_desk.interpret import fill_args, route
 from automation_desk.llm import LLMError
 from automation_desk.plans import Plan, PlanStore
 from automation_desk.research import export as research_export
+from automation_desk.research import note_text as research_note_text
 from automation_desk.research import run as research_run
 from automation_desk.research import store as research_store
+from automation_desk.research import summary as research_summary
+from automation_desk.research import summary_note as research_summary_note
 from automation_desk.todoist import TodoistError
 from automation_desk.tools import pdf_margin
 
@@ -136,7 +144,8 @@ def google_error(_: Request, error: HttpError) -> JSONResponse:
 def list_groups() -> list[dict]:
     """Task groups and their standard tasks, for the sidebar and the task cards."""
     return [{'id': g.id, 'name': g.name, 'description': g.description, 'accepts_files': g.accepts_files,
-             'tasks': [{'id': t.id, 'name': t.name, 'description': t.description, 'example': t.example} for t in g.tasks]}
+             'tasks': [{'id': t.id, 'name': t.name, 'description': t.summary or t.description, 'example': t.example}
+                       for t in g.tasks]}
             for g in GROUPS.values()]
 
 
@@ -270,8 +279,11 @@ def _interpret(group: TaskGroup, task_id: str | None, text: str, job: jobs.Job,
 
 
 def _watch_state() -> dict:
-    """The watched agenda sites as the Calendar page edits them, and the ones that need the browser."""
+    """The watched agenda sites as the Calendar page edits them and ticks them for a check, and the ones that need the
+    browser."""
     return {'lines': watch.as_lines(), 'default_calendar': watch.default_calendar(),
+            'sites': [{'id': w.id, 'label': watch.site_label(w.site), 'url': w.site, 'calendar': w.calendar,
+                       'last_result': w.last_result} for w in watch.sites()],
             'needs_browser': [{'id': w.id, 'site': w.site} for w in watch.sites() if w.last_result == watch.NEEDS_BROWSER],
             'progress': {**watch.progress(), 'pause': llm.pause_left()}}
 
@@ -804,17 +816,104 @@ class ResearchRequirements(BaseModel):
     requirements: list[ResearchRequirement]
 
 
+class NoteHeading(BaseModel):
+    """A heading of a note."""
+
+    level: int = Field(ge=1, le=6)
+    text: str
+
+
+class SummaryTarget(BaseModel):
+    """Where a summary goes: a new note (no note), or a note of the vault, at the top, at the end or after a heading, as a
+    section (2) or a chapter (1); under a title of the user's (empty: the summary's own)."""
+
+    note: str = ''
+    place: Literal['top', 'end', 'after'] = 'end'
+    heading: NoteHeading | None = None
+    level: Literal[1, 2] = 2
+    title: str = ''
+
+
+class SummaryIn(BaseModel):
+    """A new subject summary."""
+
+    subject: str
+    sites: list[str]
+    target: SummaryTarget = SummaryTarget()
+
+
+class SummarySites(BaseModel):
+    """Websites to add to a summary."""
+
+    sites: list[str]
+
+
+def _summary_sites(lines: list[str], required: bool = True) -> list[dict]:
+    """The websites typed, checked: each line a site or a page; at least one when `required` (none: the web is searched)."""
+    try:
+        sites = research_summary.parse_sites(lines)
+    except research_summary.SiteError as error:
+        raise HTTPException(400, str(error)) from error
+    if required and not sites:
+        raise HTTPException(400, 'Add at least one website: a site like vrt.be, or a page like https://www.vrt.be/nl/nieuws/…')
+    return sites
+
+
+def _summary_target(given: SummaryTarget) -> dict:
+    """Where a summary goes, checked: a note of the vault in Settings (kept with the summary), with a heading when it goes
+    after one; empty for a new note."""
+    title = ' '.join(given.title.split())
+    if not given.note.strip():
+        return {'title': title} if title else {}
+    if given.place == 'after' and given.heading is None:
+        raise HTTPException(400, 'Choose the heading it goes after, or choose the top or the end of the note.')
+    vault = research_store.settings()['vault']
+    try:
+        research_summary_note.note_path(vault, given.note)
+    except research_export.ExportError as error:
+        raise HTTPException(400, str(error)) from error
+    # CLAUDE> the vault goes with the summary: a vault changed in Settings during the run must not get the block
+    return given.model_dump() | {'vault': vault, 'title': title,
+                                 'heading': given.heading.model_dump() if given.place == 'after' else None}
+
+
+class NoteSave(BaseModel):
+    """One save to Obsidian: the title of the note (a research), or the place and title (a summary). Without either, the
+    place and title saved last."""
+
+    title: str | None = None
+    target: SummaryTarget | None = None
+
+
+def _note_title(row: dict) -> str:
+    """The title the note was saved under last, else the title chosen for the summary's place, else the research's own."""
+    return ((row['result'] or {}).get('note') or {}).get('title') or (row['target'] or {}).get('title') or row['title'] or ''
+
+
+def _write_note(row: dict, settings: dict, title: str = '', exact: bool = False, fresh: bool = False) -> dict:
+    """Write a research's note under `title` (else the title saved last): a summary by its own rules (a new note or the
+    note chosen for it; `fresh`: at the place chosen now), else the research note. The title names the note and heads it;
+    the research keeps its own."""
+    title = title or _note_title(row)
+    named = row | {'title': title} if title else row
+    if row['kind'] == 'summary':
+        note = research_summary_note.save(named, settings['vault'], settings['subdir'], exact=exact, fresh=fresh)
+    else:
+        note = research_export.save(named, settings['vault'], settings['subdir'], exact=exact)
+    return note | {'title': title}
+
+
 def _save_note(research_id: int) -> None:
-    """Save a finished research to the Obsidian vault set on the Research page; without a vault nothing happens. The note's
-    place, or why it could not be saved, goes with the result."""
+    """Save a finished research to the Obsidian vault set on the Research page, a summary also to the note chosen for it;
+    without either nothing happens. The note's place, or why it could not be saved, goes with the result."""
     row = research_store.get(research_id)
     settings = research_store.settings()
-    if not row or row['state'] not in ('done', 'stopped') or not settings['vault']:
+    if not row or row['state'] not in ('done', 'stopped') or not (settings['vault'] or (row['target'] or {}).get('note')):
         return
     try:
-        note = research_export.save(row, settings['vault'], settings['subdir']) | {'error': ''}
+        note = _write_note(row, settings) | {'error': ''}
     except (research_export.ExportError, OSError) as error:
-        note = {'path': '', 'obsidian_url': '', 'error': str(error)}
+        note = {'path': '', 'obsidian_url': '', 'error': str(error), 'title': _note_title(row)}
     research_store.update(research_id, result=(row['result'] or {}) | {'note': note})
 
 
@@ -830,7 +929,8 @@ def _research(research_id: int) -> dict:
     if row is None:
         raise HTTPException(404, f'There is no research {research_id}. It was deleted.')
     found = [{k: v for k, v in p.items() if k != 'facts'} for p in research_store.pages(research_id)]
-    return row | {'pages': found, 'progress': research_run.progress(), 'stopped_text': research_run.stop_text(row)}
+    return row | {'pages': found, 'progress': research_run.progress(), 'stopped_text': research_run.stop_text(row),
+                  'left': research_run.left(row), 'go_on_estimate': research_run.go_on_estimate(row)}
 
 
 @app.get('/api/research')
@@ -838,7 +938,8 @@ def research_list() -> dict:
     """The history, the settings, the cost estimate and what runs."""
     settings = research_store.settings()
     return {'researches': research_store.listing(), 'settings': settings, 'vaults': research_export.vaults(),
-            'estimate': research_run.estimate(settings['limits']), 'progress': research_run.progress()}
+            'estimate': research_run.estimate(settings['limits']), 'unit_costs': research_run.unit_costs(),
+            'progress': research_run.progress()}
 
 
 @app.post('/api/research')
@@ -849,6 +950,35 @@ def research_start(new: ResearchIn) -> dict:
     if not new.countries:
         raise HTTPException(400, 'Select at least one country.')
     return _research(research_run.start(new.request, new.budget, new.countries))
+
+
+@app.post('/api/research/summary')
+def research_summary_start(new: SummaryIn) -> dict:
+    """A new subject summary: it runs at once, and is saved to Obsidian when it ends."""
+    if not new.subject.strip():
+        raise HTTPException(400, 'Write the subject first, for example "Rules for solar panels on a flat roof in Flanders".')
+    sites = _summary_sites(new.sites, required=False)
+    research_id = research_run.start_summary(new.subject, sites, _summary_target(new.target))
+    _in_background(_research_run_and_save, research_id)
+    return _research(research_id)
+
+
+# CLAUDE> declared before /api/research/{research_id}: that route matches any word, 'notes' too
+@app.get('/api/research/notes')
+def research_notes(q: str = '') -> dict:
+    """The notes of the vault set on the Research page whose path holds the words searched, newest first."""
+    return {'notes': research_summary_note.notes(research_store.settings()['vault'], q)}
+
+
+@app.get('/api/research/notes/headings')
+def research_note_headings(path: str, skip: str | None = None) -> dict:
+    """The headings of a note of the vault, for the user to choose where a summary or a chat goes; without those of the
+    block `skip` ('12' or 'summary 12', 'chat 3')."""
+    try:
+        note = research_summary_note.note_path(research_store.settings()['vault'], path)
+        return {'headings': research_note_text.headings(note.read_text(errors='replace'), skip)}
+    except (research_export.ExportError, OSError) as error:
+        raise HTTPException(400, str(error)) from error
 
 
 @app.get('/api/research/{research_id}')
@@ -896,7 +1026,10 @@ def research_requirements_cancel(research_id: int) -> dict:
 def research_rescore(research_id: int, given: ResearchRequirements | None = None) -> dict:
     """Score a finished research again from the pages read: with the requirements as edited in the result's table, at
     once; without, its requirements come back for changes first. Nothing is searched again."""
-    _research(research_id)
+    row = _research(research_id)
+    # CLAUDE> checked before the state changes: a summary moved to 'running' would stay there with nothing to run it
+    if row['kind'] == 'summary':
+        raise HTTPException(409, 'A summary has no scores, so it cannot be scored again. Start a new summary.')
     if given is not None and not any(r.text.strip() for r in given.requirements):
         raise HTTPException(400, 'Keep at least one requirement: the products are scored against them.')
     if not research_store.pages(research_id, 'read'):
@@ -904,6 +1037,39 @@ def research_rescore(research_id: int, given: ResearchRequirements | None = None
     if not any(research_store.transition_state(research_id, state, 'running') for state in ('done', 'stopped')):
         raise HTTPException(409, 'Only a finished research can be scored again. Reload the page.')
     research_run.rescore(research_id, [r.model_dump() for r in given.requirements] if given else None)
+    _in_background(_research_run_and_save, research_id)
+    return _research(research_id)
+
+
+@app.post('/api/research/{research_id}/more')
+def research_more(research_id: int) -> dict:
+    """Run a finished research on: its searches not run and its pages found but not read, with new limits."""
+    row = _research(research_id)
+    if row['state'] not in ('done', 'stopped'):
+        raise HTTPException(409, 'Only a finished research can go on. Reload the page.')
+    if not any(research_run.left(row).values()):
+        raise HTTPException(409, 'Nothing is left to read: every page found is read. Start again with changes for a new search.')
+    if not research_store.transition_state(research_id, row['state'], 'running'):
+        raise HTTPException(409, 'This research is not waiting for that. Reload the page.')
+    research_run.go_on(research_id)
+    _in_background(_research_run_and_save, research_id)
+    return _research(research_id)
+
+
+@app.post('/api/research/{research_id}/sites')
+def research_summary_sites(research_id: int, given: SummarySites) -> dict:
+    """Add websites to a finished summary: only the new ones are searched or read, then the summary is written again."""
+    row = _research(research_id)
+    if row['kind'] != 'summary':
+        raise HTTPException(409, 'Websites can be added to a summary only.')
+    if row['state'] not in ('done', 'stopped'):
+        raise HTTPException(409, 'Wait until the summary ends, then add websites.')
+    sites = _summary_sites(given.sites)
+    if all(item in (row['plan'] or []) for item in sites):
+        raise HTTPException(409, 'These websites are in the summary already.')
+    if not research_store.transition_state(research_id, row['state'], 'running'):
+        raise HTTPException(409, 'This summary is not waiting for that. Reload the page.')
+    research_run.go_on(research_id, sites)
     _in_background(_research_run_and_save, research_id)
     return _research(research_id)
 
@@ -920,12 +1086,26 @@ def research_rename(research_id: int, given: ResearchTitle) -> dict:
 
 
 @app.post('/api/research/{research_id}/export')
-def research_export_note(research_id: int) -> dict:
-    """Save the research as a note in the Obsidian vault set on the Research page."""
+def research_export_note(research_id: int, given: NoteSave | None = None) -> dict:
+    """Save to Obsidian at the place and under the title the user chose now. A save never deletes what was saved before
+    somewhere else: a new title makes a new note, and a summary saved into another note leaves its earlier copy. A summary
+    saved into a note that has it goes to the place chosen. Without a choice: the place and title saved last."""
     row = _research(research_id)
     settings = research_store.settings()
+    fresh = False
+    if given and given.target is not None and row['kind'] == 'summary':
+        target = _summary_target(given.target)
+        research_store.update(research_id, target=target)
+        row = _research(research_id)
+        title, fresh = target.get('title') or row['title'] or '', True
+        exact = not target.get('note')
+    else:
+        title = ' '.join((given.title or '').split()) if given and given.title is not None else ''
+        if given and given.title is not None and not title:
+            raise HTTPException(400, 'Write a title for the note, for example "Basement sump pump".')
+        exact = bool(title)
     try:
-        note = research_export.save(row, settings['vault'], settings['subdir']) | {'error': ''}
+        note = _write_note(row, settings, title, exact=exact, fresh=fresh) | {'error': ''}
     except research_export.ExportError as error:
         raise HTTPException(400, str(error)) from error
     research_store.update(research_id, result=(row['result'] or {}) | {'note': note})
@@ -983,6 +1163,198 @@ def research_settings(given: ResearchSettings) -> dict:
                                         given.limits.model_dump() if given.limits else None, given.vault, given.subdir)
 
 
+class ChatIn(BaseModel):
+    """A new chat: its first question, the model and whether to search the web."""
+
+    text: str
+    model: str = ''
+    web: bool = False
+
+
+class ChatQuestion(BaseModel):
+    """The next question of a chat; a model given here is the chat's model from now on."""
+
+    text: str
+    web: bool = False
+    model: str = ''
+
+
+class ChatAnswer(BaseModel):
+    """Another answer to the last question: a second opinion from `model`, or `replace` asked again (Try again)."""
+
+    model: str = ''
+    replace: int | None = None
+
+
+class ChatChange(BaseModel):
+    """A new title or model of a chat."""
+
+    title: str | None = None
+    model: str | None = None
+
+
+class ChatSave(BaseModel):
+    """One save of a chat to Obsidian: the place and title chosen now; none: the place saved last."""
+
+    target: SummaryTarget | None = None
+
+
+def _chat(chat_id: int) -> dict:
+    """A chat with its messages, whether an answer is being written, and its model's name and prices; or 404."""
+    chat = chat_store.get(chat_id)
+    if chat is None:
+        raise HTTPException(404, f'There is no chat {chat_id}. It was deleted.')
+    return chat | {'writing': chat_talk.busy(chat_id), 'model_info': chat_models.describe(chat['model'])}
+
+
+def _answer(chat_id: int, model: str | None = None, replace: int | None = None) -> dict:
+    """Start an answer in the chat; the chat as it is now."""
+    try:
+        chat_talk.start(chat_id, model=model, replace=replace)
+    except chat_talk.Busy as error:
+        raise HTTPException(409, str(error)) from error
+    return _chat(chat_id)
+
+
+def _not_busy(chat_id: int) -> None:
+    """Refuse a change while an answer of the chat is being written."""
+    if chat_talk.busy(chat_id):
+        raise HTTPException(409, 'An answer of this chat is being written. Wait for it, or press Stop.')
+
+
+def _question_text(text: str) -> str:
+    """A question, checked: not empty."""
+    if not text.strip():
+        raise HTTPException(400, 'Write a question first, for example "Propose a supplement regime for a 65 year old man".')
+    return text.strip()
+
+
+@app.get('/api/chat')
+def chat_list() -> dict:
+    """The chats, the short model list, the model of a new chat, the cost of web search and the Obsidian settings."""
+    settings = research_store.settings()
+    new_model = chat_models.new_model()
+    return {'chats': chat_store.listing(), 'models': chat_models.short_list(), 'new_model': new_model,
+            'new_model_info': chat_models.describe(new_model),
+            'web_extra': chat_models.WEB_FEE_USD, 'settings': {'vault': settings['vault'], 'subdir': settings['subdir']}}
+
+
+# CLAUDE> declared before /api/chat/{chat_id}: that route matches any word, 'models' too
+@app.get('/api/chat/models')
+def chat_model_search(q: str = '') -> dict:
+    """Every OpenRouter model whose id or name holds the words searched."""
+    return {'models': chat_models.search(q)}
+
+
+@app.post('/api/chat/messages/{message_id}/choose')
+def chat_choose(message_id: int) -> dict:
+    """Make an answer the one the chat goes on from."""
+    answer = chat_store.message(message_id)
+    if answer is None:
+        raise HTTPException(404, 'This answer is gone. Reload the page.')
+    if answer['role'] != 'assistant' or answer['state'] == 'writing':
+        raise HTTPException(400, 'Choose an answer that is written.')
+    return _chat(chat_store.choose(message_id))
+
+
+@app.post('/api/chat')
+def chat_start(new: ChatIn) -> dict:
+    """A new chat: its first question is answered at once."""
+    chat_id = chat_store.create(_question_text(new.text), new.model.strip() or chat_models.new_model(), new.web)
+    return _answer(chat_id)
+
+
+@app.get('/api/chat/{chat_id}')
+def chat_open(chat_id: int) -> dict:
+    """One chat."""
+    return _chat(chat_id)
+
+
+@app.post('/api/chat/{chat_id}/questions')
+def chat_ask(chat_id: int, given: ChatQuestion) -> dict:
+    """The next question: it is answered at once."""
+    _chat(chat_id)
+    text = _question_text(given.text)
+    _not_busy(chat_id)
+    if given.model.strip():
+        chat_store.update(chat_id, model=given.model.strip())
+    chat_store.add_question(chat_id, text, given.web)
+    return _answer(chat_id)
+
+
+@app.post('/api/chat/{chat_id}/answers')
+def chat_another(chat_id: int, given: ChatAnswer) -> dict:
+    """A second opinion to the last question, or an answer asked again."""
+    _chat(chat_id)
+    if given.replace is not None:
+        old = chat_store.message(given.replace)
+        if not old or old['chat_id'] != chat_id or old['role'] != 'assistant':
+            raise HTTPException(400, 'That answer is not one of this chat. Reload the page.')
+    return _answer(chat_id, given.model.strip() or None, given.replace)
+
+
+@app.post('/api/chat/{chat_id}/stop')
+def chat_stop(chat_id: int) -> dict:
+    """Stop the answer being written; the text that came stays."""
+    _chat(chat_id)
+    chat_talk.stop(chat_id)
+    return _chat(chat_id)
+
+
+async def _events(chat_id: int) -> AsyncIterator[str]:
+    """The answer being written, as server-sent events."""
+    async for event in chat_talk.follow(chat_id):
+        yield f'data: {json.dumps(event, ensure_ascii=False)}\n\n'
+
+
+@app.get('/api/chat/{chat_id}/follow')
+def chat_follow(chat_id: int) -> StreamingResponse:
+    """The answer being written in a chat, piece by piece from its start; ends at once when none is."""
+    _chat(chat_id)
+    return StreamingResponse(_events(chat_id), media_type='text/event-stream', headers={'Cache-Control': 'no-cache'})
+
+
+@app.patch('/api/chat/{chat_id}')
+def chat_change(chat_id: int, given: ChatChange) -> dict:
+    """Rename a chat, or change the model of its next answers."""
+    _chat(chat_id)
+    if given.title is not None:
+        if not (title := ' '.join(given.title.split())):
+            raise HTTPException(400, 'Write a title for the chat.')
+        chat_store.update(chat_id, title=title)
+    if given.model is not None and given.model.strip():
+        chat_store.update(chat_id, model=given.model.strip())
+    return _chat(chat_id)
+
+
+@app.delete('/api/chat/{chat_id}')
+def chat_delete(chat_id: int) -> dict:
+    """Remove a chat at once."""
+    _not_busy(chat_id)
+    return {'deleted': chat_store.delete(chat_id)}
+
+
+@app.post('/api/chat/{chat_id}/export')
+def chat_export(chat_id: int, given: ChatSave | None = None) -> dict:
+    """Save a chat to Obsidian at the place and under the title chosen now, else where it was saved last."""
+    _chat(chat_id)
+    fresh = exact = False
+    if given and given.target is not None:
+        target = _summary_target(given.target)
+        chat_store.update(chat_id, target=target)
+        fresh, exact = True, not target.get('note')
+    chat = chat_store.get(chat_id)
+    title = (chat['target'] or {}).get('title') or chat['title']
+    settings = research_store.settings()
+    try:
+        note = chat_note.save(chat | {'title': title}, settings['vault'], settings['subdir'], exact=exact, fresh=fresh)
+    except (research_export.ExportError, OSError) as error:
+        raise HTTPException(400, str(error)) from error
+    note |= {'title': title, 'error': ''}
+    chat_store.update(chat_id, note=note)
+    return note
+
+
 if STATIC.exists():
     app.mount('/assets', StaticFiles(directory=STATIC / 'assets'), name='assets')
 
@@ -998,5 +1370,6 @@ def main() -> None:
     """Serve the app on localhost only."""
     logging.basicConfig(level=logging.INFO)
     research_store.fail_running()
+    chat_store.fail_writing()
     threading.Thread(target=_task_stats_every_morning, daemon=True).start()
     uvicorn.run(app, host='127.0.0.1', port=config().port)

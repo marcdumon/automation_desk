@@ -73,6 +73,11 @@ export default function NewsPanel() {
         <p className="news-card news-quiet">Nothing new since {shortWhen(data.nothing_new.since)}
           {' '}(checked {shortWhen(data.nothing_new.at)}).</p>
       )}
+      {/* CLAUDE> after the last digest is deleted the page said nothing: what the button does */}
+      {data.digests.length === 0 && !data.running && !data.failure && !data.nothing_new && (
+        <p className="news-card news-quiet">No digest to show. Make digest now reads your {data.sources.length} sites and puts the
+          new articles together by subject.</p>
+      )}
       {data.suggestions.length > 0 && (
         <section className="news-card">
           <h3>Suggested subjects</h3>

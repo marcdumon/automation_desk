@@ -12,6 +12,7 @@ import re
 import threading
 import time
 from collections import deque
+from collections.abc import Callable, Iterable, Iterator
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -188,6 +189,121 @@ def _post(body: dict, http: httpx.Client) -> dict:
         attempt += 1
 
 
+NO_KEY = 'OpenRouter does not accept the key. Put a valid OPENROUTER_API_KEY in the .env file in the app folder, then try again.'
+NO_CREDIT = 'Your OpenRouter credit is used up. Buy credit at https://openrouter.ai/settings/credits, then try again.'
+
+
+def _refused(response: httpx.Response) -> str:
+    """What a refused request means for the user."""
+    if response.status_code == 401:
+        return NO_KEY
+    if response.status_code == 402:
+        return NO_CREDIT
+    return f'OpenRouter returned {response.status_code}: {response.text[:300]}'
+
+
+def open_stream(body: dict, http: httpx.Client, on_wait: Callable[[int], None] | None = None) -> httpx.Response:
+    """Open a streamed completion (the caller reads and closes it): spaced to the rate limit; a 429 before the answer starts
+    is waited for (and told to `on_wait` in seconds); network errors, 408 and 5xx tried again; a refusal as a plain LLMError."""
+    cfg = config()
+    if not cfg.openrouter_key:
+        raise LLMError('OPENROUTER_API_KEY is not set. Put it in the .env file in the app folder, then try again.')
+    headers = {'Authorization': f'Bearer {cfg.openrouter_key}'}
+    attempt = limited = 0
+    while True:
+        _wait_for_turn(cfg.llm_requests_per_minute)
+        try:
+            response = http.send(http.build_request('POST', f'{cfg.llm_base_url}/chat/completions', json=body, headers=headers),
+                                 stream=True)
+        except httpx.TransportError as error:
+            if attempt == MAX_ATTEMPTS - 1:
+                raise LLMError(f'OpenRouter unreachable: {error}') from error
+        else:
+            if response.status_code == 200:
+                return response
+            response.read()
+            response.close()
+            if response.status_code == 429 and limited < RATE_LIMIT_WAITS:
+                limited += 1
+                seconds = _rate_limit_wait(response)
+                if on_wait:
+                    on_wait(round(seconds))
+                _pause(seconds)
+                continue
+            if response.status_code not in RETRYABLE_STATUS or attempt == MAX_ATTEMPTS - 1:
+                raise LLMError(_refused(response))
+        time.sleep(2.0 * 2 ** attempt)
+        attempt += 1
+
+
+def sse_events(lines: Iterable[str]) -> Iterator[dict]:
+    """The events of a streamed answer: each `data:` line as a dict, an empty dict for a keep-alive comment (so a reader
+    can check whether to stop while the model thinks), until `data: [DONE]`."""
+    for raw in lines:
+        line = raw.strip()
+        if line.startswith(':'):
+            yield {}
+        elif line.startswith('data:'):
+            payload = line[5:].strip()
+            if payload == '[DONE]':
+                return
+            try:
+                yield json.loads(payload)
+            except json.JSONDecodeError:
+                log.warning('unreadable stream line: %s', payload[:200])
+
+
+def read_chunk(chunk: dict, answer: dict) -> str:
+    """Fold one streamed event into `answer` (id, model, provider, text, finish_reason, usage, error, sources); its new text."""
+    for key in ('id', 'model', 'provider'):
+        if chunk.get(key):
+            answer[key] = chunk[key]
+    if chunk.get('usage'):
+        answer['usage'] = chunk['usage']
+    if error := chunk.get('error'):
+        answer['error'] = error.get('message') or str(error) if isinstance(error, dict) else str(error)
+    choice = (chunk.get('choices') or [{}])[0]
+    if choice.get('finish_reason'):
+        answer['finish_reason'] = choice['finish_reason']
+    delta = choice.get('delta') or {}
+    for note in delta.get('annotations') or []:
+        cited = note.get('url_citation') if isinstance(note, dict) and note.get('type') == 'url_citation' else None
+        sources = answer.setdefault('sources', []) if isinstance(cited, dict) and cited.get('url') else None
+        if sources is not None and all(s['url'] != cited['url'] for s in sources):
+            sources.append({'url': cited['url'], 'title': cited.get('title') or ''})
+    text = delta.get('content') or ''
+    answer['text'] = answer.get('text', '') + text
+    return text
+
+
+# CLAUDE> a stopped answer's cost was not there after 10 s on 2026-10-05: OpenRouter is asked for about two minutes
+GENERATION_WAITS_S = (2, 3, 5, 10, 15, 20, 30, 30)
+
+
+def generation_cost(generation_id: str, http: httpx.Client, waits: tuple[float, ...] = GENERATION_WAITS_S) -> float | None:
+    """What a generation cost, asked from OpenRouter after a stopped answer (its usage never came); OpenRouter knows it
+    some seconds after the end, so it is asked again after each wait. None when it never says."""
+    cfg = config()
+    for wait in (0, *waits):
+        time.sleep(wait)
+        try:
+            response = http.get(f'{cfg.llm_base_url}/generation', params={'id': generation_id},
+                                headers={'Authorization': f'Bearer {cfg.openrouter_key}'})
+            if response.status_code == 200:
+                return float(response.json()['data']['total_cost'])
+        except (httpx.HTTPError, KeyError, TypeError, ValueError) as error:
+            log.warning('generation cost of %s: %s', generation_id, error)
+    return None
+
+
+def record_stream(purpose: str, body: dict, answer: dict, started: float, error: str = '') -> None:
+    """Put a streamed call (`answer` as read_chunk folded it) on the current job, with the cost OpenRouter gave."""
+    reply = {'id': answer.get('id', ''), 'model': answer.get('model', ''), 'provider': answer.get('provider', ''),
+             'usage': answer.get('usage') or {},
+             'choices': [{'message': {'content': answer.get('text', '')}, 'finish_reason': answer.get('finish_reason', '')}]}
+    _record(purpose, body, reply, started, error or answer.get('error', ''))
+
+
 def _record(purpose: str, body: dict, reply: dict | None, started: float, error: str = '') -> None:
     """Put one completion call, with its exact cost as reported by OpenRouter, on the current job."""
     job = jobs.current()
@@ -261,14 +377,18 @@ def ask[T: BaseModel](system: str, user: str, schema: type[T], http: httpx.Clien
             client.close()
 
 
-def search_web(query: str, max_results: int = 10, http: httpx.Client | None = None) -> list[dict]:
-    """Search the web through OpenRouter's web plugin (engine Exa); the pages found, as the answer's citations.
+def search_web(query: str, max_results: int = 10, http: httpx.Client | None = None,
+               include_domains: list[str] | None = None) -> list[dict]:
+    """Search the web through OpenRouter's web plugin (engine Exa); the pages found, as the answer's citations. With
+    `include_domains` the search keeps to those sites ('vrt.be', 'vrt.be/nieuws').
 
     The model only has to acknowledge; the search fee and the tokens of the results are on the recorded call.
     """
+    plugin = {'id': 'web', 'engine': 'exa', 'max_results': max_results}
+    if include_domains:
+        plugin['include_domains'] = include_domains
     body = {
-        'model': config().llm_model, 'temperature': 0, 'max_tokens': 16, 'usage': {'include': True},
-        'plugins': [{'id': 'web', 'engine': 'exa', 'max_results': max_results}],
+        'model': config().llm_model, 'temperature': 0, 'max_tokens': 16, 'usage': {'include': True}, 'plugins': [plugin],
         'messages': [{'role': 'system', 'content': 'Reply with OK.'}, {'role': 'user', 'content': query}],
     }
     client = http or httpx.Client(timeout=120.0)

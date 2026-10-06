@@ -47,6 +47,8 @@ MONTHS = {
     # CLAUDE> Dutch
     'januari': 1, 'februari': 2, 'maart': 3, 'mrt': 3, 'mei': 5, 'juni': 6, 'juli': 7, 'augustus': 8, 'oktober': 10,
     'okt': 10,
+    # CLAUDE> Bozar writes maart as 'Maa.' ('Nu → 7 Maa.'27'): without it four exhibitions had no start and were dropped
+    'maa': 3,
     # CLAUDE> French
     'janvier': 1, 'janv': 1, 'février': 2, 'fevrier': 2, 'févr': 2, 'fevr': 2, 'mars': 3, 'avril': 4, 'avr': 4, 'mai': 5,
     'juin': 6, 'juillet': 7, 'juil': 7, 'août': 8, 'aout': 8, 'septembre': 9, 'octobre': 10, 'novembre': 11,
@@ -408,12 +410,12 @@ def _date_matches(text: str, today: date) -> list[tuple[int, int, list[tuple[dat
 
 def _year_from_range_end(found: list, yearless: set[int], text: str) -> list:
     """'25 Jan - 1 Feb 2026': a start without a year takes the year of the end it runs to (the year before when its month
-    comes later: '20 Dec - 5 Jan 2027')."""
+    comes later: '20 Dec - 5 Jan 2027'). The month's dot may stand before the range word ('20 Feb. →' then '14 Juni'26')."""
     fixed = list(found)
     for i, (start, end, days, style) in enumerate(found[:-1]):
         after_start, _, after_days, _ = found[i + 1]
         if (start in yearless and after_start not in yearless and len(days) == 1 and after_days
-                and re.fullmatch(rf'\s*{_RANGE_WORD}\s*', text[end:after_start], re.IGNORECASE)):
+                and re.fullmatch(rf'\.?\s*{_RANGE_WORD}\s*', text[end:after_start], re.IGNORECASE)):
             day, last = days[0][0], after_days[0][0]
             year = last.year - 1 if (day.month, day.day) > (last.month, last.day) else last.year
             fixed[i] = (start, end, [(replace_year(day, year), days[0][1])], style)

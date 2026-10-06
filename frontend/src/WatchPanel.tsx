@@ -1,14 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
-import { checkWatch, getWatch, saveWatch, watchFromEvents, type Interpretation, type SiteProgress, type WatchState } from './api'
+import {
+  checkWatch, getWatch, saveWatch, watchFromEvents, type Interpretation, type SiteProgress, type WatchedSite, type WatchState,
+} from './api'
 import { servePageRequests } from './capture'
 import { extensionIsCurrent } from './openTab'
 import StopButton from './StopButton'
 
-// CLAUDE> the agenda sites the user watches: checked only when they press the button; the new events open in the preview
+// CLAUDE> the sites the user unticked stay unticked in this browser; a site added later starts ticked
+const UNTICKED_KEY = 'watch-unticked'
+const storedUnticked = (): number[] => {
+  try { return JSON.parse(localStorage.getItem(UNTICKED_KEY) ?? '[]') } catch { return [] }
+}
+
+// CLAUDE> the agenda sites the user watches: checked only when they press the button, all of them or the ones ticked; the
+// new events open in the preview
 export default function WatchPanel({ onPreview }: { onPreview: (data: Interpretation) => void }) {
   const client = useQueryClient()
+  const [unticked, setUnticked] = useState<number[]>(storedUnticked)
+  const keepUnticked = (next: number[]) => {
+    setUnticked(next)
+    try { localStorage.setItem(UNTICKED_KEY, JSON.stringify(next)) } catch { /* CLAUDE> no storage: the choice lasts this visit */ }
+  }
   const check = useMutation({
     mutationFn: ({ viaBrowser, only }: { viaBrowser: boolean; only: number[] | null }) => checkWatch(viaBrowser, only),
     onSuccess: data => {
@@ -24,17 +38,23 @@ export default function WatchPanel({ onPreview }: { onPreview: (data: Interpreta
   if (!state.data) return null
   const data = state.data
   const needs = data.needs_browser
+  const chosen = data.sites.filter(s => !unticked.includes(s.id))
+  const all = chosen.length === data.sites.length
   return (
     <section className="watch-card">
       <div className="watch-head">
         <h2>Watched agenda sites</h2>
         <span className="watch-buttons">
           <StopButton action="watch-check" running={check.isPending} />
-          <button type="button" className="primary" disabled={check.isPending || data.lines.length === 0}
-                  onClick={() => check.mutate({ viaBrowser: false, only: null })}>
-            {check.isPending ? 'Checking…' : 'Check for new events'}</button>
+          <button type="button" className="primary" disabled={check.isPending || chosen.length === 0}
+                  onClick={() => check.mutate({ viaBrowser: false, only: all ? null : chosen.map(s => s.id) })}>
+            {check.isPending ? 'Checking…' : all ? 'Check for new events' : `Check ${chosen.length} of ${data.sites.length} sites`}
+          </button>
         </span>
       </div>
+      {data.sites.length > 0 && (
+        <SiteChoices sites={data.sites} unticked={unticked} onChange={keepUnticked} disabled={check.isPending} />
+      )}
       {needs.length > 0 && !extensionIsCurrent() && (
         <p className="news-notice">Reload the Automation desk reader extension once: vivaldi://extensions, then ↻ on its card, then
           this page. Read via browser needs it.</p>
@@ -56,6 +76,32 @@ export default function WatchPanel({ onPreview }: { onPreview: (data: Interpreta
         <FromEvents onDone={() => client.invalidateQueries({ queryKey: ['watch'] })} />
       </details>
     </section>
+  )
+}
+
+// CLAUDE> a tick per site to choose which ones a check reads; each name opens its agenda page
+function SiteChoices({ sites, unticked, onChange, disabled }: {
+  sites: WatchedSite[]; unticked: number[]; onChange: (next: number[]) => void; disabled: boolean
+}) {
+  return (
+    <div className="watch-sites">
+      <div className="watch-sites-head">
+        <span>Sites to check</span>
+        <button type="button" className="link-button" disabled={disabled} onClick={() => onChange([])}>All</button>
+        <button type="button" className="link-button" disabled={disabled} onClick={() => onChange(sites.map(s => s.id))}>None</button>
+      </div>
+      <ul>
+        {sites.map(s => (
+          <li key={s.id} className="watch-site">
+            <input type="checkbox" checked={!unticked.includes(s.id)} disabled={disabled} aria-label={`Check ${s.label}`}
+                   onChange={e => onChange(e.target.checked ? unticked.filter(id => id !== s.id) : [...unticked, s.id])} />
+            <a href={s.url} target="_blank" rel="noreferrer" className="watch-site-name">{s.label}</a>
+            {s.calendar && <span className="muted">→ {s.calendar}</span>}
+            {s.last_result && <span className="watch-site-result muted" title={s.last_result}>{s.last_result}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 

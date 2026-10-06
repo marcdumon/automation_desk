@@ -158,6 +158,8 @@ class StandardTask(ABC):
     id: ClassVar[str]
     name: ClassVar[str]
     description: ClassVar[str]
+    # CLAUDE> what the page shows when the description holds hints for the model ('Only when the user asks to CHANGE…')
+    summary: ClassVar[str] = ''
     example: ClassVar[str]
     Args: ClassVar[type[TaskArgs]]
     # CLAUDE> the task-specific part of the system prompt: how to fill Args from a sentence

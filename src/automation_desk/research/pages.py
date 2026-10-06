@@ -140,8 +140,8 @@ def read(url: str, http: httpx.Client) -> Read:
         except CaptureError as error:
             raise Unreadable(f'{url}: {error}') from error
     if page.pdf or not page.html:
-        # CLAUDE> a PDF or an empty page has no shop text: no model call is paid for it
-        raise Unreadable(f'{url}: a PDF or an empty page, not a shop page')
+        # CLAUDE> a PDF or an empty page has no text to read: no model call is paid for it
+        raise Unreadable(f'{url}: a PDF or an empty page; the app reads web pages only')
     soup = BeautifulSoup(page.html, 'lxml')
     products = jsonld_products(soup, page.url)
     text, links = marked_text(soup, page.url)

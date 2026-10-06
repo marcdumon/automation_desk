@@ -70,7 +70,20 @@ def test_the_overview_the_page_shows() -> None:
     assert view['cleanup'] == {'project': '🧹 Big Cleanup', 'open': 2, 'per_day': 1.0, 'empty_on': '2026-10-02'}
     assert [p['project'] for p in view['projects']] == ['🏠 Home', '🧹 Big Cleanup']
     assert len(view['weekdays']) == 7 and view['weekdays'][1]['label'] == 'Tue'
-    assert [d['day'] for d in view['series']][:2] == ['2026-09-01', '2026-09-02'] and view['series'][-1]['open'] == 6
+    # CLAUDE> the charts start at the first morning count: days before it have nothing to show
+    assert [d['day'] for d in view['series']][:2] == ['2026-09-26', '2026-09-27'] and view['series'][-1]['open'] == 6
+
+
+def test_the_tasks_set_up_before_the_first_morning_count_are_not_added() -> None:
+    """The user put 118 tasks in Todoist on 29 September; the first morning count was the 30th. They are where the
+    statistics start, not 118 tasks added in a week ('more added than done'), and no bar of 118."""
+    stats.save_snapshot(date(2026, 9, 30), {'open': 119, 'overdue': 0, 'someday': 0, 'this_week': 0, 'this_month': 0,
+                                            'this_year': 0, 'next_year': 0}, {'🏠 Home': 119})
+    stats.refresh_activity(todoist(), MORNING, days=3)
+    view = stats.overview(date(2026, 9, 30), period=30)
+    assert [d['day'] for d in view['series']] == ['2026-09-30'] and view['kpis']['added_7d'] == 1
+    weekdays = {w['label']: w['average'] for w in view['weekdays']}
+    assert weekdays['Wed'] == 1.0 and weekdays['Mon'] is None, 'a weekday without a day counted yet has no average'
 
 
 def test_the_share_of_the_day_s_planned_tasks_that_got_done() -> None:

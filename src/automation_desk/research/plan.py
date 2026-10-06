@@ -6,11 +6,13 @@ from pydantic import BaseModel
 from automation_desk.llm import ask
 
 LANGUAGES = {'BE': 'Dutch and French', 'NL': 'Dutch', 'DE': 'German', 'FR': 'French', 'LU': 'French and German',
-             'AT': 'German', 'IT': 'Italian', 'ES': 'Spanish', 'UK': 'English', 'PL': 'Polish'}
+             'AT': 'German', 'IT': 'Italian', 'ES': 'Spanish', 'UK': 'English', 'PL': 'Polish', 'US': 'English'}
+# CLAUDE> plans filled the limit (16 to 24 searches); each costs a search fee plus its results' tokens
 SYSTEM = '''Write web searches that find shop pages ({kind}s for sale, with price) and manufacturer pages for the need.
 Per country use its languages and the words shops there use; add brand or model searches when the answers point to them,
 and a few general searches (country "") for reviews and comparisons in English. For a service, search companies near the
-municipality given. Most useful searches first. At most {limit}.'''
+municipality given. Most useful searches first. Write the fewest searches that cover the need: about 3 per country and
+2 general ones, more only when the answers name several brands or kinds of {kind}; never more than {limit}.'''
 
 
 class Query(BaseModel):

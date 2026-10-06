@@ -10,5 +10,6 @@ export const ms = (value: number) => (value < 1000 ? `${value} ms` : `${(value /
 export const when = (iso: string) =>
   new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
-export const applied = (job: { applied_at: string; apply_status: string }) =>
-  job.apply_status === 'error' ? 'failed' : job.applied_at ? 'yes' : 'no'
+// CLAUDE> '—' for a job with nothing to apply (a digest, an answer, a research): 'no' read as something left undone
+export const applied = (job: { applied_at: string; apply_status: string; appliable?: boolean }) =>
+  job.apply_status === 'error' ? 'failed' : job.applied_at ? 'yes' : job.appliable === false ? '—' : 'no'

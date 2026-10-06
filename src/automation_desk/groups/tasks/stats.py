@@ -142,13 +142,25 @@ def _cleanup(snapshots: list[dict]) -> dict | None:
     return {'project': name, 'open': last_open, 'per_day': per_day, 'empty_on': empty_on}
 
 
+def _first_count() -> date | None:
+    """The day of the first morning count: the statistics start there."""
+    with connect() as db:
+        day = db.execute('SELECT MIN(day) FROM task_days').fetchone()[0]
+    return date.fromisoformat(day) if day else None
+
+
 def overview(today: date, period: int = 30) -> dict:
-    """Everything the Tasks page shows for the last `period` days (0 = everything recorded)."""
+    """Everything the Tasks page shows for the last `period` days (0 = everything recorded), from the first morning count
+    on: the tasks set up before it are where the statistics start, not tasks added (118 put in Todoist the day before the
+    first count gave 'more added than done' and a bar of 118), and days before it have nothing to chart."""
     first = today - timedelta(days=period - 1) if period else date(2000, 1, 1)
+    begun = _first_count()
+    if begun:
+        first = max(first, begun)
     snapshots = days(first, today)
     done = {a['day']: a for a in activity(first, today)}
     by_day = {s['day']: s for s in snapshots}
-    start = first if period else (date.fromisoformat(min([*by_day, *done])) if by_day or done else today)
+    start = first if period or begun else (date.fromisoformat(min(done)) if done else today)
     series = []
     for n in range((today - start).days + 1):
         day = (start + timedelta(days=n)).isoformat()
@@ -159,7 +171,8 @@ def overview(today: date, period: int = 30) -> dict:
     week = [s for s in series if s['day'] > (today - timedelta(days=7)).isoformat()]
     week_ago = by_day.get((today - timedelta(days=7)).isoformat())
     now_counts = snapshots[-1] if snapshots else {}
-    weekdays = [{'label': label, 'average': 0.0, 'plan_pct': None} for label in WEEKDAYS]
+    # CLAUDE> a weekday not counted yet has no average: 0 would say nothing got done on it
+    weekdays = [{'label': label, 'average': None, 'plan_pct': None} for label in WEEKDAYS]
     per_weekday: dict[int, list[dict]] = {}
     for s in series:
         per_weekday.setdefault(date.fromisoformat(s['day']).weekday(), []).append(s)

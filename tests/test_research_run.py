@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from automation_desk import jobs, ledger, stop
-from automation_desk.research import advice, offers, pages, plan, questions, requirements, run, score, search, store
+from automation_desk.research import advice, offers, pages, plan, questions, requirements, run, score, search, store, summary
 
 
 @pytest.fixture
@@ -461,3 +461,222 @@ def test_pages_from_countries_not_chosen_are_not_kept_or_read(standins, monkeypa
     rid = started()
     run.advance(rid)
     assert sorted(p['url'] for p in store.pages(rid)) == ['https://shop.be/p', 'https://shop.com/p']
+
+
+@pytest.fixture
+def summary_standins(monkeypatch) -> dict:
+    """The site search, the page reader and the model replaced for a subject summary; `calls` keeps the sites searched,
+    the pages read and the points the summary got."""
+    calls = {'search': [], 'read': [], 'compiled': [], 'web': [], 'queries': 0}
+    count = threading.Lock()
+
+    def search_web_hits(query: str, http: object) -> list[search.Hit]:
+        """Three pages of the web for each search; the second is about sport."""
+        with count:
+            calls['web'].append(query)
+        slug = query.replace(' ', '-')
+        return [search.Hit(url=f'https://web.be/{slug}/{name}', title='', snippet='', country='') for name in ('a', 'sport', 'c')]
+
+    def search_site(subject: str, site: str, http: object) -> list[search.Hit]:
+        """Three pages of the site; the second is about sport."""
+        with count:
+            calls['search'].append(site)
+        return [search.Hit(url=f'https://{site}/{name}', title='', snippet='', country='') for name in ('a', 'sport', 'c')]
+
+    def read(url: str, http: object) -> pages.Read:
+        """Every page reads."""
+        with count:
+            calls['read'].append(url)
+        return pages.Read(url=url, text=f'Text of {url}', products=[])
+
+    def ask(system: str, user: str, schema: type, **kwargs: object) -> object:
+        """A point per page about the subject; one group that uses the first point."""
+        if schema is summary.Queries:
+            calls['queries'] += 1
+            return summary.Queries(queries=['flat roof rules', 'flat roof permit'])
+        if schema is summary.KeyPoints:
+            url = user.split('Page: ', 1)[1].split('\n', 1)[0]
+            return summary.KeyPoints(relevant='sport' not in url, title=f'Title {url}', points=[f'Point of {url}.'])
+        calls['compiled'].append(user)
+        return summary.Compiled(title='Flat roofs', paragraphs=['Sum.'], groups=[summary.Group(heading='Rules', items=[
+            summary.KeyPoint(text='A permit.', points=[1])])])
+
+    monkeypatch.setattr(summary, 'search_site', search_site)
+    monkeypatch.setattr(summary, 'search_web_hits', search_web_hits)
+    monkeypatch.setattr(pages, 'read', read)
+    monkeypatch.setattr(summary, 'ask', ask)
+    return calls
+
+
+def summary_started(*lines: str, target: dict | None = None) -> int:
+    """A summary of flat roof rules from the sites and pages given, ready to run."""
+    return run.start_summary('Rules for flat roofs', summary.parse_sites(list(lines or ('vrt.be', 'https://hln.be/b'))), target or {})
+
+
+def test_a_summary_runs_from_the_site_searches_to_the_summary(summary_standins) -> None:
+    rid = summary_started()
+    assert (store.get(rid)['state'], store.get(rid)['kind'], store.get(rid)['step']) == ('running', 'summary', 'search')
+    run.advance(rid)
+    row = store.get(rid)
+    assert (row['state'], row['title']) == ('done', 'Flat roofs') and row['result']['paragraphs'] == ['Sum.']
+    assert summary_standins['search'] == ['vrt.be'], 'the page named is read, not searched'
+    assert summary_standins['read'][0] == 'https://hln.be/b' and len(summary_standins['read']) == 4, 'Belgian pages are kept'
+    assert row['result']['sources'] == [{'n': 1, 'url': 'https://hln.be/b', 'title': 'Title https://hln.be/b', 'site': 'hln.be'}]
+    assert row['result']['off_subject'] == ['https://vrt.be/sport'] and row['result']['unread'] == []
+    assert 'P3. Point of https://vrt.be/c.' in summary_standins['compiled'][0] and 'sport' not in summary_standins['compiled'][0]
+
+
+def test_a_page_that_cannot_be_read_is_listed(summary_standins, monkeypatch) -> None:
+    real = pages.read
+    monkeypatch.setattr(pages, 'read', lambda url, http: (_ for _ in ()).throw(pages.Unreadable(f'{url}: a PDF'))
+                        if url.endswith('/c') else real(url, http))
+    rid = summary_started()
+    run.advance(rid)
+    assert store.get(rid)['result']['unread'] == ['https://vrt.be/c']
+
+
+def test_stop_ends_the_summary_with_the_pages_read(summary_standins, monkeypatch) -> None:
+    monkeypatch.setattr(run, 'WORKERS', 1)
+    rid = summary_started()
+    real = pages.read
+    monkeypatch.setattr(pages, 'read', lambda url, http: (stop.request(run.stop_key(rid)), real(url, http))[1])
+    run.advance(rid)
+    row = store.get(rid)
+    assert (row['state'], row['result']['stopped_by']) == ('stopped', 'you stopped it') and len(summary_standins['read']) == 1
+    assert row['result']['groups'], 'the summary is made from the one page read'
+    assert run.stop_text(row) == 'You stopped the summary. It uses the pages read until then.'
+
+
+def test_the_page_limit_ends_the_reading_of_a_summary(summary_standins) -> None:
+    store.save_settings(limits={'searches': 20, 'pages': 2, 'cost': 1.0})
+    rid = summary_started()
+    run.advance(rid)
+    row = store.get(rid)
+    assert len(summary_standins['read']) == 2 and (row['state'], row['result']['stopped_by']) == ('done', 'the page limit')
+    assert run.stop_text(row) == 'The summary stopped after reading 2 pages, your page limit. It uses the pages read until then.'
+
+
+def test_the_search_limit_leaves_sites_unsearched_but_reads_the_pages_found(summary_standins) -> None:
+    store.save_settings(limits={'searches': 1, 'pages': 30, 'cost': 1.0})
+    rid = summary_started('vrt.be', 'hln.be')
+    run.advance(rid)
+    row = store.get(rid)
+    assert summary_standins['search'] == ['vrt.be'] and len(summary_standins['read']) == 3
+    assert run.stop_text(row) == 'The summary stopped after 1 search, your search limit. It uses the pages read until then.'
+
+
+def test_continue_after_a_failed_summary_pays_no_search_again(summary_standins, monkeypatch) -> None:
+    rid = summary_started()
+    real = summary.ask
+    monkeypatch.setattr(summary, 'ask', lambda system, user, schema, **k: (_ for _ in ()).throw(
+        RuntimeError('OpenRouter returned 502')) if schema is summary.Compiled else real(system, user, schema, **k))
+    run.advance(rid)
+    assert (store.get(rid)['state'], store.get(rid)['step']) == ('failed', 'compile')
+    monkeypatch.setattr(summary, 'ask', real)
+    run.resume(rid)
+    run.advance(rid)
+    assert store.get(rid)['state'] == 'done' and summary_standins['search'] == ['vrt.be'] and len(summary_standins['read']) == 4
+
+
+def test_a_summary_keeps_the_note_it_goes_to_and_cannot_be_scored(summary_standins) -> None:
+    target = {'vault': '/v', 'note': 'Projects/roof.md', 'heading': {'level': 2, 'text': 'Costs'}, 'level': 2}
+    rid = summary_started(target=target)
+    assert store.get(rid)['target'] == target and store.get(rid)['plan'] == [{'kind': 'site', 'site': 'vrt.be'},
+                                                                            {'kind': 'page', 'url': 'https://hln.be/b'}]
+    run.advance(rid)
+    with pytest.raises(run.WrongState, match='summary'):
+        run.rescore(rid)
+    assert store.get(rid)['state'] == 'done'
+
+
+def test_go_on_reads_the_pages_left_and_makes_the_result_again(standins) -> None:
+    """Research 5 stopped at its page limit with 120 found pages not read, and nothing let the user read on."""
+    store.save_settings(limits={'searches': 20, 'pages': 2, 'cost': 1.0})
+    rid = started()
+    run.advance(rid)
+    row = store.get(rid)
+    assert (row['result']['stopped_by'], standins['read'], run.left(row)) == ('the page limit', 2, {'pages': 2, 'searches': 0})
+    run.go_on(rid)
+    row = store.get(rid)
+    assert (row['state'], row['step'], row['limits']['pages']) == ('running', 'search', 4)
+    run.advance(rid)
+    row = store.get(rid)
+    assert (row['state'], row['result']['stopped_by'], standins['read'], run.left(row)) == ('done', '', 4, {'pages': 0, 'searches': 0})
+    with pytest.raises(run.WrongState, match='Nothing is left'):
+        run.go_on(rid)
+
+
+def test_websites_added_to_a_summary_are_searched_and_the_summary_written_again(summary_standins) -> None:
+    rid = summary_started('vrt.be')
+    run.advance(rid)
+    run.go_on(rid, summary.parse_sites(['hln.be', 'vrt.be']))
+    row = store.get(rid)
+    assert row['plan'] == [{'kind': 'site', 'site': 'vrt.be'}, {'kind': 'site', 'site': 'hln.be'}] and row['state'] == 'running'
+    run.advance(rid)
+    assert summary_standins['search'] == ['vrt.be', 'hln.be'] and len(summary_standins['read']) == 6
+    assert store.get(rid)['state'] == 'done' and len(summary_standins['compiled']) == 2
+    with pytest.raises(run.WrongState, match='in the summary already'):
+        run.go_on(rid, summary.parse_sites(['hln.be']))
+
+
+def test_a_failure_message_has_one_full_stop(summary_standins, monkeypatch) -> None:
+    """The page showed "The test copy makes no model calls.. Press Continue"."""
+    monkeypatch.setattr(summary, 'ask', lambda *a, **k: (_ for _ in ()).throw(RuntimeError('No model calls.')))
+    monkeypatch.setattr(pages, 'read', lambda url, http: (_ for _ in ()).throw(RuntimeError('No model calls.')))
+    monkeypatch.setattr(summary, 'search_site', lambda *a: (_ for _ in ()).throw(RuntimeError('No model calls.')))
+    rid = summary_started('vrt.be')
+    run.advance(rid)
+    assert store.get(rid)['note'] == 'No model calls. Press Continue to try this step again.'
+
+
+def test_a_summary_costs_less_around_its_pages_than_a_research() -> None:
+    """A summary has one model step (the summary itself); the shown cost was about 20 times the real one."""
+    nothing = {'searches': 0, 'pages': 0, 'cost': 1.0}
+    assert run.estimate(nothing, 'summary') < run.estimate(nothing) / 4
+
+
+def test_a_summary_without_websites_searches_the_web_for_its_subject(summary_standins, monkeypatch) -> None:
+    """A summary needed websites; without them it searches the whole web, with searches the model writes once."""
+    rid = run.start_summary('Rules for flat roofs', [], {})
+    real = summary.ask
+    monkeypatch.setattr(summary, 'ask', lambda system, user, schema, **k: (_ for _ in ()).throw(RuntimeError('502'))
+                        if schema is summary.Compiled else real(system, user, schema, **k))
+    run.advance(rid)
+    row = store.get(rid)
+    assert row['plan'] == [{'kind': 'web', 'query': 'flat roof rules'}, {'kind': 'web', 'query': 'flat roof permit'}]
+    assert summary_standins['web'] == ['flat roof rules', 'flat roof permit'] and len(summary_standins['read']) == 6
+    assert run.left(row) == {'pages': 0, 'searches': 0}
+    monkeypatch.setattr(summary, 'ask', real)
+    run.resume(rid)
+    run.advance(rid)
+    assert store.get(rid)['state'] == 'done' and summary_standins['queries'] == 1, 'Continue writes no new searches'
+    assert summary_standins['web'] == ['flat roof rules', 'flat roof permit'], 'and pays for no search again'
+
+
+def test_the_rates_are_fetched_only_when_a_shop_shows_dollars_or_pounds(standins, monkeypatch) -> None:
+    """A US shop's dollar price competes in euros; a research with only euro prices fetches no rates."""
+    from automation_desk.research import rates
+
+    fetched = []
+    monkeypatch.setattr(rates, 'current', lambda http=None, today=None: fetched.append(1) or {'date': '2026-10-02', 'USD': 1.25})
+    rid = started()
+    run.advance(rid)
+    assert fetched == [], 'only euro prices: no download'
+    monkeypatch.setattr(offers, 'ask', lambda *a, **k: offers.Facts(products=[offers.FoundProduct(
+        name='US pump', brand='X', model='U1', price=100.0, specs=[], contact='')], ships_to_belgium='yes', delivery_cost=None))
+    monkeypatch.setattr(pages, 'read', lambda url, http: pages.Read(url=url, text='US pump $100.00', products=[]))
+    rid = started()
+    run.advance(rid)
+    best = store.get(rid)['result']['ranking'][0]
+    assert fetched and best['total'] == 96.8 and best['original']['currency'] == 'USD'
+
+
+def test_a_request_for_something_free_has_a_budget_of_nothing_and_no_budget_question(standins, monkeypatch) -> None:
+    """The mindmap research asked for price classes that were all € 0, for nothing."""
+    monkeypatch.setattr(questions, 'ask', lambda *a, **k: questions.Form(kind='product', unknowns=[], free=True, questions=[]))
+    rid = run.start('A free mindmap program for Linux', None, ['BE'])
+    assert store.get(rid)['budget'] == 0
+    run.answer(rid, {}, 'product')
+    run.advance(rid)
+    run.confirm_requirements(rid, store.get(rid)['requirements'])
+    assert store.get(rid)['step'] == 'plan', 'no price classes'

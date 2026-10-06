@@ -108,7 +108,7 @@ class Job:
             'id': self.id, 'group': self.group, 'sentence': self.sentence, 'task_id': self.task_id,
             'task_name': self.task_name, 'started': self.started, 'status': 'ok' if running else self.status,
             'message': self.message, 'applied_at': self.applied_at, 'apply_status': self.apply_status,
-            'apply_message': self.apply_message, 'results': len(self.results),
+            'apply_message': self.apply_message, 'results': len(self.results), 'appliable': ledger.appliable(self.preview),
             'preview_ms': preview_ms, 'apply_ms': self.apply_ms, 'duration_ms': preview_ms + self.apply_ms,
             'models': sorted({c.model_used or c.model_requested for c in self.llm_calls}),
             'llm_calls': len(self.llm_calls),

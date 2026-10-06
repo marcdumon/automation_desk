@@ -475,3 +475,22 @@ def test_a_dotted_start_before_a_full_end_date_is_a_date() -> None:
     assert read_dates('09.10—19.12.2026', today) == [date(2026, 10, 9), date(2026, 12, 19)]
     assert read_dates('13.12—18.01.2025', today) == [date(2024, 12, 13), date(2025, 1, 18)]
     assert read_dates('Tickets 12.50 - 15.00', today) == []
+
+
+def test_bozar_writes_maart_as_maa() -> None:
+    """Bozar: 'Nu → 7 Maa.'27' (Kentridge), '12 Maa. → 13 Juni'27' (Kasuba): four exhibitions had no start and were dropped."""
+    from automation_desk.groups.calendar.web_page import read_dates
+
+    today = date(2026, 10, 4)
+    assert read_dates("7 Maa.'27", today) == [date(2027, 3, 7)]
+    assert read_dates("12 Maa. → 13 Juni'27", today) == [date(2027, 3, 12), date(2027, 6, 13)]
+
+
+def test_a_start_with_a_dot_takes_the_year_of_the_end_on_the_next_line() -> None:
+    """Bozar: '20 Feb. →' then '14 Juni'26' on the next line: the start became 20 Feb 2027, so a past exhibition looked
+    current and Ho Tzu Nyen went into the calendar for 2027."""
+    from automation_desk.groups.calendar.web_page import read_dates
+
+    today = date(2026, 10, 4)
+    assert read_dates("20 Feb. →\n14 Juni'26", today) == [date(2026, 2, 20), date(2026, 6, 14)]
+    assert read_dates("17 Apr. →\n29 Aug.'27", today) == [date(2027, 4, 17), date(2027, 8, 29)]

@@ -108,8 +108,15 @@ def write(request: str, answers: dict, requirements: list[dict], ranking: list[d
         return {'best': None, 'summary': text, 'reasons': '', 'risks': [], 'stopped_by': stopped_by}
     checks = '\n'.join(f'- {r["text"]} ({r["weight"]}): {VERDICTS[best["checks"][r["id"]]]}' for r in requirements)
     # CLAUDE> "with delivery" only when a shop showed its delivery cost: research 1 claimed it without one
+    original = best.get('original')
     if best['total'] is None:
         price = 'Price: not on the website'
+    elif best['total'] == 0:
+        price = 'Price: free (it costs nothing)'
+    elif original:
+        # CLAUDE> a dollar or pound price turned into euros: the reader must know it is an estimate
+        price = (f'Price: about € {best["total"]:.2f}: {original["currency"]} {original["total"]:.2f} at the ECB rate of '
+                 f'{original["date"]} plus 21% Belgian import VAT; customs duties and fees not included')
     elif best.get('delivery_known'):
         price = f'Price with delivery: € {best["total"]:.2f}'
     else:
@@ -119,6 +126,7 @@ def write(request: str, answers: dict, requirements: list[dict], ranking: list[d
     advice = ask(ADVISE.format(kind=noun), f'{_brief(request, answers)}\n\n{facts}', Advice, http=http,
                  purpose='research: advice')
     # CLAUDE> the amounts the text may name: the chosen price and the budget, never another product's price
-    known = {round(v, 2) for v in (best['total'], budget) if v is not None}
+    known = {round(v, 2) for v in (best['total'], budget, *((original['price'], original['total']) if original else ()))
+             if v is not None}
     return {'best': best, 'reasons': clean_text(advice.reasons, known), 'summary': clean_text(advice.summary, known),
             'risks': [r for r in (clean_text(r, known) for r in advice.risks) if r], 'stopped_by': stopped_by}

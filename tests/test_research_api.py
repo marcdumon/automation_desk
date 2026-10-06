@@ -1,5 +1,7 @@
 """The Research routes over HTTP, with the engine's steps run by stand-ins."""
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -312,3 +314,202 @@ def test_without_a_vault_a_finished_research_is_not_saved(client, monkeypatch) -
     store.update(rid, state='questions')
     client.post(f'/api/research/{rid}/answers', json={'answers': {'q1': 'a'}, 'kind': 'product'})
     assert 'note' not in store.get(rid)['result']
+
+
+SUMMED = {'title': 'Flat roofs', 'paragraphs': ['S.'], 'stopped_by': '', 'unread': [], 'off_subject': [], 'pages_read': 2,
+          'groups': [{'heading': 'Rules', 'items': [{'text': 'A permit.', 'sources': [1]}, {'text': 'Costs.', 'sources': [1, 2]}]}],
+          'sources': [{'n': 1, 'url': 'https://vrt.be/a', 'title': '', 'site': 'vrt.be'},
+                      {'n': 2, 'url': 'https://hln.be/b', 'title': '', 'site': 'hln.be'}]}
+
+
+def test_start_a_summary_and_see_it_in_the_list(client, monkeypatch) -> None:
+    ran = []
+    monkeypatch.setattr(run, 'advance', lambda rid: (ran.append(rid), store.update(rid, state='done', result=SUMMED)))
+    made = client.post('/api/research/summary', json={'subject': 'Flat roofs', 'sites': ['vrt.be', '', 'https://hln.be/b']}).json()
+    assert (made['kind'], made['target'], ran) == ('summary', {}, [made['id']])
+    assert made['plan'] == [{'kind': 'site', 'site': 'vrt.be'}, {'kind': 'page', 'url': 'https://hln.be/b'}]
+    card = client.get('/api/research').json()['researches'][0]
+    assert card['summary'] == {'points': 2, 'sources': 2, 'sites': 2}
+
+
+@pytest.mark.parametrize('body, says', [
+    ({'subject': ' ', 'sites': ['vrt.be']}, 'Write the subject'),
+    ({'subject': 'x', 'sites': ['vrt.be', 'solar panels']}, 'Line 2, "solar panels", is not a website'),
+    ({'subject': 'x', 'sites': ['vrt.be'], 'target': {'note': 'a.md'}}, 'No Obsidian vault is set')])
+def test_a_summary_needs_a_subject_websites_and_a_note_that_exists(client, body: dict, says: str) -> None:
+    answer = client.post('/api/research/summary', json=body)
+    assert answer.status_code == 400 and says in answer.json()['detail']
+
+
+def test_the_notes_and_their_headings_come_from_the_vault_in_settings(client, monkeypatch, tmp_path) -> None:
+    vault = tmp_path / 'work_vault'
+    (vault / 'Projects').mkdir(parents=True)
+    (vault / 'Projects' / 'roof.md').write_text('\n'.join(['# Roof', 'Intro.', '## Costs', 'Text.', '']))
+    store.save_settings(vault=str(vault))
+    # CLAUDE> /api/research/{id} matches any word: the notes route must come first
+    assert client.get('/api/research/notes', params={'q': 'roof'}).json() == {'notes': [{'path': 'Projects/roof.md', 'name': 'roof'}]}
+    assert client.get('/api/research/notes/headings', params={'path': 'Projects/roof.md'}).json() == {
+        'headings': [{'level': 1, 'text': 'Roof'}, {'level': 2, 'text': 'Costs'}]}
+    assert client.get('/api/research/notes/headings', params={'path': '../x.md'}).status_code == 400
+    monkeypatch.setattr(run, 'advance', lambda rid: store.update(rid, state='done', result=SUMMED))
+    target = {'note': 'Projects/roof.md', 'place': 'after', 'heading': {'level': 1, 'text': 'Roof'}, 'level': 2}
+    made = client.post('/api/research/summary', json={'subject': 'Flat roofs', 'sites': ['vrt.be'], 'target': target}).json()
+    assert made['target'] == target | {'vault': str(vault), 'title': ''}
+    text = (vault / 'Projects' / 'roof.md').read_text()
+    assert text.index('## Costs') < text.index(f'%% summary {made["id"]} %%'), 'saved at once, after all text under Roof'
+    assert made['result']['note']['path'] == str(vault / 'Projects' / 'roof.md') and made['result']['note']['error'] == ''
+
+
+def test_a_summary_is_not_scored_again(client) -> None:
+    rid = store.create('Flat roofs', None, [])
+    store.update(rid, kind='summary', state='done', result=SUMMED)
+    store.add_page(rid, 'https://vrt.be/a', 'vrt.be', '', '', '')
+    store.update_page(rid, 'https://vrt.be/a', status='read')
+    answer = client.post(f'/api/research/{rid}/rescore')
+    assert answer.status_code == 409 and 'summary' in answer.json()['detail'] and store.get(rid)['state'] == 'done'
+
+
+def test_a_summary_on_top_and_a_place_after_without_a_heading(client, monkeypatch, tmp_path) -> None:
+    vault = tmp_path / 'work_vault'
+    vault.mkdir()
+    (vault / 'roof.md').write_text('\n'.join(['# Roof', 'Intro.', '## Costs', 'Text.', '']))
+    store.save_settings(vault=str(vault))
+    monkeypatch.setattr(run, 'advance', lambda rid: store.update(rid, state='done', result=SUMMED))
+    body = {'subject': 'Flat roofs', 'sites': ['vrt.be']}
+    refused = client.post('/api/research/summary', json=body | {'target': {'note': 'roof.md', 'place': 'after'}})
+    assert refused.status_code == 400 and 'heading' in refused.json()['detail']
+    made = client.post('/api/research/summary', json=body | {'target': {'note': 'roof.md', 'place': 'top',
+                                                                        'heading': {'level': 2, 'text': 'Costs'}}}).json()
+    assert made['target'] == {'note': 'roof.md', 'place': 'top', 'heading': None, 'level': 2, 'title': '', 'vault': str(vault)}
+    text = (vault / 'roof.md').read_text()
+    assert text.index('Intro.') < text.index(f'%% summary {made["id"]} %%') < text.index('\n## Costs\n')
+
+
+def finished_summary(target: dict | None = None) -> int:
+    """A finished summary with one page read, saved to the target given (default: a new note)."""
+    rid = run.start_summary('Flat roofs', [{'kind': 'site', 'site': 'vrt.be'}], target or {})
+    store.update(rid, state='done', result=SUMMED, title='Flat roofs', searches_done=1)
+    store.add_page(rid, 'https://vrt.be/a', 'vrt.be', '', '', '')
+    store.update_page(rid, 'https://vrt.be/a', status='read')
+    return rid
+
+
+def test_go_on_runs_what_is_left_and_refuses_when_nothing_is(client, monkeypatch) -> None:
+    ran = []
+    monkeypatch.setattr(run, 'advance', lambda rid: (ran.append(rid), store.update(rid, state='done')))
+    rid = finished_summary()
+    opened = client.get(f'/api/research/{rid}').json()
+    assert opened['left'] == {'pages': 0, 'searches': 0} and 'go_on_estimate' in opened
+    nothing = client.post(f'/api/research/{rid}/more')
+    assert nothing.status_code == 409 and 'Nothing is left' in nothing.json()['detail']
+    store.add_page(rid, 'https://vrt.be/b', 'vrt.be', '', '', '')
+    assert client.post(f'/api/research/{rid}/more').json()['state'] == 'done' and ran == [rid]
+    store.update(rid, state='running')
+    assert client.post(f'/api/research/{rid}/more').status_code == 409
+    assert client.get('/api/research').json()['unit_costs'].keys() == {'search', 'page', 'steps', 'summary_steps'}
+
+
+def test_websites_are_added_to_a_summary_only(client, monkeypatch) -> None:
+    monkeypatch.setattr(run, 'advance', lambda rid: store.update(rid, state='done'))
+    rid = finished_summary()
+    bad = client.post(f'/api/research/{rid}/sites', json={'sites': ['solar panels']})
+    assert bad.status_code == 400 and 'is not a website' in bad.json()['detail']
+    same = client.post(f'/api/research/{rid}/sites', json={'sites': ['vrt.be']})
+    assert same.status_code == 409 and 'already' in same.json()['detail']
+    added = client.post(f'/api/research/{rid}/sites', json={'sites': ['hln.be']}).json()
+    assert added['plan'][-1] == {'kind': 'site', 'site': 'hln.be'}
+    product = store.create('A pump', 100, ['BE'])
+    store.update(product, state='done')
+    assert client.post(f'/api/research/{product}/sites', json={'sites': ['hln.be']}).status_code == 409
+
+
+def two_notes(tmp_path) -> object:
+    """A vault in Settings with note a.md (a title and text) and note b.md (a title, an intro and one part)."""
+    vault = tmp_path / 'work_vault'
+    vault.mkdir()
+    (vault / 'a.md').write_text('\n'.join(['# A', 'Text A.', '']))
+    (vault / 'b.md').write_text('\n'.join(['# B', 'Intro B.', '## Part', 'Text.', '']))
+    store.save_settings(vault=str(vault))
+    return vault
+
+
+def test_a_summary_saved_somewhere_else_keeps_its_earlier_copy(client, tmp_path) -> None:
+    """One place to save, chosen at each save: a save never deletes what was saved before somewhere else."""
+    vault = two_notes(tmp_path)
+    rid = finished_summary({'vault': str(vault), 'note': 'a.md', 'place': 'end', 'heading': None, 'level': 2, 'title': ''})
+    client.post(f'/api/research/{rid}/export')
+    saved = client.post(f'/api/research/{rid}/export', json={'target': {
+        'note': 'b.md', 'place': 'top', 'level': 2, 'title': 'Pump guide'}}).json()
+    assert f'%% summary {rid} %%' in (vault / 'a.md').read_text(), 'the copy saved before stays'
+    b = (vault / 'b.md').read_text()
+    assert b.index('Intro B.') < b.index(f'%% summary {rid} %%') < b.index('\n## Part\n') and '\n## Pump guide\n' in b
+    assert (saved['path'], saved['title']) == (str(vault / 'b.md'), 'Pump guide')
+    assert store.get(rid)['target'] == {'note': 'b.md', 'place': 'top', 'heading': None, 'level': 2, 'title': 'Pump guide',
+                                        'vault': str(vault)}, 'the place saved last is the one "Save again" uses'
+    new = client.post(f'/api/research/{rid}/export', json={'target': {'note': '', 'title': 'Pump note'}}).json()
+    assert new['path'].endswith('_pump_note.md') and '\n# Pump note\n' in Path(new['path']).read_text()
+    assert f'%% summary {rid} %%' in (vault / 'b.md').read_text() and store.get(rid)['target'] == {'title': 'Pump note'}
+
+
+def test_a_save_into_the_note_that_has_the_summary_puts_it_at_the_place_chosen(client, tmp_path) -> None:
+    vault = two_notes(tmp_path)
+    rid = finished_summary()
+    target = {'note': 'b.md', 'level': 2, 'title': 'Pump guide'}
+    client.post(f'/api/research/{rid}/export', json={'target': target | {'place': 'end'}})
+    client.post(f'/api/research/{rid}/export', json={'target': target | {'place': 'top'}})
+    b = (vault / 'b.md').read_text()
+    assert b.count(f'%% summary {rid} %%') == 1 and b.index(f'%% end of summary {rid} %%') < b.index('\n## Part\n')
+    client.post(f'/api/research/{rid}/export')
+    assert (vault / 'b.md').read_text() == b, '"Save again" writes the same place'
+
+
+def test_a_save_after_a_heading_needs_the_heading(client, tmp_path) -> None:
+    two_notes(tmp_path)
+    rid = finished_summary()
+    answer = client.post(f'/api/research/{rid}/export', json={'target': {'note': 'b.md', 'place': 'after', 'level': 2}})
+    assert answer.status_code == 400 and 'heading' in answer.json()['detail']
+
+
+def test_each_save_takes_the_title_the_user_chooses(client, monkeypatch, tmp_path) -> None:
+    """The note's name came from the research's title, and every save wrote over that one note: the user chooses the title
+    at each save. The same title writes that note again; a new title makes a new note and the earlier one stays."""
+    vault = tmp_path / 'vault'
+    vault.mkdir()
+    store.save_settings(vault=str(vault), subdir='Research')
+    rid = store.create('A pump for the pit', 150, ['BE'])
+    store.update(rid, state='done', title='Pit pump', result={'summary': 'Fits.', 'ranking': []})
+    one = client.post(f'/api/research/{rid}/export', json={'title': 'Pump one'}).json()
+    first = vault / 'Research' / one['path'].rsplit('/', 1)[1]
+    assert first.name.endswith('_pump_one.md') and '\n# Pump one\n' in first.read_text() and one['title'] == 'Pump one'
+    first.write_text(first.read_text() + 'Mine.\n')
+    again = client.post(f'/api/research/{rid}/export', json={'title': 'Pump one'}).json()
+    assert again['path'] == one['path'] and first.read_text().rstrip().endswith('Mine.'), 'the same title: the same note'
+    two = client.post(f'/api/research/{rid}/export', json={'title': 'Pump two'}).json()
+    assert two['path'].endswith('_pump_two.md') and first.exists(), 'a new title: a new note; the earlier one stays'
+    assert store.get(rid)['title'] == 'Pit pump', "the research's own title does not change"
+    monkeypatch.setattr(run, 'advance', lambda rid: None)
+    api._save_note(rid)
+    assert store.get(rid)['result']['note']['path'] == two['path'], 'a save after a run uses the title saved last'
+
+
+def test_a_title_another_note_has_is_refused(client, tmp_path) -> None:
+    vault = tmp_path / 'vault'
+    (vault / 'Research').mkdir(parents=True)
+    store.save_settings(vault=str(vault), subdir='Research')
+    rid = store.create('A pump', 150, ['BE'])
+    store.update(rid, state='done', result={'summary': 'Fits.', 'ranking': []})
+    taken = vault / 'Research' / f'{store.get(rid)["created"][:10]}_my_pump.md'
+    taken.write_text('My own note.\n')
+    answer = client.post(f'/api/research/{rid}/export', json={'title': 'My pump'})
+    assert answer.status_code == 400 and 'Choose another title' in answer.json()['detail']
+    assert taken.read_text() == 'My own note.\n'
+    blank = client.post(f'/api/research/{rid}/export', json={'title': '  '})
+    assert blank.status_code == 400 and 'title' in blank.json()['detail']
+
+
+def test_a_summary_starts_without_websites(client, monkeypatch) -> None:
+    """Without websites the summary searches the web for the subject."""
+    ran = []
+    monkeypatch.setattr(run, 'advance', lambda rid: ran.append(rid))
+    made = client.post('/api/research/summary', json={'subject': 'Flat roofs', 'sites': ['', ' ']}).json()
+    assert (made['plan'], made['state'], ran) == ([], 'running', [made['id']])

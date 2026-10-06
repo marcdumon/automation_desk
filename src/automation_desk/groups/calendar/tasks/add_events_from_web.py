@@ -20,8 +20,8 @@ from automation_desk.dates import (
     resolve_time,
     weekday_index,
 )
-from automation_desk.groups.base import Context, Preview, PreviewOption, Row, StandardTask, TaskArgs, UserError, match_name
-from automation_desk.groups.calendar.client import events_tagged, writable_calendars
+from automation_desk.groups.base import Context, Preview, PreviewOption, Row, StandardTask, TaskArgs, UserError
+from automation_desk.groups.calendar.client import events_tagged, pick_calendar, writable_calendars
 from automation_desk.groups.calendar.organisers import Organiser, organiser_for, placed, save, titled
 from automation_desk.groups.calendar.pdf import PdfError, is_pdf
 from automation_desk.groups.calendar.web_page import WebEvent, pdf_as_html, pdf_events, read_dates, read_events, typed_events
@@ -236,7 +236,7 @@ class AddEventsFromWeb(StandardTask):
     def resolve(self, args: AddEventsArgs, ctx: Context) -> tuple[Preview, dict]:
         """Read the agenda (an attached PDF, a PDF in a mail, or a web page or PDF link) and who made it, then compose."""
         svc = ctx.google('calendar', 'v3')
-        calendar = match_name(args.calendar_name, writable_calendars(svc), 'summary', 'calendar')
+        calendar = pick_calendar(args.calendar_name, writable_calendars(svc))
         period = resolve_range(args.date_range, ctx.today, ctx.sentence) if args.date_range.strip() else None
 
         with httpx.Client(timeout=60.0) as http:

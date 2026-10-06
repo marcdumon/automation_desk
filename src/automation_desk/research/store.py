@@ -6,7 +6,7 @@ from datetime import datetime
 from automation_desk.ledger import connect
 
 JSON_COLUMNS = ('countries', 'questions', 'answers', 'classes', 'plan', 'followups', 'followup_answers', 'result',
-                'limits', 'requirements')
+                'limits', 'requirements', 'target')
 PAGE_JSON = ('facts',)
 DEFAULTS = {'countries': ['BE', 'NL', 'DE', 'FR'], 'municipality': '', 'limits': {'searches': 20, 'pages': 30, 'cost': 1.0},
             'vault': '', 'subdir': 'Research'}
@@ -50,15 +50,21 @@ def update(research_id: int, **fields: object) -> None:
 
 
 def listing() -> list[dict]:
-    """Every research for the overview, newest first: its title, state and cost, and its recommendation in short."""
+    """Every research for the overview, newest first: its title, state and cost, and its recommendation in short (a
+    summary: its counts of key points, sources and sites)."""
     with connect() as db:
         rows = db.execute('SELECT id, request, title, kind, state, created, cost_usd, result FROM research '
                           'ORDER BY id DESC').fetchall()
     out = []
     for row in rows:
         item = dict(row)
-        best = (json.loads(item.pop('result')) if item.get('result') else {}).get('best') or None
+        result = json.loads(item.pop('result')) if item.get('result') else {}
+        best = result.get('best') or None
         item['best'] = {k: best.get(k) for k in ('title', 'score', 'total')} if best else None
+        # CLAUDE> a summary's card: its key points, sources and the sites they come from
+        item['summary'] = {'points': sum(len(g['items']) for g in result.get('groups') or []),
+                           'sources': len(result.get('sources') or []),
+                           'sites': len({s['site'] for s in result.get('sources') or []})} if item['kind'] == 'summary' else None
         out.append(item)
     return out
 
@@ -98,10 +104,24 @@ def update_page(research_id: int, url: str, **fields: object) -> None:
 
 
 def settings() -> dict:
-    """The Research page settings, defaults filled in."""
+    """The Research page settings, defaults filled in (other values kept in the same table, like the rates, are no
+    settings)."""
     with connect() as db:
         stored = {k: json.loads(v) for k, v in db.execute('SELECT key, value FROM research_settings')}
-    return DEFAULTS | stored
+    return DEFAULTS | {k: v for k, v in stored.items() if k in DEFAULTS}
+
+
+def kept(key: str) -> object:
+    """A value the research keeps between runs (the rates of the day), None when there is none."""
+    with connect() as db:
+        row = db.execute('SELECT value FROM research_settings WHERE key = ?', (key,)).fetchone()
+    return json.loads(row[0]) if row else None
+
+
+def keep(key: str, value: object) -> None:
+    """Keep a value between runs."""
+    with connect(write=True) as db:
+        db.execute('INSERT OR REPLACE INTO research_settings (key, value) VALUES (?, ?)', (key, json.dumps(value)))
 
 
 def save_settings(countries: list[str] | None = None, municipality: str | None = None, limits: dict | None = None,

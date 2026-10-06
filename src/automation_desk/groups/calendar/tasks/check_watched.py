@@ -5,6 +5,7 @@ Events left unticked are remembered as declined: later checks list them again, b
 """
 
 import re
+import threading
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -13,9 +14,9 @@ from googleapiclient.discovery import Resource
 
 from automation_desk import ledger, stop
 from automation_desk.capture import CaptureError, NeedsPerson
-from automation_desk.groups.base import Context, Preview, PreviewGroup, StandardTask, TaskArgs, UserError, match_name
+from automation_desk.groups.base import Context, Preview, PreviewGroup, StandardTask, TaskArgs, UserError
 from automation_desk.groups.calendar import watch
-from automation_desk.groups.calendar.client import all_events, writable_calendars
+from automation_desk.groups.calendar.client import all_events, pick_calendar, writable_calendars
 from automation_desk.groups.calendar.organisers import organiser_for
 from automation_desk.groups.calendar.tasks.add_events_from_web import (
     ALL_DAY,
@@ -30,6 +31,8 @@ from automation_desk.groups.calendar.tasks.add_events_from_web import (
 from automation_desk.groups.calendar.web_page import BROWSER_MAY_ASK, download, read_events
 from automation_desk.llm import LLMError
 
+# CLAUDE> one check at a time: two at once read every site twice, and the first one's end cleared the second's progress
+_checking = threading.Lock()
 SOURCE_LINK = re.compile(r'Source: (https?://\S+)')
 EVENT_LINK = re.compile(r'https?://[^\s"\'<>]+')
 # CLAUDE> what agenda pages are called, in the languages of the user's sites
@@ -180,21 +183,33 @@ def _page(url: str) -> str:
 
 
 def _hand_added(svc: Resource, calendar_id: str) -> list[dict]:
-    """The events the user put in a calendar without importing them: their first day, title and text."""
-    return [{'day': (event.get('start', {}).get('date') or event.get('start', {}).get('dateTime', ''))[:10],
-             'titles': sorted(_title_keys(event.get('summary', ''))),
-             'text': f'{event.get("description", "")} {event.get("location", "")}'.casefold()}
-            for event in all_events(svc, calendar_id)
-            if PAGE_TAG not in event.get('extendedProperties', {}).get('private', {})]
+    """The events the user put in a calendar without importing them: their first day, title, and the pages their text
+    links to, in order."""
+    hand_made = []
+    for event in all_events(svc, calendar_id):
+        if PAGE_TAG in event.get('extendedProperties', {}).get('private', {}):
+            continue
+        text = f'{event.get("description", "")} {event.get("location", "")}'
+        hand_made.append({'day': (event.get('start', {}).get('date') or event.get('start', {}).get('dateTime', ''))[:10],
+                          'titles': sorted(_title_keys(event.get('summary', ''))),
+                          'pages': [_page(url) for url in re.findall(r'https?://[^\s"\'<>]+', text)]})
+    return hand_made
+
+
+def _own_page(pages: list[str], host: str) -> str:
+    """The page of a site a typed-in event is about: the first one of that site its text links to."""
+    return next((page for page in pages if page.split('/', 1)[0] == host), '')
 
 
 def _already_there(body: dict, link: str, page_url: str, known: list[dict]) -> bool:
-    """Whether the user typed this event in already: the same first day and title, or a link to its own page."""
+    """Whether the user typed this event in already: the same first day and title, or a link to its own page. Only the
+    first page of the site the event's text links to counts: Bozar's ticket text in the user's Kentridge event links four
+    other exhibitions, which then never showed up."""
     day = (body['start'].get('date') or body['start'].get('dateTime', ''))[:10]
     titles = _title_keys(body['summary'])
     own = _page(link) if link.startswith('http') and _page(link) != _page(page_url) else ''
-    return any((k['day'] == day and any(a in b or b in a for a in titles for b in k['titles'])) or (own and own in k['text'])
-               for k in known)
+    return any((k['day'] == day and any(a in b or b in a for a in titles for b in k['titles']))
+               or (own and own == _own_page(k['pages'], own.split('/', 1)[0])) for k in known)
 
 
 class WatchArgs(TaskArgs):
@@ -222,9 +237,18 @@ class CheckWatchedSites(StandardTask):
         return self.check(ctx)
 
     def check(self, ctx: Context, via_browser: bool = False, only: set[int] | None = None) -> tuple[Preview, dict]:
-        """Read the sites (all, or `only` these) and compose the new events. Pages that need the browser are read in
-        background tabs; only with `via_browser` may a site's human check come forward, else the site is listed on the
-        Calendar page for Read via browser."""
+        """Read the sites (all, or `only` these) and compose the new events, one check at a time. Pages that need the
+        browser are read in background tabs; only with `via_browser` may a site's human check come forward, else the site
+        is listed on the Calendar page for Read via browser."""
+        if not _checking.acquire(blocking=False):
+            raise UserError('A check of the watched sites runs already. Wait until it ends, then check again.')
+        try:
+            return self._check(ctx, via_browser, only)
+        finally:
+            _checking.release()
+
+    def _check(self, ctx: Context, via_browser: bool, only: set[int] | None) -> tuple[Preview, dict]:
+        """The check itself."""
         chosen = [s for s in watch.sites() if only is None or s.id in only]
         if not chosen:
             raise UserError('Add agenda sites to watch first, in Watched agenda sites on the Calendar page.')
@@ -247,7 +271,7 @@ class CheckWatchedSites(StandardTask):
                         continue
                     watch.site_progress(label, 'reading')
                     try:
-                        calendar = match_name(watch.calendar_for(site), calendars, 'summary', 'calendar')
+                        calendar = pick_calendar(watch.calendar_for(site), calendars)
                         # CLAUDE> a site read through the browser before shows its agenda only there; its download misleads
                         events, notes, html = read_events(site.site, ctx.today, ctx.tz, '', 1, http,
                                                           via_browser or site.id in in_browser)

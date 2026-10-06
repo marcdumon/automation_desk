@@ -27,6 +27,7 @@ export type JobSummary = {
   apply_status: '' | 'ok' | 'error'
   apply_message: string
   results: number
+  appliable?: boolean
   preview_ms: number
   apply_ms: number
   duration_ms: number
@@ -120,8 +121,9 @@ export const getVersion = () => call<{ build: string; restart_needed?: boolean }
 export const getAuth = () => call<{ ok: boolean; message: string }>('/api/auth')
 export const login = () => call<{ ok: boolean; message: string }>('/api/auth/login', {})
 export type SiteProgress = { site: string; state: 'waiting' | 'reading' | 'done' | 'browser' | 'failed'; detail: string }
+export type WatchedSite = { id: number; label: string; url: string; calendar: string; last_result: string }
 export type WatchState = {
-  lines: string[]; default_calendar: string; needs_browser: { id: number; site: string }[]
+  lines: string[]; default_calendar: string; needs_browser: { id: number; site: string }[]; sites: WatchedSite[]
   progress?: { sites?: SiteProgress[]; pause?: number }
 }
 export const getWatch = () => call<WatchState>('/api/calendar/watch')
@@ -146,7 +148,7 @@ export type TaskStats = {
   kpis: { open: { now: number | null; week_ago: number | null; first: number | null }; done_7d: number; added_7d: number
           frogs_month: number; days_month: number; plan_7d: { planned: number; done: number } }
   series: StatDay[]
-  weekdays: { label: string; average: number; plan_pct: number | null }[]
+  weekdays: { label: string; average: number | null; plan_pct: number | null }[]
   projects: { project: string; open: number; change: number }[]
   horizons: { label: string; open: number }[]
   cleanup: { project: string; open: number; per_day: number; empty_on: string | null } | null
@@ -195,20 +197,30 @@ export type ResearchRequirement = { id?: string; text: string; weight: Weight }
 export type RankedProduct = {
   n: number; name: string; title: string; brand: string; model: string; url: string; shop: string; shops: number
   total: number | null; price_seen: boolean; delivery_known?: boolean; score: number; checks: Record<string, Verdict>
+  // CLAUDE> a dollar or pound price turned into euros (day's ECB rate, plus 21% import VAT): what the shop showed
+  original?: { price: number; total: number; currency: string; rate: number; date: string } | null
   notes?: Record<string, string>; points?: Record<string, number>; points_total?: number; points_max?: number
   pros: string[]; cons: string[]
   fails: string[]; unconfirmed: string[]; over_budget: boolean; tag: string; why_not: string
   contact: string; region: string; reviews: string
 }
+export type SummaryGroup = { heading: string; items: { text: string; sources: number[] }[] }
+export type SummarySource = { n: number; url: string; title: string; site: string }
+export type NoteHeading = { level: number; text: string }
+// CLAUDE> where a summary goes: no note = a new note; else a note of the vault, at the top, the end or after a heading, ## or #
+export type SummaryTarget = {
+  note: string; place: 'top' | 'end' | 'after'; heading: NoteHeading | null; level: 1 | 2; title: string; vault?: string
+}
 export type ResearchResult = {
   comparison?: { products: ResearchProduct[]; over_budget: ResearchProduct[]; no_price: ResearchProduct[] }
   ranking?: RankedProduct[]; best?: RankedProduct | null; requirements?: ResearchRequirement[]
   reasons?: string; risks?: string[]; summary?: string; stopped_by?: string; unread?: string[]
-  note?: { path: string; obsidian_url: string; error: string }
+  paragraphs?: string[]; groups?: SummaryGroup[]; sources?: SummarySource[]; off_subject?: string[]; pages_read?: number
+  note?: { path: string; obsidian_url: string; error: string; message?: string; title?: string }
 }
 export type ResearchProgress = { id?: number; step?: string; done?: number; total?: number; cost_usd?: number }
 export type Research = {
-  id: number; request: string; title: string | null; kind: 'product' | 'service'; budget: number | null; countries: string[]
+  id: number; request: string; title: string | null; kind: 'product' | 'service' | 'summary'; budget: number | null; countries: string[]
   state: 'questions' | 'requirements' | 'budget' | 'running' | 'waiting' | 'done' | 'failed' | 'stopped'; step: string; note: string
   requirements: ResearchRequirement[] | null
   questions: ResearchQuestion[] | null; answers: Record<string, string> | null
@@ -216,6 +228,12 @@ export type Research = {
   followups: ResearchQuestion[] | null; result: ResearchResult | null; cost_usd: number; created: string
   pages: { url: string; status: string; country: string; error: string | null }[]; progress: ResearchProgress
   stopped_text?: string
+  // CLAUDE> a summary's plan is its sites and pages; a product research's plan is its search words
+  plan?: { kind?: 'site' | 'page' | 'web'; site?: string; url?: string; query?: string }[] | null
+  target?: Partial<SummaryTarget> | null
+  // CLAUDE> what a finished research has not done yet, and the most a run on costs
+  left?: { pages: number; searches: number }
+  go_on_estimate?: number
 }
 export type ResearchSettings = {
   countries: string[]; municipality: string; limits: { searches: number; pages: number; cost: number }; vault: string; subdir: string
@@ -224,8 +242,10 @@ export type ResearchList = {
   researches: {
     id: number; request: string; title: string | null; kind: string; state: string; created: string; cost_usd: number
     best: { title: string; score: number; total: number | null } | null
+    summary: { points: number; sources: number; sites: number } | null
   }[]
   settings: ResearchSettings; vaults: { name: string; path: string }[]; estimate: number; progress: ResearchProgress
+  unit_costs: { search: number; page: number; steps: number; summary_steps: number }
 }
 export const getResearchList = () => call<ResearchList>('/api/research')
 export const getResearch = (id: number) => call<Research>(`/api/research/${id}`)
@@ -242,7 +262,19 @@ export const confirmRequirements = (id: number, requirements: ResearchRequiremen
 export const rescoreResearch = (id: number, requirements: ResearchRequirement[]) =>
   call<Research>(`/api/research/${id}/rescore`, { requirements })
 export const cancelRequirements = (id: number) => call<Research>(`/api/research/${id}/requirements/cancel`, {})
-export const exportResearch = (id: number) => call<{ path: string; obsidian_url: string }>(`/api/research/${id}/export`, {})
+// CLAUDE> one save to Obsidian: a research's note title, or a summary's place and title; empty = the place and title saved last
+export const exportResearch = (id: number, choice: { title?: string; target?: SummaryTarget } = {}) =>
+  call<{ path: string; obsidian_url: string; title: string }>(`/api/research/${id}/export`, choice)
+export const startSummary = (subject: string, sites: string[], target: SummaryTarget) =>
+  call<Research>('/api/research/summary', { subject, sites, target })
+export const goOnResearch = (id: number) => call<Research>(`/api/research/${id}/more`, {})
+export const addSummarySites = (id: number, sites: string[]) => call<Research>(`/api/research/${id}/sites`, { sites })
+export const findNotes = (query: string) =>
+  call<{ notes: { path: string; name: string }[] }>(`/api/research/notes?q=${encodeURIComponent(query)}`)
+// CLAUDE> `skip`: the summary (its number) or chat ('chat 3') being saved, whose own headings are no place to put it
+export const noteHeadings = (path: string, skip?: number | string) =>
+  call<{ headings: NoteHeading[] }>(
+    `/api/research/notes/headings?path=${encodeURIComponent(path)}${skip ? `&skip=${encodeURIComponent(String(skip))}` : ''}`)
 export async function renameResearch(id: number, title: string): Promise<Research> {
   const response = await reach(`/api/research/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
                                                      body: JSON.stringify({ title }) })
@@ -320,4 +352,80 @@ export const deleteNewsSubject = (digestId: number, subject: string) =>
 export const saveNewsSites = (sites: string[]) => call<{ problems: string[]; sources: NewsSource[] }>('/api/news/sources', { sites })
 export async function removeNewsSource(id: number): Promise<void> {
   await reach(`/api/news/sources/${id}`, { method: 'DELETE' })
+}
+
+// CLAUDE> the Chat page: questions to an OpenRouter model, answers word by word, second opinions, saves to Obsidian
+export type ChatModel = {
+  id: string; name: string; in_per_m: number | null; out_per_m: number | null; per_answer: number | null; measured: boolean
+  web_extra: number | null
+}
+export type ChatSource = { url: string; title: string }
+export type ChatMessage = {
+  id: number; chat_id: number; turn: number; role: 'user' | 'assistant'; content: string; model: string; web: boolean
+  sources: ChatSource[]; chosen: boolean; state: 'writing' | 'done' | 'stopped' | 'failed'; error: string
+  cost_usd: number | null; seconds: number | null; job_id: string; generation_id: string; created: string
+}
+export type ChatNote = { path: string; obsidian_url: string; title: string; message: string; error: string }
+export type Chat = {
+  id: number; title: string; model: string; created: string; updated: string; target: SummaryTarget | null
+  note: ChatNote | null; messages: ChatMessage[]; cost_usd: number; writing: boolean; model_info: ChatModel
+}
+export type ChatSummary = { id: number; title: string; model: string; created: string; updated: string; cost_usd: number; questions: number }
+export type ChatList = {
+  chats: ChatSummary[]; models: ChatModel[]; new_model: string; new_model_info: ChatModel; web_extra: number
+  settings: { vault: string; subdir: string }
+}
+export type ChatEvent = { type: 'start'; message: ChatMessage } | { type: 'wait'; seconds: number } | { type: 'piece'; text: string }
+  | { type: 'end'; message: ChatMessage }
+
+async function send<T>(path: string, method: 'PATCH' | 'DELETE', body?: unknown): Promise<T> {
+  const response = await reach(path, { method, headers: { 'Content-Type': 'application/json' },
+                                       body: body === undefined ? undefined : JSON.stringify(body) })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throw new ApiError(typeof data.detail === 'string' ? data.detail : `Request failed (${response.status})`, false)
+  return data as T
+}
+
+export const getChats = () => call<ChatList>('/api/chat')
+export const getChat = (id: number) => call<Chat>(`/api/chat/${id}`)
+export const findModels = (query: string) => call<{ models: ChatModel[] }>(`/api/chat/models?q=${encodeURIComponent(query)}`)
+export const startChat = (text: string, model: string, web: boolean) => call<Chat>('/api/chat', { text, model, web })
+export const askChat = (id: number, text: string, web: boolean, model: string) =>
+  call<Chat>(`/api/chat/${id}/questions`, { text, web, model })
+export const anotherAnswer = (id: number, choice: { model?: string; replace?: number }) => call<Chat>(`/api/chat/${id}/answers`, choice)
+export const stopChat = (id: number) => call<Chat>(`/api/chat/${id}/stop`, {})
+export const chooseAnswer = (messageId: number) => call<Chat>(`/api/chat/messages/${messageId}/choose`, {})
+export const exportChat = (id: number, target?: SummaryTarget) => call<ChatNote>(`/api/chat/${id}/export`, target ? { target } : {})
+export const changeChat = (id: number, change: { title?: string; model?: string }) => send<Chat>(`/api/chat/${id}`, 'PATCH', change)
+export const deleteChat = (id: number) => send<{ deleted: boolean }>(`/api/chat/${id}`, 'DELETE')
+
+// CLAUDE> the answer being written, as the server sends it (one JSON event per 'data:' line); ends with the answer, or
+// at once when no answer is being written. A lost connection just ends it: the page then reloads the chat.
+export async function followChat(id: number, onEvent: (event: ChatEvent) => void): Promise<void> {
+  let response: Response
+  try {
+    response = await fetch(`/api/chat/${id}/follow`)
+  } catch {
+    return
+  }
+  if (!response.ok || !response.body) return
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+  let buffer = ''
+  try {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) return
+      buffer += value
+      let cut = buffer.indexOf('\n\n')
+      while (cut >= 0) {
+        for (const line of buffer.slice(0, cut).split('\n')) {
+          if (line.startsWith('data: ')) onEvent(JSON.parse(line.slice(6)) as ChatEvent)
+        }
+        buffer = buffer.slice(cut + 2)
+        cut = buffer.indexOf('\n\n')
+      }
+    }
+  } catch {
+    return
+  }
 }

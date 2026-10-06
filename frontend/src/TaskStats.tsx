@@ -74,7 +74,8 @@ export default function TaskStats() {
           <PlanChart series={data.series} />
         </Card>
         <Card title="Done per weekday, on average">
-          <BarTable rows={data.weekdays.map(w => ({ label: w.label, value: w.average }))} />
+          <BarTable rows={data.weekdays.map(w => ({ label: w.label, value: w.average ?? 0,
+                                                    note: w.average === null ? 'no data yet' : undefined }))} />
         </Card>
         <Card title="Plan finished per weekday">
           <BarTable percent rows={data.weekdays.map(w => ({ label: w.label, value: w.plan_pct ?? 0,

@@ -175,6 +175,10 @@ def test_watched_agenda_sites(client: TestClient, monkeypatch: pytest.MonkeyPatc
     assert saved.json()['lines'] == ['kmska.be/nl/agenda → Exhibitions', 'mas.be']
     got = client.get('/api/calendar/watch').json()
     assert (got['default_calendar'], got['needs_browser']) == ('events', [])
+    # CLAUDE> each site with its id, so the page can tick the ones to check
+    assert [(s['label'], s['url'], s['calendar'], s['last_result']) for s in got['sites']] == [
+        ('kmska.be/nl/agenda', 'https://kmska.be/nl/agenda', 'Exhibitions', ''), ('mas.be', 'https://mas.be', '', '')]
+    assert all(isinstance(s['id'], int) for s in got['sites'])
     asked = {}
 
     def check(self: object, ctx: object, via_browser: bool = False, only: set | None = None) -> tuple:
@@ -314,3 +318,11 @@ def test_habits_can_be_reordered(client: TestClient) -> None:
     ids = [h['id'] for h in view['habits']]
     view = client.post('/api/habits/order', json={'ids': [ids[2], ids[0], ids[1]]}).json()
     assert [h['name'] for h in view['habits']] == ['C', 'A', 'B']
+
+
+def test_the_pages_show_plain_task_descriptions(client: TestClient) -> None:
+    """Gmail showed the model's hints to the user: 'Answers a QUESTION…', 'Only when the user asks to CHANGE mails…'."""
+    tasks = {t['id']: t['description'] for g in client.get('/api/groups').json() for t in g['tasks']}
+    assert not any(word in text for text in tasks.values() for word in ('QUESTION', 'CHANGE', 'the user'))
+    from automation_desk.groups.gmail.tasks.label_mail import LabelMail
+    assert 'Not for questions' in LabelMail.description, 'the model still gets its hints'

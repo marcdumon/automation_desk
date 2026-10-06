@@ -11,6 +11,8 @@
   --tools: #a8327a;
   --habits: #0e7682;
   --research: #4b4fc4;
+  --chat: #9a5b13;
+  --health: #5c7a1c;
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --error: #a83a34;
@@ -33,6 +35,8 @@
     --tools: #e68ac2;
     --habits: #5cc6cf;
     --research: #9a9cf0;
+    --chat: #e3a85b;
+    --health: #a9c96b;
     --series-1: #3987e5;
     --series-2: #d95926;
     --error: #e2837c;
@@ -47,6 +51,8 @@
 .accent-tools { --accent: var(--tools); }
 .accent-habits { --accent: var(--habits); }
 .accent-research { --accent: var(--research); }
+.accent-chat { --accent: var(--chat); }
+.accent-health { --accent: var(--health); }
 
 * { box-sizing: border-box; }
 
@@ -260,11 +266,17 @@ table.jobs td.sentence, table.jobs td.model { white-space: normal; }
 table.jobs th, table.jobs td { padding-left: 8px; padding-right: 8px; }
 tr.clickable { cursor: pointer; }
 tr.clickable:hover td { background: var(--accent-wash); }
-.totals { display: grid; grid-template-columns: max-content 1fr 1fr; gap: 24px; margin: 24px 0 40px; align-items: start; }
+/* CLAUDE> the total on its own row, the two tables side by side when each gets 520 px (the model table needs 503), else
+   under each other: three in a row did not fit a desktop, and the page scrolled sideways or a table hid its cost column */
+.totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 24px; margin: 24px 0 40px;
+  align-items: start; }
+.total-main { grid-column: 1 / -1; }
+.usage { min-width: 0; overflow-x: auto; }
 .total-main { display: grid; gap: 4px; }
 .total-label { color: var(--muted); font-size: 14px; }
 .total-value { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .usage table { font-size: 13px; }
+.usage th:first-child, .usage td:first-child { text-align: right; }
 .jobs-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
 .jobs-head select { margin-left: 6px; padding: 4px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
 dialog.job-detail {
@@ -559,6 +571,9 @@ details.news-card[open] > summary { margin-bottom: 14px; }
 .habit-table tr.paused { opacity: .55; }
 .habit-grid { display: inline-grid; grid-auto-flow: column; gap: 3px; }
 .cell { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.day-number { display: inline-block; width: 12px; font-size: 9px; font-style: normal; line-height: 1; text-align: center;
+  color: var(--muted); font-variant-numeric: tabular-nums; }
+.day-number.today { color: var(--accent); font-weight: 700; }
 .cell.done { background: var(--accent); }
 .cell.missed { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--error) 60%, transparent); }
 .cell.open { box-shadow: inset 0 0 0 2px var(--accent); }
@@ -721,3 +736,177 @@ details.habit-card > summary { cursor: pointer; font-weight: 600; }
   .research-title { font-size: 22px; }
 }
 .research-field input[inputmode="decimal"] { max-width: 240px; }
+/* CLAUDE> the two tools of the new card, and the subject summary: its form, the note picker and the summary itself */
+.research-switch { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; justify-self: start; border: 1px solid var(--rule);
+  border-radius: 10px; background: var(--paper); }
+.research-switch button { padding: 7px 14px; border: 0; border-radius: 7px; background: transparent; font: inherit; font-size: 14px;
+  font-weight: 600; color: var(--muted); cursor: pointer; }
+.research-switch button:hover { color: var(--ink); }
+.research-switch button[aria-pressed='true'] { background: var(--surface); color: var(--ink);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--ink) 16%, transparent); }
+.research-kind { font-weight: 600; color: var(--ink); }
+.research-target { display: grid; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.research-target legend { padding: 0; margin-bottom: 6px; color: var(--muted); font-weight: 600; font-size: 14px; }
+.research-radio { display: flex; gap: 8px; align-items: center; font-size: 15px; cursor: pointer; }
+.research-place { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 18px; align-items: end; }
+.research-place select, .note-picker input { width: 100%; min-width: 0; padding: 7px 10px; border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--paper); font: inherit; color: inherit; }
+.note-picker { display: grid; gap: 8px; }
+.note-results { list-style: none; margin: 0; padding: 4px; max-height: 240px; overflow-y: auto; border: 1px solid var(--rule);
+  border-radius: 8px; background: var(--paper); }
+.note-results button { width: 100%; display: flex; justify-content: space-between; gap: 12px; padding: 7px 10px; border: 0; border-radius: 6px;
+  background: transparent; font: inherit; font-size: 14px; text-align: left; color: inherit; cursor: pointer; }
+.note-results button:hover, .note-results button:focus-visible { background: var(--accent-wash); }
+.note-results .muted { font-size: 13px; text-align: right; overflow-wrap: anywhere; }
+.note-name { font-weight: 600; overflow-wrap: anywhere; }
+.note-chosen { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; padding: 8px 12px;
+  border: 1px solid var(--accent); border-radius: 8px; background: var(--accent-wash); overflow-wrap: anywhere; }
+.summary-card p { margin: 0; max-width: 75ch; line-height: 1.6; }
+.summary-group h3 { margin: 2px 0 8px; font-size: 15px; }
+.summary-group ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 80ch; line-height: 1.55; }
+.summary-refs { white-space: nowrap; }
+/* CLAUDE> long page addresses wrap at phone width instead of sticking out */
+.research-list li { overflow-wrap: anywhere; }
+.summary-ref { display: inline-block; min-width: 1.6em; margin-left: 4px; padding: 0 6px; border-radius: 999px; background: var(--accent-wash);
+  color: var(--accent); font-size: 12px; font-weight: 700; line-height: 1.6; text-align: center; text-decoration: none; vertical-align: 1px; }
+.summary-ref:hover, .summary-ref:focus-visible { background: var(--accent); color: var(--surface); }
+.summary-sources { margin: 0; padding-left: 28px; display: grid; gap: 6px; overflow-wrap: anywhere; }
+.summary-sources .muted { margin-left: 8px; font-size: 13px; }
+@media (max-width: 760px) {
+  .research-place { grid-template-columns: minmax(0, 1fr); }
+  .research-switch { display: grid; grid-template-columns: 1fr 1fr; justify-self: stretch; }
+  .research-switch button { padding: 8px 10px; }
+}
+/* CLAUDE> the research page after the walk-through: what a card's number means, whose turn it is, and the back-and-forth parts */
+.research-card-figure { display: grid; justify-items: center; gap: 2px; }
+.research-card-unit { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.state-chip.your-turn { color: var(--surface); background: var(--accent); padding: 1px 8px; border-radius: 999px; }
+.research-kind { font-weight: 600; color: var(--ink); }
+.link-button { padding: 0; border: 0; background: none; font: inherit; color: var(--accent); text-decoration: underline; cursor: pointer; }
+.research-head-buttons { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+.research-head-actions { flex-direction: column; align-items: flex-end; }
+.research-note-status { justify-items: end; text-align: right; }
+.research-title-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* CLAUDE> the field is as wide as the title, so the rename sign stands right after it */
+.research-title-row .research-title { flex: 0 1 auto; min-width: 4ch; width: auto; field-sizing: content; max-width: calc(100% - 44px); }
+.research-facts-list dt { white-space: nowrap; }
+.research-rename { flex: none; padding: 4px 8px; border: 0; border-radius: 6px; background: none; color: var(--muted); font-size: 18px;
+  cursor: pointer; }
+.research-rename:hover, .research-rename:focus-visible { color: var(--accent); background: var(--accent-wash); }
+.research-go-on { border-left: 4px solid var(--accent); }
+.research-go-on p { margin: 0; }
+.research-add-sites > summary, .research-page details.habit-card > summary { cursor: pointer; font-weight: 600; }
+.research-add-sites[open] > summary { margin-bottom: 4px; }
+.research-settings-group { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.research-settings-group h3 { margin: 0; font-size: 15px; }
+@media (max-width: 760px) {
+  .research-head-actions { align-items: flex-start; }
+  .research-head-buttons { justify-content: flex-start; }
+  .research-note-status { justify-items: start; text-align: left; }
+}
+/* CLAUDE> saving to Obsidian: one card, one picker */
+.obsidian-card { border-left: 4px solid var(--accent); }
+.obsidian-card p { margin: 0; }
+.obsidian-form, .spot-picker { display: grid; gap: 14px; max-width: 640px; }
+.spot-picker input, .spot-picker select { width: 100%; min-width: 0; padding: 7px 10px; border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--paper); font: inherit; color: inherit; }
+/* CLAUDE> the watched sites, each with a tick: which ones a check reads */
+.watch-sites { margin-top: 12px; }
+.watch-sites-head { display: flex; gap: 12px; align-items: baseline; font-size: 14px; color: var(--muted); }
+.watch-sites ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.watch-site { display: flex; gap: 8px; align-items: baseline; min-width: 0; font-size: 14px; }
+.watch-site input { flex: none; transform: translateY(1px); }
+.watch-site-name { overflow-wrap: anywhere; }
+.watch-site-result { margin-left: auto; padding-left: 12px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 13px; }
+/* CLAUDE> Chat: the question box at the start and at the end, the chats as rows, each question with its answers (a second
+   opinion next to the first on a wide screen), answers in Markdown at a reading width */
+.chat-page { max-width: 1180px; }
+.chat-page > * + * { margin-top: 18px; }
+.chat-composer textarea { font-size: 19px; font-weight: 500; }
+.chat-composer-row { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 18px; margin-top: 8px; }
+.chat-composer-row .hint { margin-left: auto; margin-right: 0; }
+.chat-composer-row .primary { margin-left: auto; }
+.chat-web { display: flex; gap: 8px; align-items: center; font-size: 14px; cursor: pointer; }
+.chat-web .muted { font-size: 13px; }
+.model-picker, .model-search { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; min-width: 0; max-width: 100%;
+  font-size: 14px; }
+.model-label { color: var(--muted); font-weight: 600; font-size: 13px; }
+/* CLAUDE> a select is as wide as its longest option: on a phone it would stick out */
+.model-picker select { width: min(460px, 100%); min-width: 0; padding: 7px 10px; border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--paper); font: inherit; color: inherit; }
+.model-search { width: min(520px, 100%); justify-items: start; }
+.model-search .note-picker { width: 100%; }
+.chat-overview h2 { font-size: 17px; margin: 28px 0 12px; }
+.chat-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.chat-list li { display: flex; gap: 10px; align-items: center; }
+.chat-row { flex: 1; min-width: 0; display: grid; gap: 4px; text-align: left; padding: 12px 16px; border: 1px solid var(--rule);
+  border-radius: 10px; background: var(--surface); font: inherit; color: inherit; cursor: pointer; }
+.chat-row:hover { border-color: var(--accent); }
+.chat-row-title { font-weight: 650; overflow-wrap: anywhere; }
+.chat-row-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); }
+.chat-delete { flex: none; }
+.chat-view { display: grid; gap: 18px; }
+/* CLAUDE> the columns never grow past the page for a long title or a wide table: those scroll or wrap inside */
+.chat-view, .chat-head, .chat-turns, .chat-turn, .chat-answers { grid-template-columns: minmax(0, 1fr); }
+/* CLAUDE> a little room under the question box when the page follows an answer */
+.chat-end { height: 1px; margin-top: -1px; scroll-margin-bottom: 24px; }
+.chat-head { display: grid; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid var(--rule); }
+.chat-head-row { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; }
+.chat-head-row .research-facts-list { margin-right: auto; }
+.chat-turns { list-style: none; margin: 0; padding: 0; display: grid; gap: 26px; }
+.chat-turn { display: grid; gap: 12px; }
+.chat-question { justify-self: end; max-width: min(760px, 88%); padding: 12px 16px; border-radius: 14px 14px 4px 14px;
+  background: var(--accent-wash); border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); }
+.chat-question p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-weight: 550; }
+.chat-tag { display: inline-block; margin-top: 6px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  color: var(--accent); background: var(--surface); border: 1px solid var(--rule); }
+.chat-tag.chosen { color: var(--surface); background: var(--accent); border-color: var(--accent); margin-top: 0; }
+.chat-answer-head .chat-tag { margin-top: 0; }
+.chat-answers { display: grid; gap: 14px; }
+.chat-answers.side-by-side { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); align-items: start; }
+.chat-answer { min-width: 0; display: grid; gap: 10px; padding: 16px 20px; border: 1px solid var(--rule); border-radius: 12px;
+  background: var(--surface); }
+.chat-answer.chosen { border-color: var(--accent); box-shadow: inset 4px 0 0 var(--accent); }
+.chat-answer-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; font-size: 14px; }
+.chat-answer-foot { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 13px; }
+.chat-answer-foot > .muted { margin-right: auto; font-variant-numeric: tabular-nums; }
+.chat-ended { margin: 0; font-size: 14px; font-style: italic; color: var(--muted); }
+.chat-sources { display: grid; gap: 4px; font-size: 14px; }
+.chat-sources ol { margin: 0; padding-left: 22px; display: grid; gap: 2px; overflow-wrap: anywhere; }
+.chat-sources a { color: var(--accent); }
+.chat-second { max-width: 640px; }
+.chat-second h2 { margin: 0; }
+.chat-md { max-width: 78ch; line-height: 1.6; overflow-wrap: anywhere; }
+.chat-md > :first-child { margin-top: 0; }
+.chat-md > :last-child { margin-bottom: 0; }
+.chat-md h1, .chat-md h2, .chat-md h3, .chat-md h4 { line-height: 1.3; margin: 1.1em 0 0.4em; }
+.chat-md h1 { font-size: 21px; }
+.chat-md h2 { font-size: 18px; }
+.chat-md h3, .chat-md h4 { font-size: 16px; }
+.chat-md p, .chat-md ul, .chat-md ol { margin: 0.6em 0; }
+.chat-md li + li { margin-top: 0.25em; }
+.chat-md a { color: var(--accent); }
+.chat-md hr { border: 0; border-top: 1px solid var(--rule); margin: 1.2em 0; }
+.chat-md code { padding: 1px 5px; border-radius: 4px; background: var(--paper); font-size: 0.92em; }
+.chat-md pre { padding: 12px 14px; border-radius: 8px; background: var(--paper); overflow-x: auto; }
+.chat-md pre code { padding: 0; background: none; }
+.chat-md blockquote { margin: 0.6em 0; padding-left: 14px; border-left: 3px solid var(--rule); color: var(--muted); }
+/* CLAUDE> a wide table of an answer scrolls inside the answer, never the page */
+.chat-md table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 14px; margin: 0.8em 0; }
+.chat-md th, .chat-md td { padding: 6px 10px; border: 1px solid var(--rule); text-align: left; vertical-align: top; }
+.chat-md th { background: var(--paper); }
+@media (max-width: 760px) {
+  .chat-question { max-width: 100%; }
+  .chat-composer-row .hint { display: none; }
+}
+/* CLAUDE> Health: the supplement regime, one band per moment of the day; the table scrolls inside its card on a phone */
+.health-page { max-width: 1280px; }
+.health-table { overflow-x: auto; }
+.health-table table { min-width: 620px; }
+.health-moment th { padding-top: 16px; color: var(--accent); font-size: 15px; font-weight: 700; background: var(--accent-wash);
+  border-top: 1px solid var(--rule); }
+.health-moment th span { margin-left: 8px; color: var(--muted); font-size: 13px; font-weight: 500; }
+.health-name { font-weight: 600; white-space: nowrap; }
+.health-dose { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.health-effects { width: 42%; font-size: 13px; line-height: 1.45; }

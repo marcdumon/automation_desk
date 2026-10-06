@@ -177,7 +177,7 @@ def rank(requirements: list[dict], rows: list[dict], rated: dict[int, dict], com
             'model': p.get('model', ''),
             'url': offer.get('url', ''), 'shop': offer.get('shop', ''), 'total': p.get('best_total'),
             # CLAUDE> the first offer gives the shown price: only its page counts for seen or not, and for delivery
-            'shops': len(p['offers']), 'price_seen': offer.get('price_seen', True),
+            'shops': len(p['offers']), 'price_seen': offer.get('price_seen', True), 'original': offer.get('original'),
             'delivery_known': offer.get('delivery') is not None,
             'contact': offer.get('contact', ''), 'region': offer.get('region', ''), 'reviews': offer.get('reviews', ''),
             'score': _score(requirements, checks), 'checks': checks, 'points': _points(requirements, checks),

@@ -3,8 +3,10 @@ import { useCallback, useRef, useState } from 'react'
 import { Link, Redirect, Route, Switch, useRoute } from 'wouter'
 
 import { getAuth, getGroups, getVersion, login, type Group } from './api'
+import ChatPage from './ChatPage'
 import GroupPage, { type LogEntry } from './GroupPage'
 import HabitsPage from './HabitsPage'
+import HealthPage from './HealthPage'
 import JobsPage from './JobsPage'
 import Reminders from './Reminders'
 import ResearchPage from './ResearchPage'
@@ -49,8 +51,11 @@ export default function App() {
             </Route>
           ))}
           <Route path="/habits"><HabitsPage /></Route>
+          <Route path="/health"><HealthPage /></Route>
           <Route path="/research/:id"><ResearchPage /></Route>
           <Route path="/research"><ResearchPage /></Route>
+          <Route path="/chat/:id"><ChatPage /></Route>
+          <Route path="/chat"><ChatPage /></Route>
           <Route path="/tools"><ToolsPage /></Route>
           <Route path="/jobs"><JobsPage /></Route>
           <Route><Redirect to={`/${groups.data[0]?.id ?? ''}`} /></Route>
@@ -67,7 +72,9 @@ function Sidebar({ groups }: { groups: Group[] }) {
       <ul className="group-list">
         {groups.map(group => <GroupLink key={group.id} group={group} />)}
         <HabitsLink />
+        <HealthLink />
         <ResearchLink />
+        <ChatLink />
         <ToolsLink />
       </ul>
       <JobsLink />
@@ -103,6 +110,19 @@ function HabitsLink() {
   )
 }
 
+// CLAUDE> the user's health: for now the supplement regime; later what was taken, blood pressure and weight
+function HealthLink() {
+  const [active] = useRoute('/health')
+  return (
+    <li>
+      <Link href="/health" className={`group-link accent-health${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined}>
+        <span className="swatch" aria-hidden="true" />
+        <span>Health</span>
+      </Link>
+    </li>
+  )
+}
+
 // CLAUDE> the shop research, listed with the task groups
 function ResearchLink() {
   const [active] = useRoute('/research/*?')
@@ -111,6 +131,19 @@ function ResearchLink() {
       <Link href="/research" className={`group-link accent-research${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined}>
         <span className="swatch" aria-hidden="true" />
         <span>Research</span>
+      </Link>
+    </li>
+  )
+}
+
+// CLAUDE> questions to an OpenRouter model of the user's choice, listed with the task groups
+function ChatLink() {
+  const [active] = useRoute('/chat/*?')
+  return (
+    <li>
+      <Link href="/chat" className={`group-link accent-chat${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined}>
+        <span className="swatch" aria-hidden="true" />
+        <span>Chat</span>
       </Link>
     </li>
   )

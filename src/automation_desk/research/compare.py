@@ -4,6 +4,8 @@ import re
 from statistics import median
 from urllib.parse import urlsplit
 
+from automation_desk.research.rates import to_euro
+
 OVER_BUDGET_SHOWN = 3
 # CLAUDE> a total this many times the budget (or, without one, the middle total) is a misread, not a price: Wilo's data said
 # 127545 for a pump of about € 1,275 (research 1)
@@ -54,12 +56,13 @@ def _same(a: dict, b: dict) -> bool:
 
 
 def page_products(products: list[dict]) -> list[dict]:
-    """A page's products each once and with a real price: a price of 0 is none (e.leclerc), and a later listing of the
-    same product fills what the first one lacks (GTIN, brand, model, specs). Also for pages read before these checks."""
+    """A page's products each once and with a real price: a price of 0 is none (e.leclerc) unless the page called the
+    product free, and a later listing of the same product fills what the first one lacks (GTIN, brand, model, specs). Also
+    for pages read before these checks."""
     kept: list[dict] = []
     for product in products:
         product = dict(product)
-        if product.get('price') is not None and product['price'] <= 0:
+        if product.get('price') is not None and product['price'] <= 0 and not product.get('free'):
             product['price'] = None
         if (first := next((k for k in kept if _same(k, product)), None)) is None:
             kept.append(product)
@@ -73,13 +76,16 @@ def page_products(products: list[dict]) -> list[dict]:
 
 
 def _competes(offer: dict) -> bool:
-    """An offer whose total can be the product's cheapest: a euro total with VAT (or VAT not stated)."""
+    """An offer whose total can be the product's cheapest: a euro total with VAT (or VAT not stated); a dollar or pound
+    total converted with the import VAT counts as one."""
     return offer['total'] is not None and offer['currency'] == 'EUR' and not offer['ex_vat']
 
 
-def table(pages: list[dict], budget: float | None, countries: list[str] | None = None) -> dict:
+def table(pages: list[dict], budget: float | None, countries: list[str] | None = None, rates: dict | None = None) -> dict:
     """Products with their offers, split into inside the budget, over it (3 cheapest) and without a price. Pages from a
-    country the user did not choose are left out (also those read before that rule); pages without a country stay."""
+    country the user did not choose are left out (also those read before that rule); pages without a country stay. With
+    the day's `rates`, a price in dollars or pounds is turned into euros with the Belgian import VAT; the original stays
+    with the offer."""
     rows: dict[str, dict] = {}
     for page in pages:
         if countries and page.get('country') and page['country'] not in countries:
@@ -95,11 +101,16 @@ def table(pages: list[dict], budget: float | None, countries: list[str] | None =
             row['specs'] |= {k: v for k, v in product.get('specs', {}).items() if k not in row['specs']}
             price, delivery = product.get('price'), facts.get('delivery_cost')
             total = None if price is None else round(price + (delivery or 0), 2)
+            currency, original = product.get('currency', ''), None
+            if total is not None and (euro := to_euro(total, currency, rates)) is not None:
+                original = {'price': price, 'total': total, 'currency': currency, 'rate': rates[currency], 'date': rates['date']}
+                price, total, currency = to_euro(price, currency, rates), euro, 'EUR'
             # CLAUDE> the product's own page when the shop page names it (a list page lists many); else the page read
             row['offers'].append({'shop': urlsplit(page['url']).netloc.removeprefix('www.'), 'url': product.get('url') or page['url'],
-                                  'country': page.get('country', ''), 'price': price, 'currency': product.get('currency', ''),
+                                  'country': page.get('country', ''), 'price': price, 'currency': currency, 'original': original,
                                   'delivery': delivery, 'total': total, 'ships_to_belgium': facts.get('ships_to_belgium'),
-                                  'in_stock': product.get('in_stock'), 'ex_vat': product.get('vat_included') is False,
+                                  'in_stock': product.get('in_stock'),
+                                  'ex_vat': product.get('vat_included') is False and original is None,
                                   'contact': product.get('contact', ''), 'region': product.get('region', ''),
                                   'reviews': product.get('reviews', ''), 'price_seen': product.get('price_seen', True),
                                   'implausible': False})

@@ -10,13 +10,29 @@ import httpx
 from automation_desk import jobs, stop
 from automation_desk.config import config
 from automation_desk.groups.calendar import web_page
-from automation_desk.research import advice, compare, offers, pages, plan, questions, requirements, score, search, store
+from automation_desk.research import (
+    advice,
+    compare,
+    offers,
+    pages,
+    plan,
+    questions,
+    rates,
+    requirements,
+    score,
+    search,
+    store,
+    summary,
+)
 
 GROUP = 'research'
 STEPS = ('requirements', 'classes', 'plan', 'search', 'read', 'compare', 'followups', 'score', 'advise')
 STEP_NAMES = {'requirements': 'the requirements', 'classes': 'the price classes', 'plan': 'the search plan', 'search': 'the searches',
               'read': 'reading the shop pages', 'compare': 'the comparison', 'followups': 'the follow-up questions',
               'score': 'the scores', 'advise': 'the advice'}
+# CLAUDE> a subject summary: each site searched, the pages read for their key points, and one summary of them
+SUMMARY_STEPS = ('search', 'read', 'compile')
+SUMMARY_STEP_NAMES = {'search': 'the site searches', 'read': 'reading the pages', 'compile': 'writing the summary'}
 WORKERS = 4
 # CLAUDE> what the scores and the advice still need when a limit stops the reading
 ADVICE_RESERVE_USD = 0.03
@@ -91,13 +107,59 @@ def _told(asked: list[dict] | None, answers: dict | None) -> dict:
     return {texts.get(key, key): value for key, value in (answers or {}).items()}
 
 
-def estimate(limits: dict) -> float:
-    """The most a research can cost under its limits: searches with their result tokens, pages, and the model steps."""
+def unit_costs() -> dict:
+    """The most one search and one page read cost (fee and tokens), and the model steps of one run around them."""
     cfg = config()
     per_token = cfg.price_in_per_m / 1_000_000
-    search_cost = limits['searches'] * (0.007 + 6000 * per_token)
-    page_cost = limits['pages'] * (9000 * per_token + 800 * cfg.price_out_per_m / 1_000_000)
-    return round(min(search_cost + page_cost + 0.04, limits['cost']), 2)
+    # CLAUDE> a research's own model steps (questions, requirements, scores, advice) cost far more than a summary's one
+    return {'search': 0.007 + 6000 * per_token, 'page': 9000 * per_token + 800 * cfg.price_out_per_m / 1_000_000, 'steps': 0.04,
+            'summary_steps': 0.005}
+
+
+def estimate(limits: dict, kind: str = 'product') -> float:
+    """The most a research (or a summary) can cost under its limits: searches with their result tokens, pages, and the
+    model steps around them."""
+    unit = unit_costs()
+    steps = unit['summary_steps'] if kind == 'summary' else unit['steps']
+    return round(min(limits['searches'] * unit['search'] + limits['pages'] * unit['page'] + steps, limits['cost']), 3)
+
+
+def left(row: dict) -> dict:
+    """What a research has not done yet: found pages not read, and planned searches (for a summary: sites) not run."""
+    planned = [item for item in row['plan'] or [] if row['kind'] != 'summary' or item.get('kind') in ('site', 'web')]
+    return {'pages': len(store.pages(row['id'], 'found')), 'searches': max(0, len(planned) - row['searches_done'])}
+
+
+def go_on_estimate(row: dict) -> float:
+    """The most a run on with the default limits costs: the searches and pages left, at most the defaults."""
+    defaults, rest = store.settings()['limits'], left(row)
+    searches = min(rest['searches'], defaults['searches'])
+    pages = defaults['pages'] if searches else min(rest['pages'], defaults['pages'])
+    return estimate({'searches': searches, 'pages': pages, 'cost': defaults['cost']}, row['kind'])
+
+
+def go_on(research_id: int, sites: list[dict] | None = None) -> None:
+    """Run a finished research on: the searches not run, the pages found but not read, and for a summary the websites
+    added. It gets the default limits on top of what it used, and its result is made again from everything read."""
+    row = store.get(research_id)
+    plan = row['plan'] or []
+    if sites is not None:
+        if row['kind'] != 'summary':
+            raise WrongState('Websites can be added to a summary only.')
+        new = [item for item in sites if item not in plan]
+        if not new:
+            raise WrongState('These websites are in the summary already.')
+        plan = plan + new
+    elif not any(left(row).values()):
+        raise WrongState('Nothing is left to read: every page found is read. Start again with changes for a new search.')
+    defaults = store.settings()['limits']
+    # CLAUDE> the page limit counts every page not waiting to be read (failed ones too), as _read does
+    done = len(store.pages(research_id)) - len(store.pages(research_id, 'found'))
+    limits = {'searches': row['searches_done'] + defaults['searches'], 'pages': done + defaults['pages'],
+              'cost': round(row['cost_usd'] + defaults['cost'], 2)}
+    stop.begin(stop_key(research_id))
+    store.update(research_id, plan=plan, limits=limits, result=(row['result'] or {}) | {'stopped_by': ''}, state='running',
+                 step='search', note='')
 
 
 def start(request: str, budget: float | None, countries: list[str]) -> int:
@@ -111,8 +173,18 @@ def start(request: str, budget: float | None, countries: list[str]) -> int:
         # CLAUDE> no research without its questions stays in the history; the error goes on to the page
         store.delete(research_id)
         raise
+    # CLAUDE> a request for something free has a budget of nothing: no budget question, paid products are over it
     store.update(research_id, kind=form.kind, questions=form.model_dump()['questions'], title=form.title,
-                 note='\n'.join(form.unknowns), cost_usd=job.summary()['cost_usd'])
+                 note='\n'.join(form.unknowns), cost_usd=job.summary()['cost_usd'],
+                 **({'budget': 0.0} if form.free and budget is None else {}))
+    return research_id
+
+
+def start_summary(subject: str, sites: list[dict], target: dict) -> int:
+    """A new subject summary, ready to run: its sites and pages as its plan, and the note it goes to (empty: a new note)."""
+    research_id = store.create(subject, None, [])
+    store.update(research_id, kind='summary', title='', plan=sites, target=target, state='running', step='search')
+    stop.begin(stop_key(research_id))
     return research_id
 
 
@@ -151,6 +223,8 @@ def rescore(research_id: int, given: list[dict] | None = None) -> None:
     """Score a finished research again from the pages already read, so a research without a page read cannot be. With
     the requirements as the user edited them in the result's table, it goes straight to the scores; without, its
     requirements come back to the page for changes first."""
+    if (store.get(research_id) or {}).get('kind') == 'summary':
+        raise WrongState('A summary has no scores, so it cannot be scored again. Start a new summary.')
     if not store.pages(research_id, 'read'):
         raise WrongState('This research read no shop page, so there is nothing to score again. Start a new research.')
     stop.begin(stop_key(research_id))
@@ -163,6 +237,18 @@ def rescore(research_id: int, given: list[dict] | None = None) -> None:
 def stop_text(row: dict) -> str:
     """Why a research ended early, with the limit's number; '' when it ran to the end. Facts only."""
     reason, limits = (row.get('result') or {}).get('stopped_by', ''), row.get('limits') or {}
+    if row.get('kind') == 'summary':
+        uses = 'It uses the pages read until then.'
+        pages_read, searches = limits.get('pages'), limits.get('searches')
+        texts = {
+            'the page limit': f'The summary stopped after reading {pages_read} page{"" if pages_read == 1 else "s"}, your page '
+                              f'limit. {uses}',
+            'the search limit': f'The summary stopped after {searches} search{"" if searches == 1 else "es"}, your search limit. '
+                                f'{uses}',
+            'the cost limit': f'The summary stopped at your cost limit of ${limits.get("cost", 0):.2f}. {uses}',
+            STOPPED_BY_YOU: f'You stopped the summary. {uses}',
+        }
+        return texts.get(reason, '')
     uses = 'The recommendation uses the products found until then.'
     texts = {
         'the page limit': f'The research stopped after reading {limits.get("pages")} shop pages, your page limit. {uses}',
@@ -202,13 +288,16 @@ def advance(research_id: int) -> None:
         token = web_page.BROWSER_MAY_ASK.set(False)
         # CLAUDE> the jobs list shows the sentence: name the research and the steps this run covers, not the whole request
         name = row['title'] or row['request'][:80]
-        job = jobs.Job(group=GROUP, sentence=f'Research "{name}": from {STEP_NAMES[row["step"]]} on', task_id='research',
-                       task_name=f'Research: {row["step"]}')
+        # CLAUDE> the step names of the row's kind: a summary's 'compile' step has no product name (a KeyError here left
+        # the row 'running' with nothing to run it)
+        what, names = ('Summary', SUMMARY_STEP_NAMES) if row['kind'] == 'summary' else ('Research', STEP_NAMES)
+        job = jobs.Job(group=GROUP, sentence=f'{what} "{name}": from {names[row["step"]]} on', task_id='research',
+                       task_name=f'{what}: {row["step"]}')
         try:
             with jobs.run(job), httpx.Client(timeout=30.0) as http:
                 _steps(research_id, http)
         except Exception as error:
-            store.update(research_id, state='failed', note=f'{error}. Press Continue to try this step again.')
+            store.update(research_id, state='failed', note=f'{str(error).rstrip(".")}. Press Continue to try this step again.')
         finally:
             web_page.BROWSER_MAY_ASK.reset(token)
             _book(research_id, job)
@@ -235,6 +324,9 @@ def _check(research_id: int, row: dict, searches: int | None = None, pages_read:
 def _steps(research_id: int, http: httpx.Client) -> None:
     """Each step from the stored one; the step is saved before it starts, so a failure keeps it."""
     row = store.get(research_id)
+    if row['kind'] == 'summary':
+        _summary_steps(research_id, http)
+        return
     stopped_by = ''
     key = stop_key(research_id)
     for step in STEPS[STEPS.index(row['step']):]:
@@ -267,7 +359,7 @@ def _steps(research_id: int, http: httpx.Client) -> None:
                 stopped_by = stopped_by or halt.reason
         elif step == 'compare':
             stopped_by = stopped_by or (row['result'] or {}).get('stopped_by', '')
-            comparison = compare.table(store.pages(research_id, 'read'), row['budget'], row['countries'])
+            comparison = _comparison(research_id, row, http)
             store.update(research_id, result={'comparison': comparison, 'stopped_by': stopped_by})
         elif step == 'score':
             # CLAUDE> scored also after Stop or a limit: the user gets a recommendation from what was found
@@ -295,6 +387,97 @@ def _steps(research_id: int, http: httpx.Client) -> None:
                 stopped_by = stopped_by or STOPPED_BY_YOU
             _advise(research_id, row, http, stopped_by)
         _book(research_id)
+
+
+def _summary_steps(research_id: int, http: httpx.Client) -> None:
+    """A subject summary's steps from the stored one. Why the reading ended early is kept with the result at once, so
+    Continue after a failed step still names it."""
+    row = store.get(research_id)
+    stopped_by = (row['result'] or {}).get('stopped_by', '')
+    key = stop_key(research_id)
+    for step in SUMMARY_STEPS[SUMMARY_STEPS.index(row['step']):]:
+        store.update(research_id, step=step)
+        row = store.get(research_id)
+        _show(research_id, step)
+        if stop.requested(key) and step != 'read':
+            stopped_by = stopped_by or STOPPED_BY_YOU
+        if (step == 'search' and not stopped_by) or (step == 'read' and stopped_by not in SKIP_READING):
+            # CLAUDE> after the search limit the pages already found are still read; after Stop or the cost limit not
+            try:
+                (_summary_search if step == 'search' else _read)(research_id, row, http)
+            except Halt as halt:
+                stopped_by = stopped_by or halt.reason
+        elif step == 'compile':
+            _compile(research_id, row, http, stopped_by)
+        if stopped_by and step != 'compile':
+            store.update(research_id, result=(store.get(research_id)['result'] or {}) | {'stopped_by': stopped_by})
+        _book(research_id)
+
+
+def _summary_search(research_id: int, row: dict, http: httpx.Client) -> None:
+    """The pages the user named go to the reading list as they are; each site is searched for the subject once. Without
+    websites the whole web is searched, with searches the model writes once (kept, so Continue writes and pays none again)."""
+    plan = row['plan'] or []
+    if not plan:
+        plan = [{'kind': 'web', 'query': query} for query in summary.queries(row['request'], http=http)]
+        store.update(research_id, plan=plan)
+    for item in plan:
+        if item['kind'] == 'page':
+            store.add_page(research_id, item['url'], '', '', '', '')
+    sites = [item for item in plan if item['kind'] in ('site', 'web')]
+    first = row['searches_done']
+    started, finished = {'n': first}, set()
+    count_lock = threading.Lock()
+
+    def one(item: tuple[int, dict]) -> None:
+        """One site or web search, its pages kept; `searches_done` is the longest run of finished searches, so Continue
+        skips none."""
+        index, planned = item
+        with count_lock:
+            _check(research_id, row, searches=started['n'])
+            started['n'] += 1
+        if planned['kind'] == 'site':
+            key, hits = planned['site'], summary.search_site(row['request'], planned['site'], http)
+        else:
+            key, hits = planned['query'], summary.search_web_hits(planned['query'], http)
+        for hit in hits:
+            store.add_page(research_id, hit.url, key, hit.title, hit.snippet, '')
+        with count_lock:
+            finished.add(index)
+            prefix = first
+            while prefix in finished:
+                prefix += 1
+            store.update(research_id, searches_done=prefix)
+        _book(research_id, save=False)
+        _show(research_id, 'search', len(finished) + first, len(sites))
+
+    _in_parallel(list(enumerate(sites[first:], first)), one)
+
+
+def _compile(research_id: int, row: dict, http: httpx.Client, stopped_by: str) -> None:
+    """Write the summary from the key points of the pages read; the summary ends done, or stopped when the user pressed
+    Stop. The pages not read and the pages not about the subject go with the result: the page gets no page facts."""
+    read = summary.reading_order(store.pages(research_id, 'read'))
+    used = [{'url': p['url'], 'title': p['title'] or p['facts'].get('title', ''), 'points': p['facts']['points']}
+            for p in read if (p['facts'] or {}).get('points')]
+    made = summary.compile_points(row['request'], used, http=http)
+    if stop.requested(stop_key(research_id)) and not stopped_by:
+        # CLAUDE> Stop pressed while the summary was being written still ends it as stopped
+        stopped_by = STOPPED_BY_YOU
+    unread = [p['url'] for p in store.pages(research_id) if p['status'] == 'failed' or (p['status'] == 'found' and p['error'])]
+    off = [p['url'] for p in read if not (p['facts'] or {}).get('points')]
+    result = made | {'stopped_by': stopped_by, 'unread': unread, 'off_subject': off, 'pages_read': len(read)}
+    store.update(research_id, title=store.get(research_id)['title'] or made['title'], result=result,
+                 state='stopped' if stopped_by == STOPPED_BY_YOU else 'done', step='compile')
+
+
+def _comparison(research_id: int, row: dict, http: httpx.Client) -> dict:
+    """The comparison of the pages read; with the day's rates only when a shop shows dollars or pounds (no download
+    otherwise)."""
+    read = store.pages(research_id, 'read')
+    foreign = any(product.get('currency') in rates.CURRENCIES
+                  for page in read for product in (page['facts'] or {}).get('products', []))
+    return compare.table(read, row['budget'], row['countries'], rates.current(http) if foreign else None)
 
 
 def _classes(research_id: int, row: dict, http: httpx.Client) -> None:
@@ -350,6 +533,8 @@ def _search(research_id: int, row: dict, http: httpx.Client) -> None:
 def _read(research_id: int, row: dict, http: httpx.Client) -> None:
     """Read each found page and take its facts."""
     todo = store.pages(research_id, 'found')
+    if row['kind'] == 'summary':
+        todo = summary.reading_order(todo)
     done = {'n': len(store.pages(research_id)) - len(todo)}
     # CLAUDE> the progress counts up to what will be read: the page limit, not every page the searches found (273 in one run)
     total = min(len(store.pages(research_id)), row['limits']['pages'])
@@ -362,7 +547,10 @@ def _read(research_id: int, row: dict, http: httpx.Client) -> None:
             done['n'] += 1
         try:
             read = pages.read(page['url'], http)
-            facts = offers.extract(read, row['request'], row['kind'], page['country'], http=http)
+            if row['kind'] == 'summary':
+                facts = summary.key_points(read, row['request'], http=http)
+            else:
+                facts = offers.extract(read, row['request'], row['kind'], page['country'], http=http)
         except pages.Unreadable as error:
             store.update_page(research_id, page['url'], status='failed', error=str(error))
         except Exception as error:
@@ -384,7 +572,7 @@ def _read(research_id: int, row: dict, http: httpx.Client) -> None:
 def _advise(research_id: int, row: dict, http: httpx.Client, stopped_by: str) -> None:
     """Write the advice; the research ends done, or stopped when the user pressed Stop."""
     if not (row['result'] or {}).get('comparison'):
-        row['result'] = {'comparison': compare.table(store.pages(research_id, 'read'), row['budget'], row['countries'])}
+        row['result'] = {'comparison': _comparison(research_id, row, http)}
     answers = _told(row['questions'], row['answers']) | _told(row['followups'], row['followup_answers'])
     written = advice.write(row['request'], answers, row['requirements'] or [], (row['result'] or {}).get('ranking', []),
                            stopped_by, http=http, kind=row['kind'], budget=row['budget'])
