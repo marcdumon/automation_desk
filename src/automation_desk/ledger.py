@@ -129,6 +129,8 @@ CREATE TABLE IF NOT EXISTS health_intakes (
     taken_at TEXT NOT NULL, PRIMARY KEY (day, supplement_id)
 );
 CREATE TABLE IF NOT EXISTS health_angina (day TEXT PRIMARY KEY, score INTEGER, note TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS health_ketones (id INTEGER PRIMARY KEY, day TEXT NOT NULL, taken_at TEXT NOT NULL, level REAL NOT NULL);
+CREATE INDEX IF NOT EXISTS health_ketones_by_day ON health_ketones (day, taken_at);
 CREATE TABLE IF NOT EXISTS withings_values (
     grpid INTEGER NOT NULL, type INTEGER NOT NULL, position INTEGER NOT NULL, value REAL NOT NULL, measured_at TEXT NOT NULL,
     PRIMARY KEY (grpid, type, position)

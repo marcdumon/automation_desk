@@ -1383,13 +1383,15 @@ def _health_day(day: str | None) -> date:
 
 
 def _health_view(day: date) -> dict:
-    """The Health page for a day: the schedule with the day's ticks, the angina score, the latest Withings values, the link."""
+    """The Health page for a day: the schedule with the day's ticks, the angina score, the Ketostix readings, the latest
+    Withings values, the link."""
     now = _health_now()
     taken = health_store.intakes(day)
     moments = [m | {'supplements': [s | {'taken_at': taken.get(s['id'])} for s in m['supplements']]}
                for m in health_store.moments()]
     return {'day': day.isoformat(), 'today': health_store.health_day(now).isoformat(), 'now': now.strftime('%H:%M'),
-            'moments': moments, 'angina': health_store.angina(day), 'latest': withings.latest(), 'withings': withings.status()}
+            'moments': moments, 'angina': health_store.angina(day), 'ketones': health_store.ketone_readings(day),
+            'ketostix': health_store.KETOSTIX, 'latest': withings.latest(), 'withings': withings.status()}
 
 
 class HealthIntake(BaseModel):
@@ -1403,6 +1405,20 @@ class HealthDay(BaseModel):
     """A day of the Health page."""
 
     day: str
+
+
+class HealthKetones(BaseModel):
+    """A Ketostix reading of a day: its time and its colour in mmol/L."""
+
+    day: str
+    taken_at: str
+    level: float
+
+
+class HealthTime(BaseModel):
+    """A new clock time."""
+
+    taken_at: str
 
 
 class HealthAngina(BaseModel):
@@ -1497,6 +1513,37 @@ def health_angina(given: HealthAngina) -> dict:
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
     return _health_view(day)
+
+
+@app.post('/api/health/ketones')
+def health_ketones_add(given: HealthKetones) -> dict:
+    """Note a Ketostix reading at a time."""
+    day = _health_day(given.day)
+    try:
+        health_store.add_ketone_reading(day, given.taken_at, given.level)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    return _health_view(day)
+
+
+@app.put('/api/health/ketones/{reading_id}')
+def health_ketones_time(reading_id: int, given: HealthTime) -> dict:
+    """Change the time of a Ketostix reading."""
+    try:
+        return _health_view(health_store.set_ketone_time(reading_id, given.taken_at))
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    except KeyError as error:
+        raise HTTPException(404, 'This Ketostix reading is not there any more. Reload the page.') from error
+
+
+@app.delete('/api/health/ketones/{reading_id}')
+def health_ketones_remove(reading_id: int) -> dict:
+    """Remove a Ketostix reading at once."""
+    try:
+        return _health_view(health_store.remove_ketone_reading(reading_id))
+    except KeyError as error:
+        raise HTTPException(404, 'This Ketostix reading is not there any more. Reload the page.') from error
 
 
 def _health_page() -> RedirectResponse:

@@ -446,14 +446,17 @@ export type HealthLatest = {
 export type WithingsStatus = {
   configured: boolean; connected: boolean; last_fetch: string | null; error: string; fetching: boolean; callback_url: string
 }
+// a Ketostix reading (level in mmol/L), and the six colours of the strip the server takes
+export type KetoneReading = { id: number; taken_at: string; level: number }
+export type KetostixLevel = { level: number; label: string; mg_dl: number }
 export type HealthView = {
   day: string; today: string; now: string; moments: HealthMoment[]; angina: { score: number | null; note: string } | null
-  latest: HealthLatest; withings: WithingsStatus
+  ketones: KetoneReading[]; ketostix: KetostixLevel[]; latest: HealthLatest; withings: WithingsStatus
 }
 // a day of the history: the fixed parts, and every scale value of that day by name ('weight', 'muscle_mass:left_arm')
 export type HealthDayRow = {
-  day: string; taken: number | null; planned: number; angina: number | null; systolic: number | null; diastolic: number | null
-  pulse: number | null; readings: number
+  day: string; taken: number | null; planned: number; angina: number | null; ketones: number | null; ketone_readings: number
+  systolic: number | null; diastolic: number | null; pulse: number | null; readings: number
 } & { [value: string]: string | number | null | undefined }
 
 export const getHealth = (day?: string) => call<HealthView>(`/api/health${day ? `?day=${day}` : ''}`)
@@ -487,4 +490,9 @@ export const takeMoment = (moment: string, day: string) =>
   call<HealthView>(`/api/health/moments/${encodeURIComponent(moment)}/all`, { day })
 export const setAngina = (day: string, score: number | null, note: string) =>
   send<HealthView>('/api/health/angina', 'PUT', { day, score, note })
+export const addKetoneReading = (day: string, level: number, takenAt: string) =>
+  call<HealthView>('/api/health/ketones', { day, level, taken_at: takenAt })
+export const setKetoneTime = (id: number, takenAt: string) =>
+  send<HealthView>(`/api/health/ketones/${id}`, 'PUT', { taken_at: takenAt })
+export const removeKetoneReading = (id: number) => send<HealthView>(`/api/health/ketones/${id}`, 'DELETE')
 export const fetchWithings = (day: string) => call<HealthView>(`/api/health/withings/fetch?day=${day}`, {})
