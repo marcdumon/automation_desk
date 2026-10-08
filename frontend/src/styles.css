@@ -980,3 +980,16 @@ details.habit-card > summary { cursor: pointer; font-weight: 600; }
 .health-table td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .health-schedule > summary { padding: 16px 20px; }
 .health-schedule > summary h2 { display: inline; margin: 0; font-size: 18px; }
+/* the Withings card in groups with a table per body part; the history in tabs, the body parts as a grid of small
+   charts (arms, legs, trunk) per kind */
+.health-group { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.health-group h3 { margin: 0; font-size: 14px; }
+.health-group h3 .muted { margin-left: 6px; font-weight: 400; font-size: 12px; }
+.health-table .health-parts-table { min-width: 0; font-size: 14px; }
+.health-parts-table th[scope='row'] { text-align: left; font-weight: 600; color: var(--ink); border-top: 0; white-space: nowrap; }
+.health-parts-table th.num, .health-parts-table td.num { text-align: right; }
+.health-tabs { margin-top: 2px; }
+.health-part-row { display: grid; gap: 6px; }
+.health-part-row h3 { margin: 6px 0 0; font-size: 15px; }
+.health-part-row h3 .muted { margin-left: 6px; font-weight: 400; font-size: 13px; }
+.health-part-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 12px 18px; }

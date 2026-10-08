@@ -438,7 +438,11 @@ export type HealthSupplement = {
 export type HealthMoment = { name: string; when: string; supplements: HealthSupplement[] }
 export type WithingsValue = { value: number; measured_at: string }
 export type HealthPressure = { systolic: number | null; diastolic: number | null; pulse: number | null; measured_at: string }
-export type HealthLatest = { pressure: HealthPressure | null; values: Record<string, WithingsValue | undefined> }
+// segments: per kind (muscle_mass, fat_mass, fat_free_mass) the newest value of each body part
+export type HealthLatest = {
+  pressure: HealthPressure | null; values: Record<string, WithingsValue | undefined>
+  segments: Record<string, Record<string, WithingsValue | undefined> | undefined>
+}
 export type WithingsStatus = {
   configured: boolean; connected: boolean; last_fetch: string | null; error: string; fetching: boolean; callback_url: string
 }
@@ -446,10 +450,11 @@ export type HealthView = {
   day: string; today: string; now: string; moments: HealthMoment[]; angina: { score: number | null; note: string } | null
   latest: HealthLatest; withings: WithingsStatus
 }
+// a day of the history: the fixed parts, and every scale value of that day by name ('weight', 'muscle_mass:left_arm')
 export type HealthDayRow = {
   day: string; taken: number | null; planned: number; angina: number | null; systolic: number | null; diastolic: number | null
-  pulse: number | null; readings: number; weight: number | null; fat_ratio: number | null; muscle_mass: number | null
-}
+  pulse: number | null; readings: number
+} & { [value: string]: string | number | null | undefined }
 
 export const getHealth = (day?: string) => call<HealthView>(`/api/health${day ? `?day=${day}` : ''}`)
 export const getHealthHistory = (days: number) => call<{ days: HealthDayRow[] }>(`/api/health/history?days=${days}`)

@@ -129,10 +129,12 @@ CREATE TABLE IF NOT EXISTS health_intakes (
     taken_at TEXT NOT NULL, PRIMARY KEY (day, supplement_id)
 );
 CREATE TABLE IF NOT EXISTS health_angina (day TEXT PRIMARY KEY, score INTEGER, note TEXT NOT NULL DEFAULT '');
-CREATE TABLE IF NOT EXISTS withings_measures (
-    grpid INTEGER NOT NULL, type INTEGER NOT NULL, value REAL NOT NULL, measured_at TEXT NOT NULL, PRIMARY KEY (grpid, type)
+CREATE TABLE IF NOT EXISTS withings_values (
+    grpid INTEGER NOT NULL, type INTEGER NOT NULL, position INTEGER NOT NULL, value REAL NOT NULL, measured_at TEXT NOT NULL,
+    PRIMARY KEY (grpid, type, position)
 );
-CREATE INDEX IF NOT EXISTS withings_measures_by_type ON withings_measures (type, measured_at);
+CREATE INDEX IF NOT EXISTS withings_values_by_type ON withings_values (type, position, measured_at);
+CREATE INDEX IF NOT EXISTS withings_values_by_time ON withings_values (measured_at);
 CREATE TABLE IF NOT EXISTS health_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS chats (
     id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, model TEXT NOT NULL, created TEXT NOT NULL,
@@ -177,6 +179,12 @@ def _ensure_schema(target: Path) -> None:
             for table, column, kind in ADDED_COLUMNS:
                 if column not in {row[1] for row in connection.execute(f'PRAGMA table_info({table})')}:
                     connection.execute(f'ALTER TABLE {table} ADD COLUMN {column} {kind}')
+            # the first Withings table had no body part, so the values per arm, leg and trunk did not fit: it goes,
+            # and the next fetch gets the whole history again (Withings keeps it); the sign-in stays
+            if connection.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'withings_measures'").fetchone():
+                connection.execute('DROP TABLE withings_measures')
+                connection.execute("DELETE FROM health_settings WHERE key = 'withings_lastupdate'")
+                connection.commit()
         finally:
             connection.close()
         _ready.add(target)
