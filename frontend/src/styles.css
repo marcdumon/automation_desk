@@ -1082,3 +1082,19 @@ dialog.health-analysis::backdrop { background: rgb(0 0 0 / 0.5); }
 .health-ketone-list li { display: flex; align-items: center; gap: 12px; min-height: 36px; font-size: 14px; }
 .health-ketone-level { flex: 1; display: inline-flex; align-items: center; gap: 6px; }
 .health-ketone-list button { padding: 3px 10px; font-size: 13px; }
+/* the parts of the large view after the weekday chart went: a short sentence that says what a part means, the table
+   of the last week against earlier weeks, the limits of 9 of 10 day-to-day changes, the chosen second value and the axis
+   names of the relation chart */
+.analysis-say { margin: 0; font-size: 14px; line-height: 1.5; max-width: 75ch; }
+.chart .mark-line.limit { stroke: var(--series-2); stroke-dasharray: 5 3; }
+.key.limit { background: var(--series-2); }
+.analysis-earlier { font-size: 14px; }
+.analysis-earlier th[scope='row'] { color: var(--ink); font-weight: 600; text-align: left; white-space: normal; border-top: 0; }
+.analysis-earlier th[scope='row'] small { display: block; margin-top: 1px; font-weight: 400; font-size: 12px; }
+.analysis-earlier th.num, .analysis-earlier td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.analysis-earlier td.num { font-size: 16px; font-weight: 600; vertical-align: middle; }
+.analysis-against { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+.analysis-against select { padding: 5px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface);
+  color: var(--ink); font: inherit; }
+.analysis-axis { margin: 0; font-size: 12px; color: var(--muted); }
+.analysis-axis.x { text-align: right; }

@@ -1454,6 +1454,15 @@ def health_analysis_view(key: str, days: int | None = Query(None, ge=7, le=20000
     return health_analysis.analyse(key, days, window, health_store.health_day(_health_now()))
 
 
+@app.get('/api/health/relation')
+def health_relation_view(key: str, other: str, days: int | None = Query(None, ge=7, le=20000)) -> dict:
+    """Two values of the history by day, with their correlation; without a number of days, of all data."""
+    for name in (key, other):
+        if not health_analysis.known(name):
+            raise HTTPException(404, f'The Health history has no value named {name}.')
+    return health_analysis.relation(key, other, days, health_store.health_day(_health_now()))
+
+
 class HealthGroups(BaseModel):
     """The Withings groups of one measurement (a weigh-in, or a blood pressure reading)."""
 
