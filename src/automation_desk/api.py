@@ -45,7 +45,9 @@ from automation_desk.groups.news import digest as news_digest
 from automation_desk.groups.news import store as news
 from automation_desk.groups.news.sites import save_site_list
 from automation_desk.groups.tasks import stats as task_stats_store
+from automation_desk.health import analysis as health_analysis
 from automation_desk.health import history as health_history
+from automation_desk.health import measurements as health_measurements
 from automation_desk.health import store as health_store
 from automation_desk.health import withings
 from automation_desk.interpret import fill_args, route
@@ -1424,8 +1426,42 @@ def health_view(day: str | None = None) -> dict:
 
 @app.get('/api/health/history')
 def health_history_view(days: int = Query(30, ge=7, le=365)) -> dict:
-    """One row per day: supplements taken, angina, blood pressure, scale values."""
-    return {'days': health_history.days(days, health_store.health_day(_health_now()))}
+    """One row per day: supplements taken, angina, blood pressure, scale values; and the measurements removed as wrong."""
+    return {'days': health_history.days(days, health_store.health_day(_health_now())), 'removed': health_measurements.removed()}
+
+
+@app.get('/api/health/analysis')
+def health_analysis_view(key: str, days: int | None = Query(None, ge=7, le=20000), window: int = Query(30, ge=3, le=365)) -> dict:
+    """The analysis of one value of the history, for the large view of a chart; without a number of days, of all data."""
+    if not health_analysis.known(key):
+        raise HTTPException(404, f'The Health history has no value named {key}.')
+    return health_analysis.analyse(key, days, window, health_store.health_day(_health_now()))
+
+
+class HealthGroups(BaseModel):
+    """The Withings groups of one measurement (a weigh-in, or a blood pressure reading)."""
+
+    grpids: list[int]
+
+
+@app.get('/api/health/days/{day}/measurements')
+def health_day_measurements(day: str) -> dict:
+    """Each weigh-in and each blood pressure reading of a day, to remove a wrong one."""
+    return {'measurements': health_measurements.day(_health_day(day))}
+
+
+@app.post('/api/health/measurements/hide')
+def health_hide(given: HealthGroups) -> dict:
+    """Remove a wrong measurement from the history and the latest values; nothing is deleted at Withings."""
+    health_measurements.hide(given.grpids)
+    return {'removed': health_measurements.removed()}
+
+
+@app.post('/api/health/measurements/show')
+def health_show(given: HealthGroups) -> dict:
+    """Put a removed measurement back."""
+    health_measurements.show(given.grpids)
+    return {'removed': health_measurements.removed()}
 
 
 @app.put('/api/health/intakes/{supplement_id}')

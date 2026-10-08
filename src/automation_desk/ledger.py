@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS withings_values (
 );
 CREATE INDEX IF NOT EXISTS withings_values_by_type ON withings_values (type, position, measured_at);
 CREATE INDEX IF NOT EXISTS withings_values_by_time ON withings_values (measured_at);
+CREATE TABLE IF NOT EXISTS withings_hidden (grpid INTEGER PRIMARY KEY, hidden_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS health_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS chats (
     id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, model TEXT NOT NULL, created TEXT NOT NULL,

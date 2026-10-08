@@ -457,7 +457,30 @@ export type HealthDayRow = {
 } & { [value: string]: string | number | null | undefined }
 
 export const getHealth = (day?: string) => call<HealthView>(`/api/health${day ? `?day=${day}` : ''}`)
-export const getHealthHistory = (days: number) => call<{ days: HealthDayRow[] }>(`/api/health/history?days=${days}`)
+// one weigh-in (its groups of one minute) or one blood pressure reading; day is set for a removed one
+export type HealthMeasurement = {
+  kind: 'scale' | 'pressure'; measured_at: string; grpids: number[]; values: Record<string, number>; day?: string
+}
+export const getHealthHistory = (days: number) =>
+  call<{ days: HealthDayRow[]; removed: HealthMeasurement[] }>(`/api/health/history?days=${days}`)
+export const getDayMeasurements = (day: string) => call<{ measurements: HealthMeasurement[] }>(`/api/health/days/${day}/measurements`)
+export const hideMeasurement = (grpids: number[]) => call<{ removed: HealthMeasurement[] }>('/api/health/measurements/hide', { grpids })
+export const showMeasurement = (grpids: number[]) => call<{ removed: HealthMeasurement[] }>('/api/health/measurements/show', { grpids })
+// the large view of a chart: one value with its rolling mean and band, numbers, histogram, outliers, weekdays, years
+export type HealthAnalysis = {
+  key: string; start: string; end: string; window: number
+  points: { day: string; value: number; mean: number; std: number | null }[]
+  stats: {
+    count: number; mean: number; median: number; std: number | null; min: { day: string; value: number }
+    max: { day: string; value: number }; trend_per_month: number | null
+  } | null
+  histogram: { edges: number[]; counts: number[] } | null
+  outliers: { day: string; value: number; expected: number; z: number }[]
+  weekdays: { weekday: number; count: number; mean: number | null; diff: number | null }[]
+  years: { year: number; months: (number | null)[] }[]
+}
+export const getHealthAnalysis = (key: string, days: number | null, window: number) =>
+  call<HealthAnalysis>(`/api/health/analysis?key=${encodeURIComponent(key)}&window=${window}${days ? `&days=${days}` : ''}`)
 export const setIntake = (id: number, day: string, takenAt: string | null) =>
   send<HealthView>(`/api/health/intakes/${id}`, 'PUT', { day, taken_at: takenAt })
 export const takeMoment = (moment: string, day: string) =>
