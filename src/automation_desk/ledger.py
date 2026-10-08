@@ -119,6 +119,21 @@ CREATE TABLE IF NOT EXISTS research_pages (
     PRIMARY KEY (research_id, url)
 );
 CREATE TABLE IF NOT EXISTS research_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS health_supplements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, moment TEXT NOT NULL, moment_when TEXT NOT NULL, position INTEGER NOT NULL,
+    name TEXT NOT NULL, dose TEXT NOT NULL, how TEXT NOT NULL DEFAULT '', why TEXT NOT NULL DEFAULT '',
+    effects TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS health_intakes (
+    day TEXT NOT NULL, supplement_id INTEGER NOT NULL REFERENCES health_supplements (id) ON DELETE CASCADE,
+    taken_at TEXT NOT NULL, PRIMARY KEY (day, supplement_id)
+);
+CREATE TABLE IF NOT EXISTS health_angina (day TEXT PRIMARY KEY, score INTEGER, note TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS withings_measures (
+    grpid INTEGER NOT NULL, type INTEGER NOT NULL, value REAL NOT NULL, measured_at TEXT NOT NULL, PRIMARY KEY (grpid, type)
+);
+CREATE INDEX IF NOT EXISTS withings_measures_by_type ON withings_measures (type, measured_at);
+CREATE TABLE IF NOT EXISTS health_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS chats (
     id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, model TEXT NOT NULL, created TEXT NOT NULL,
     updated TEXT NOT NULL, target TEXT, note TEXT

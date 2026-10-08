@@ -87,6 +87,14 @@ def _respx_active() -> bool:
 
 
 @pytest.fixture(autouse=True)
+def no_real_withings_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The user's Withings codes and callback in .env never reach a test; tests that need codes set their own."""
+    from automation_desk.health import withings
+
+    monkeypatch.setattr(withings, '_env', lambda name: '')
+
+
+@pytest.fixture(autouse=True)
 def fresh_rate_pace(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every test starts with no recent model requests, so the per-minute spacing never makes the suite wait."""
     from collections import deque

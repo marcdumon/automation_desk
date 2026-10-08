@@ -136,7 +136,7 @@ function Card({ title, wide, children }: { title: string; wide?: boolean; childr
 }
 
 // the chart's drawing width follows its box, so text never stretches
-function useWidth(): [React.RefObject<HTMLDivElement | null>, number] {
+export function useWidth(): [React.RefObject<HTMLDivElement | null>, number] {
   const ref = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(600)
   useEffect(() => {
@@ -179,9 +179,9 @@ function Axes({ width, max, days, labelsOnly }: { width: number; max: number; da
   )
 }
 
-type Tip = { x: number; y: number; title: string; rows: { key: string; value: string; kind: string }[] }
+export type Tip = { x: number; y: number; title: string; rows: { key: string; value: string; kind: string }[] }
 
-function Tooltip({ tip }: { tip: Tip | null }) {
+export function Tooltip({ tip }: { tip: Tip | null }) {
   if (!tip) return null
   return (
     <div className="chart-tip" style={{ left: tip.x, top: tip.y }} role="status">
@@ -191,7 +191,7 @@ function Tooltip({ tip }: { tip: Tip | null }) {
   )
 }
 
-function Legend({ items }: { items: { label: string; kind: string; line?: boolean }[] }) {
+export function Legend({ items }: { items: { label: string; kind: string; line?: boolean }[] }) {
   return (
     <ul className="chart-legend">
       {items.map(i => <li key={i.label}><i className={`key ${i.kind}${i.line ? ' line' : ''}`} />{i.label}</li>)}

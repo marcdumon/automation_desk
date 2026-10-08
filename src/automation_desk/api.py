@@ -12,7 +12,7 @@ import subprocess
 import threading
 import time
 from collections.abc import AsyncIterator, Callable
-from datetime import datetime
+from datetime import date, datetime
 from functools import cache
 from pathlib import Path
 from typing import Literal
@@ -21,8 +21,8 @@ from zoneinfo import ZoneInfo
 
 import httpx
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from googleapiclient.errors import HttpError
 from pydantic import BaseModel, Field
@@ -45,6 +45,9 @@ from automation_desk.groups.news import digest as news_digest
 from automation_desk.groups.news import store as news
 from automation_desk.groups.news.sites import save_site_list
 from automation_desk.groups.tasks import stats as task_stats_store
+from automation_desk.health import history as health_history
+from automation_desk.health import store as health_store
+from automation_desk.health import withings
 from automation_desk.interpret import fill_args, route
 from automation_desk.llm import LLMError
 from automation_desk.plans import CHECK_TTL_SECONDS, Plan, PlanStore
@@ -1358,6 +1361,157 @@ def chat_export(chat_id: int, given: ChatSave | None = None) -> dict:
     note |= {'title': title, 'error': ''}
     chat_store.update(chat_id, note=note)
     return note
+
+
+def _health_now() -> datetime:
+    """The time now in the user's timezone."""
+    return context('Health').now
+
+
+def _health_day(day: str | None) -> date:
+    """A day of the Health page, checked: today (from 04:00) or an earlier day."""
+    today = health_store.health_day(_health_now())
+    try:
+        chosen = date.fromisoformat(day) if day else today
+    except ValueError as error:
+        raise HTTPException(400, f'"{day}" is not a day. Write it as YYYY-MM-DD.') from error
+    if chosen > today:
+        raise HTTPException(400, 'That day has not come yet. Choose today or an earlier day.')
+    return chosen
+
+
+def _health_view(day: date) -> dict:
+    """The Health page for a day: the schedule with the day's ticks, the angina score, the latest Withings values, the link."""
+    now = _health_now()
+    taken = health_store.intakes(day)
+    moments = [m | {'supplements': [s | {'taken_at': taken.get(s['id'])} for s in m['supplements']]}
+               for m in health_store.moments()]
+    return {'day': day.isoformat(), 'today': health_store.health_day(now).isoformat(), 'now': now.strftime('%H:%M'),
+            'moments': moments, 'angina': health_store.angina(day), 'latest': withings.latest(), 'withings': withings.status()}
+
+
+class HealthIntake(BaseModel):
+    """A supplement taken at a time on a day, or not taken (no time)."""
+
+    day: str
+    taken_at: str | None = None
+
+
+class HealthDay(BaseModel):
+    """A day of the Health page."""
+
+    day: str
+
+
+class HealthAngina(BaseModel):
+    """The day's angina score (0 to 5, or none) and note."""
+
+    day: str
+    score: int | None = None
+    note: str = ''
+
+
+@app.get('/api/health')
+def health_view(day: str | None = None) -> dict:
+    """A day of the Health page; opening it fetches new Withings measurements when the last fetch is 10 minutes old."""
+    view = _health_view(_health_day(day))
+    if withings.due():
+        # said at once, so the page asks again until the new measurements are in
+        view['withings']['fetching'] = True
+        _in_background(withings.sync)
+    return view
+
+
+@app.get('/api/health/history')
+def health_history_view(days: int = Query(30, ge=7, le=365)) -> dict:
+    """One row per day: supplements taken, angina, blood pressure, scale values."""
+    return {'days': health_history.days(days, health_store.health_day(_health_now()))}
+
+
+@app.put('/api/health/intakes/{supplement_id}')
+def health_intake(supplement_id: int, given: HealthIntake) -> dict:
+    """Tick a supplement as taken at a time, change the time, or untick it."""
+    day = _health_day(given.day)
+    try:
+        health_store.set_intake(day, supplement_id, given.taken_at)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    except KeyError as error:
+        raise HTTPException(404, 'This supplement is not in the schedule. Reload the page.') from error
+    return _health_view(day)
+
+
+@app.post('/api/health/moments/{moment}/all')
+def health_moment(moment: str, given: HealthDay) -> dict:
+    """Tick every supplement of a moment not ticked yet, at the time now."""
+    day = _health_day(given.day)
+    try:
+        health_store.take_moment(day, moment, _health_now().strftime('%H:%M'))
+    except KeyError as error:
+        raise HTTPException(404, f'There is no moment "{moment}" in the schedule. Reload the page.') from error
+    return _health_view(day)
+
+
+@app.put('/api/health/angina')
+def health_angina(given: HealthAngina) -> dict:
+    """The day's angina score and note."""
+    day = _health_day(given.day)
+    try:
+        health_store.set_angina(day, given.score, given.note)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    return _health_view(day)
+
+
+def _health_page() -> RedirectResponse:
+    """Back to the Health page, on the address the app is opened at."""
+    return RedirectResponse(f'http://127.0.0.1:{config().port}/health')
+
+
+def _finish_sign_in(query: dict[str, str]) -> str:
+    """The end of the Withings sign-in, on the app's route or the other port of the user's callback: the code becomes
+    tokens at once, then the data is fetched. The page the browser goes to next."""
+    try:
+        if query.get('error') or not query.get('code'):
+            raise withings.WithingsError('You did not allow the app to read your Withings data. Press Connect Withings, and '
+                                         'press Allow at Withings.')
+        with httpx.Client(timeout=30.0) as http:
+            withings.connect(query['code'], query.get('state', ''), http)
+        _in_background(withings.sync)
+    except withings.WithingsError as failure:
+        health_store.set_setting('withings_error', str(failure))
+    return f'http://127.0.0.1:{config().port}/health'
+
+
+@app.get('/api/health/withings/connect')
+def withings_connect() -> RedirectResponse:
+    """To the Withings sign-in, waiting on the callback's port when it is not the app's; without the app codes, back to the
+    page, which says what to do."""
+    try:
+        url = withings.authorize_url()
+        withings.listen(_finish_sign_in)
+        return RedirectResponse(url)
+    except withings.WithingsError as error:
+        health_store.set_setting('withings_error', str(error))
+        return _health_page()
+
+
+@app.get('/api/health/withings/callback')
+def withings_callback(code: str = '', state: str = '', error: str = '') -> RedirectResponse:
+    """Withings sends the browser back here after the sign-in."""
+    return RedirectResponse(_finish_sign_in({'code': code, 'state': state, 'error': error}))
+
+
+@app.post('/api/health/withings/fetch')
+def withings_fetch(day: str | None = None) -> dict:
+    """Fetch new Withings measurements now (Withings allows one fetch in 10 minutes)."""
+    if not withings.status()['connected']:
+        raise HTTPException(409, 'Withings is not connected. Press Connect Withings first.')
+    try:
+        withings.sync(asked=True)
+    except withings.TooSoon as error:
+        raise HTTPException(429, str(error)) from error
+    return _health_view(_health_day(day))
 
 
 if STATIC.exists():

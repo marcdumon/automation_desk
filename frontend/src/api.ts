@@ -378,7 +378,7 @@ export type ChatList = {
 export type ChatEvent = { type: 'start'; message: ChatMessage } | { type: 'wait'; seconds: number } | { type: 'piece'; text: string }
   | { type: 'end'; message: ChatMessage }
 
-async function send<T>(path: string, method: 'PATCH' | 'DELETE', body?: unknown): Promise<T> {
+async function send<T>(path: string, method: 'PATCH' | 'PUT' | 'DELETE', body?: unknown): Promise<T> {
   const response = await reach(path, { method, headers: { 'Content-Type': 'application/json' },
                                        body: body === undefined ? undefined : JSON.stringify(body) })
   const data = await response.json().catch(() => ({}))
@@ -429,3 +429,34 @@ export async function followChat(id: number, onEvent: (event: ChatEvent) => void
     return
   }
 }
+
+// the Health page: the supplements taken per day with their time, the angina score, the Withings measurements
+export type HealthSupplement = {
+  id: number; moment: string; moment_when: string; position: number; name: string; dose: string; how: string; why: string
+  effects: string; taken_at: string | null
+}
+export type HealthMoment = { name: string; when: string; supplements: HealthSupplement[] }
+export type WithingsValue = { value: number; measured_at: string }
+export type HealthPressure = { systolic: number | null; diastolic: number | null; pulse: number | null; measured_at: string }
+export type HealthLatest = { pressure: HealthPressure | null; values: Record<string, WithingsValue | undefined> }
+export type WithingsStatus = {
+  configured: boolean; connected: boolean; last_fetch: string | null; error: string; fetching: boolean; callback_url: string
+}
+export type HealthView = {
+  day: string; today: string; now: string; moments: HealthMoment[]; angina: { score: number | null; note: string } | null
+  latest: HealthLatest; withings: WithingsStatus
+}
+export type HealthDayRow = {
+  day: string; taken: number | null; planned: number; angina: number | null; systolic: number | null; diastolic: number | null
+  pulse: number | null; readings: number; weight: number | null; fat_ratio: number | null; muscle_mass: number | null
+}
+
+export const getHealth = (day?: string) => call<HealthView>(`/api/health${day ? `?day=${day}` : ''}`)
+export const getHealthHistory = (days: number) => call<{ days: HealthDayRow[] }>(`/api/health/history?days=${days}`)
+export const setIntake = (id: number, day: string, takenAt: string | null) =>
+  send<HealthView>(`/api/health/intakes/${id}`, 'PUT', { day, taken_at: takenAt })
+export const takeMoment = (moment: string, day: string) =>
+  call<HealthView>(`/api/health/moments/${encodeURIComponent(moment)}/all`, { day })
+export const setAngina = (day: string, score: number | null, note: string) =>
+  send<HealthView>('/api/health/angina', 'PUT', { day, score, note })
+export const fetchWithings = (day: string) => call<HealthView>(`/api/health/withings/fetch?day=${day}`, {})

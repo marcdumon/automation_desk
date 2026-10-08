@@ -917,3 +917,66 @@ details.habit-card > summary { cursor: pointer; font-weight: 600; }
 .health-effects { width: 42%; font-size: 13px; line-height: 1.45; }
 /* why adding one watched site's events failed, under that site's name and button */
 .group-error { margin: 6px 0 0; max-width: 70ch; white-space: normal; }
+/* Health tracking: today (supplements by moment, angina) next to the Withings values; then the history charts, one
+   under the other on one date axis, and the schedule folded closed */
+.health-top { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 20px; align-items: start; margin-bottom: 20px; }
+/* a card's column never grows past the card: the grid of values sized the Withings card to 712 px in a 271 px column */
+.health-today, .health-latest, .health-history { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+@media (max-width: 1000px) { .health-top { grid-template-columns: minmax(0, 1fr); } }
+.health-day-head { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; }
+.health-day-head h2 { margin: 0; }
+.health-day-head p { margin: 2px 0 0; font-size: 14px; }
+.health-day-head button { font-size: 20px; padding: 2px 12px; }
+.health-moment-list { display: grid; gap: 6px; }
+.health-moment-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; justify-content: space-between; }
+.health-moment-head h3, .health-angina h3 { margin: 0; font-size: 15px; color: var(--accent); }
+.health-moment-head h3 .muted, .health-angina h3 .muted { margin-left: 6px; font-size: 13px; font-weight: 500; }
+.health-all { padding: 4px 10px; font-size: 13px; }
+.health-moment-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.health-moment-list li { display: flex; align-items: center; gap: 12px; min-height: 36px; }
+.health-tick { flex: none; display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 2px solid var(--accent);
+  border-radius: 50%; background: transparent; cursor: pointer; }
+.health-tick .tick-mark { font-size: 15px; font-weight: 700; color: var(--surface); line-height: 1; }
+.health-tick.done { background: var(--accent); }
+.health-tick:hover:not(:disabled) { box-shadow: 0 0 0 3px var(--accent-wash); }
+.health-supplement { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.health-moment-list li.taken .health-supplement strong { font-weight: 500; }
+.health-time { flex: none; padding: 3px 6px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper);
+  font: inherit; font-size: 14px; font-variant-numeric: tabular-nums; color: inherit; }
+.health-angina { display: grid; gap: 8px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.health-scores { display: flex; flex-wrap: wrap; gap: 6px; }
+.health-scores .choice-chip { min-width: 40px; font-variant-numeric: tabular-nums; }
+.health-scores .choice-chip.chosen { background: var(--accent); border-color: var(--accent); color: var(--surface); font-weight: 600; }
+.health-latest h2 { margin: 0; }
+.health-reading { display: grid; gap: 2px; }
+.health-label { font-size: 13px; color: var(--muted); font-weight: 600; }
+.health-value { font-size: 30px; font-weight: 750; line-height: 1.1; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.health-value small, .health-values small { font-size: 13px; font-weight: 500; color: var(--muted); }
+.health-values { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px 18px; margin: 0; }
+.health-values div { display: grid; gap: 1px; }
+.health-values dt { font-size: 13px; color: var(--muted); font-weight: 600; }
+.health-values dd { margin: 0; font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.health-values dd.muted { font-size: 12px; font-weight: 400; }
+.health-status { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding-top: 12px; border-top: 1px solid var(--rule);
+  font-size: 14px; }
+.health-status .cap-error { flex-basis: 100%; margin: 0; }
+.health-setup { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--rule); font-size: 14px; }
+.health-setup p { margin: 0; }
+.health-setup ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.health-setup code { overflow-wrap: anywhere; }
+.health-setup .primary { justify-self: start; }
+.health-history { margin-bottom: 20px; }
+.health-history-head { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+.health-history-head h2 { margin: 0; }
+.health-charts { display: grid; gap: 14px; }
+.health-charts figure { margin: 0; min-width: 0; }
+.health-charts figcaption { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.health-charts figcaption .muted { font-weight: 400; margin-left: 6px; font-size: 13px; }
+.chart .bar.zero { opacity: .6; }
+.chart .dot.s2 { fill: var(--series-2); stroke: var(--surface); stroke-width: 2; }
+.health-table-wrap > summary, .health-schedule > summary { cursor: pointer; }
+.health-table-wrap > summary { font-size: 14px; font-weight: 600; }
+.health-table-wrap .health-table table { min-width: 680px; }
+.health-table td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.health-schedule > summary { padding: 16px 20px; }
+.health-schedule > summary h2 { display: inline; margin: 0; font-size: 18px; }
