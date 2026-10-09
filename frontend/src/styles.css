@@ -1100,3 +1100,8 @@ dialog.health-analysis::backdrop { background: rgb(0 0 0 / 0.5); }
 .analysis-axis.x { text-align: right; }
 /* a day with angina not measured (no exertion): a grey dot above the baseline, no bar */
 .chart .bar-mark { fill: var(--muted); }
+/* the delay chart of the correlation: grey bars with few day pairs, a frame around the chosen delay */
+.analysis-against-row { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.chart g.lag { cursor: pointer; }
+.chart .bar.few { fill: var(--muted); opacity: .45; }
+.chart .lag-chosen { fill: none; stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 3 2; }

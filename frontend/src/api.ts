@@ -488,13 +488,14 @@ export type HealthAnalysis = {
 }
 export const getHealthAnalysis = (key: string, days: number | null, window: number) =>
   call<HealthAnalysis>(`/api/health/analysis?key=${encodeURIComponent(key)}&window=${window}${days ? `&days=${days}` : ''}`)
+// the second value on day D - lag against the first value on day D; by_lag: r and n of every delay from 0 to 30 days
 export type HealthRelation = {
-  key: string; other: string; points: { day: string; x: number; y: number }[]; n: number; r: number | null
-  slope: number | null; intercept: number | null
+  key: string; other: string; lag: number; points: { day: string; x_day: string; x: number; y: number }[]; n: number
+  r: number | null; slope: number | null; intercept: number | null; by_lag: { lag: number; r: number | null; n: number }[]
 }
-export const getHealthRelation = (key: string, other: string, days: number | null) =>
+export const getHealthRelation = (key: string, other: string, days: number | null, lag = 0) =>
   call<HealthRelation>(`/api/health/relation?key=${encodeURIComponent(key)}&other=${encodeURIComponent(other)}`
-    + (days ? `&days=${days}` : ''))
+    + (days ? `&days=${days}` : '') + `&lag=${lag}`)
 export const setIntake = (id: number, day: string, takenAt: string | null) =>
   send<HealthView>(`/api/health/intakes/${id}`, 'PUT', { day, taken_at: takenAt })
 export const takeMoment = (moment: string, day: string) =>
