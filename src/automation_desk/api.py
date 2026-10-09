@@ -1422,11 +1422,12 @@ class HealthTime(BaseModel):
 
 
 class HealthAngina(BaseModel):
-    """The day's angina score (0 to 5, or none) and note."""
+    """The day's angina score (0 to 5, or none) and note, or angina not measured (no exertion that day)."""
 
     day: str
     score: int | None = None
     note: str = ''
+    not_measured: bool = False
 
 
 @app.get('/api/health')
@@ -1518,7 +1519,7 @@ def health_angina(given: HealthAngina) -> dict:
     """The day's angina score and note."""
     day = _health_day(given.day)
     try:
-        health_store.set_angina(day, given.score, given.note)
+        health_store.set_angina(day, given.score, given.note, given.not_measured)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
     return _health_view(day)

@@ -166,7 +166,8 @@ _ready_lock = threading.Lock()
 
 # columns added after a table first shipped: (table, column, type); a ledger made before gets them on start-up
 ADDED_COLUMNS = [('task_day_planned', 'completed_count', 'INTEGER'), ('habits', 'position', 'INTEGER'),
-                 ('research', 'requirements', 'TEXT'), ('research', 'title', 'TEXT'), ('research', 'target', 'TEXT')]
+                 ('research', 'requirements', 'TEXT'), ('research', 'title', 'TEXT'), ('research', 'target', 'TEXT'),
+                 ('health_angina', 'not_measured', 'INTEGER NOT NULL DEFAULT 0')]
 
 
 def _ensure_schema(target: Path) -> None:

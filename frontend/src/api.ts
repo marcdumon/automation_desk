@@ -450,12 +450,14 @@ export type WithingsStatus = {
 export type KetoneReading = { id: number; taken_at: string; level: number }
 export type KetostixLevel = { level: number; label: string; mg_dl: number }
 export type HealthView = {
-  day: string; today: string; now: string; moments: HealthMoment[]; angina: { score: number | null; note: string } | null
+  day: string; today: string; now: string; moments: HealthMoment[]
+  angina: { score: number | null; note: string; not_measured: boolean } | null
   ketones: KetoneReading[]; ketostix: KetostixLevel[]; latest: HealthLatest; withings: WithingsStatus
 }
 // a day of the history: the fixed parts, and every scale value of that day by name ('weight', 'muscle_mass:left_arm')
 export type HealthDayRow = {
-  day: string; taken: number | null; planned: number; angina: number | null; ketones: number | null; ketone_readings: number
+  day: string; taken: number | null; planned: number; angina: number | null; angina_not_measured: boolean; ketones: number | null
+  ketone_readings: number
   systolic: number | null; diastolic: number | null; pulse: number | null; readings: number
 } & { [value: string]: string | number | null | undefined }
 
@@ -497,8 +499,8 @@ export const setIntake = (id: number, day: string, takenAt: string | null) =>
   send<HealthView>(`/api/health/intakes/${id}`, 'PUT', { day, taken_at: takenAt })
 export const takeMoment = (moment: string, day: string) =>
   call<HealthView>(`/api/health/moments/${encodeURIComponent(moment)}/all`, { day })
-export const setAngina = (day: string, score: number | null, note: string) =>
-  send<HealthView>('/api/health/angina', 'PUT', { day, score, note })
+export const setAngina = (day: string, score: number | null, note: string, notMeasured = false) =>
+  send<HealthView>('/api/health/angina', 'PUT', { day, score, note, not_measured: notMeasured })
 export const addKetoneReading = (day: string, level: number, takenAt: string) =>
   call<HealthView>('/api/health/ketones', { day, level, taken_at: takenAt })
 export const setKetoneTime = (id: number, takenAt: string) =>

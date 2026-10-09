@@ -1098,3 +1098,5 @@ dialog.health-analysis::backdrop { background: rgb(0 0 0 / 0.5); }
   color: var(--ink); font: inherit; }
 .analysis-axis { margin: 0; font-size: 12px; color: var(--muted); }
 .analysis-axis.x { text-align: right; }
+/* a day with angina not measured (no exertion): a grey dot above the baseline, no bar */
+.chart .bar-mark { fill: var(--muted); }
