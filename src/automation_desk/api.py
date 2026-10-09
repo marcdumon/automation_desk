@@ -1432,13 +1432,8 @@ class HealthAngina(BaseModel):
 
 @app.get('/api/health')
 def health_view(day: str | None = None) -> dict:
-    """A day of the Health page; opening it fetches new Withings measurements when the last fetch is 10 minutes old."""
-    view = _health_view(_health_day(day))
-    if withings.due():
-        # said at once, so the page asks again until the new measurements are in
-        view['withings']['fetching'] = True
-        _in_background(withings.sync)
-    return view
+    """A day of the Health page. A read only: Withings data is downloaded only by Fetch now."""
+    return _health_view(_health_day(day))
 
 
 @app.get('/api/health/history')
@@ -1563,14 +1558,13 @@ def _health_page() -> RedirectResponse:
 
 def _finish_sign_in(query: dict[str, str]) -> str:
     """The end of the Withings sign-in, on the app's route or the other port of the user's callback: the code becomes
-    tokens at once, then the data is fetched. The page the browser goes to next."""
+    tokens. Nothing is downloaded: that is Fetch now. The page the browser goes to next."""
     try:
         if query.get('error') or not query.get('code'):
             raise withings.WithingsError('You did not allow the app to read your Withings data. Press Connect Withings, and '
                                          'press Allow at Withings.')
         with httpx.Client(timeout=30.0) as http:
             withings.connect(query['code'], query.get('state', ''), http)
-        _in_background(withings.sync)
     except withings.WithingsError as failure:
         health_store.set_setting('withings_error', str(failure))
     return f'http://127.0.0.1:{config().port}/health'
