@@ -128,9 +128,19 @@ CREATE TABLE IF NOT EXISTS health_intakes (
     day TEXT NOT NULL, supplement_id INTEGER NOT NULL REFERENCES health_supplements (id) ON DELETE CASCADE,
     taken_at TEXT NOT NULL, PRIMARY KEY (day, supplement_id)
 );
+CREATE TABLE IF NOT EXISTS health_supplement_list (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, unit TEXT NOT NULL, per_day INTEGER, position INTEGER NOT NULL,
+    added TEXT, removed TEXT
+);
+CREATE TABLE IF NOT EXISTS health_units (
+    id INTEGER PRIMARY KEY, day TEXT NOT NULL, supplement_id INTEGER NOT NULL REFERENCES health_supplement_list (id),
+    taken_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS health_units_by_day ON health_units (day, taken_at);
 CREATE TABLE IF NOT EXISTS health_angina (day TEXT PRIMARY KEY, score INTEGER, note TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS health_ketones (id INTEGER PRIMARY KEY, day TEXT NOT NULL, taken_at TEXT NOT NULL, level REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS health_ketones_by_day ON health_ketones (day, taken_at);
+CREATE TABLE IF NOT EXISTS health_tape (day TEXT NOT NULL, site TEXT NOT NULL, cm REAL NOT NULL, PRIMARY KEY (day, site));
 CREATE TABLE IF NOT EXISTS withings_values (
     grpid INTEGER NOT NULL, type INTEGER NOT NULL, position INTEGER NOT NULL, value REAL NOT NULL, measured_at TEXT NOT NULL,
     PRIMARY KEY (grpid, type, position)

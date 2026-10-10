@@ -430,12 +430,18 @@ export async function followChat(id: number, onEvent: (event: ChatEvent) => void
   }
 }
 
-// the Health page: the supplements taken per day with their time, the angina score, the Withings measurements
-export type HealthSupplement = {
+// the Health page: the supplement regime for reference, the supplements with each unit taken at its time, the angina
+// score, the Withings measurements
+export type RegimeRow = {
   id: number; moment: string; moment_when: string; position: number; name: string; dose: string; how: string; why: string
-  effects: string; taken_at: string | null
+  effects: string
 }
-export type HealthMoment = { name: string; when: string; supplements: HealthSupplement[] }
+export type HealthMoment = { name: string; when: string; supplements: RegimeRow[] }
+// a supplement of the day: its unit, the units a day (null: no number a day), the units of the day in time order;
+// listed false: removed from the list, shown for the units it has that day
+export type HealthSupplement = {
+  id: number; name: string; unit: string; per_day: number | null; listed: boolean; units: { id: number; taken_at: string }[]
+}
 export type WithingsValue = { value: number; measured_at: string }
 export type HealthPressure = { systolic: number | null; diastolic: number | null; pulse: number | null; measured_at: string }
 // segments: per kind (muscle_mass, fat_mass, fat_free_mass) the newest value of each body part
@@ -450,9 +456,11 @@ export type WithingsStatus = {
 export type KetoneReading = { id: number; taken_at: string; level: number }
 export type KetostixLevel = { level: number; label: string; mg_dl: number }
 export type HealthView = {
-  day: string; today: string; now: string; moments: HealthMoment[]
+  day: string; today: string; now: string; moments: HealthMoment[]; supplements: HealthSupplement[]
   angina: { score: number | null; note: string; not_measured: boolean } | null
   ketones: KetoneReading[]; ketostix: KetostixLevel[]; latest: HealthLatest; withings: WithingsStatus
+  // the tape measurements of the day by site, and the last day with any before it
+  tape: { values: Record<string, number>; last: { day: string; values: Record<string, number> } | null }
 }
 // a day of the history: the fixed parts, and every scale value of that day by name ('weight', 'muscle_mass:left_arm')
 export type HealthDayRow = {
@@ -496,12 +504,19 @@ export type HealthRelation = {
 export const getHealthRelation = (key: string, other: string, days: number | null, lag = 0) =>
   call<HealthRelation>(`/api/health/relation?key=${encodeURIComponent(key)}&other=${encodeURIComponent(other)}`
     + (days ? `&days=${days}` : '') + `&lag=${lag}`)
-export const setIntake = (id: number, day: string, takenAt: string | null) =>
-  send<HealthView>(`/api/health/intakes/${id}`, 'PUT', { day, taken_at: takenAt })
-export const takeMoment = (moment: string, day: string) =>
-  call<HealthView>(`/api/health/moments/${encodeURIComponent(moment)}/all`, { day })
+export const addUnit = (day: string, supplementId: number, takenAt: string) =>
+  call<HealthView>('/api/health/units', { day, supplement_id: supplementId, taken_at: takenAt })
+export const setUnitTime = (id: number, takenAt: string) => send<HealthView>(`/api/health/units/${id}`, 'PUT', { taken_at: takenAt })
+export const removeUnit = (id: number) => send<HealthView>(`/api/health/units/${id}`, 'DELETE')
+export type SupplementFields = { name: string; unit: string; per_day: number | null }
+export const addSupplement = (day: string, fields: SupplementFields) => call<HealthView>('/api/health/supplements', { day, ...fields })
+export const changeSupplement = (id: number, day: string, fields: SupplementFields) =>
+  send<HealthView>(`/api/health/supplements/${id}`, 'PUT', { day, ...fields })
+export const removeSupplement = (id: number, day: string) => send<HealthView>(`/api/health/supplements/${id}?day=${day}`, 'DELETE')
 export const setAngina = (day: string, score: number | null, note: string, notMeasured = false) =>
   send<HealthView>('/api/health/angina', 'PUT', { day, score, note, not_measured: notMeasured })
+export const setTape = (day: string, site: string, cm: number | null) =>
+  send<HealthView>('/api/health/tape', 'PUT', { day, site, cm })
 export const addKetoneReading = (day: string, level: number, takenAt: string) =>
   call<HealthView>('/api/health/ketones', { day, level, taken_at: takenAt })
 export const setKetoneTime = (id: number, takenAt: string) =>

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 
 import { getJob, type LLMCall } from './api'
+import { closeOutside } from './dialog'
 import JobResult from './JobResult'
 import { applied, count, ms, usd, when } from './format'
 
@@ -12,7 +13,7 @@ export default function JobDetailPanel({ id, onClose }: { id: string; onClose: (
   useEffect(() => { dialog.current?.showModal() }, [])
 
   return (
-    <dialog ref={dialog} className="job-detail" onClose={onClose} aria-labelledby="job-title">
+    <dialog ref={dialog} className="job-detail" onClose={onClose} aria-labelledby="job-title" {...closeOutside}>
       <div className="job-detail-head">
         <h2 id="job-title">Job {id}</h2>
         <button type="button" className="quiet" onClick={() => dialog.current?.close()}>Close</button>

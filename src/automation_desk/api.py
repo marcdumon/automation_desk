@@ -12,7 +12,7 @@ import subprocess
 import threading
 import time
 from collections.abc import AsyncIterator, Callable
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from functools import cache
 from pathlib import Path
 from typing import Literal
@@ -1383,28 +1383,33 @@ def _health_day(day: str | None) -> date:
 
 
 def _health_view(day: date) -> dict:
-    """The Health page for a day: the schedule with the day's ticks, the angina score, the Ketostix readings, the latest
-    Withings values, the link."""
+    """The Health page for a day: the supplement regime for reference, the supplements with the day's units, the angina
+    score, the Ketostix readings, the tape measurements with the last ones before the day, the latest Withings values up to
+    the end of the day (04:00 the next morning), the link."""
     now = _health_now()
-    taken = health_store.intakes(day)
-    moments = [m | {'supplements': [s | {'taken_at': taken.get(s['id'])} for s in m['supplements']]}
-               for m in health_store.moments()]
     return {'day': day.isoformat(), 'today': health_store.health_day(now).isoformat(), 'now': now.strftime('%H:%M'),
-            'moments': moments, 'angina': health_store.angina(day), 'ketones': health_store.ketone_readings(day),
-            'ketostix': health_store.KETOSTIX, 'latest': withings.latest(), 'withings': withings.status()}
+            'moments': health_store.moments(), 'supplements': health_store.supplements(day),
+            'angina': health_store.angina(day), 'ketones': health_store.ketone_readings(day),
+            'ketostix': health_store.KETOSTIX, 'tape': {'values': health_store.tape(day), 'last': health_store.last_tape(day)},
+            'latest': withings.latest(before=f'{day + timedelta(days=1)}T{health_store.DAY_START_HOUR:02d}:00'),
+            'withings': withings.status()}
 
 
-class HealthIntake(BaseModel):
-    """A supplement taken at a time on a day, or not taken (no time)."""
-
-    day: str
-    taken_at: str | None = None
-
-
-class HealthDay(BaseModel):
-    """A day of the Health page."""
+class HealthSupplement(BaseModel):
+    """A supplement of the list: its name, one unit, the units a day (none: no number a day); the day of the page."""
 
     day: str
+    name: str
+    unit: str
+    per_day: int | None = None
+
+
+class HealthUnit(BaseModel):
+    """One unit of a supplement taken on a day at a time."""
+
+    day: str
+    supplement_id: int
+    taken_at: str
 
 
 class HealthKetones(BaseModel):
@@ -1419,6 +1424,14 @@ class HealthTime(BaseModel):
     """A new clock time."""
 
     taken_at: str
+
+
+class HealthTape(BaseModel):
+    """The circumference of one site on a day in cm; none removes it."""
+
+    day: str
+    site: str
+    cm: float | None = None
 
 
 class HealthAngina(BaseModel):
@@ -1487,28 +1500,76 @@ def health_show(given: HealthGroups) -> dict:
     return {'removed': health_measurements.removed()}
 
 
-@app.put('/api/health/intakes/{supplement_id}')
-def health_intake(supplement_id: int, given: HealthIntake) -> dict:
-    """Tick a supplement as taken at a time, change the time, or untick it."""
+NO_SUPPLEMENT = 'This supplement is not in the list any more. Reload the page.'
+NO_UNIT = 'This unit is not there any more. Reload the page.'
+
+
+@app.post('/api/health/units')
+def health_unit_add(given: HealthUnit) -> dict:
+    """Note one unit of a supplement taken at a time."""
     day = _health_day(given.day)
     try:
-        health_store.set_intake(day, supplement_id, given.taken_at)
+        health_store.add_unit(day, given.supplement_id, given.taken_at)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
     except KeyError as error:
-        raise HTTPException(404, 'This supplement is not in the schedule. Reload the page.') from error
+        raise HTTPException(404, NO_SUPPLEMENT) from error
     return _health_view(day)
 
 
-@app.post('/api/health/moments/{moment}/all')
-def health_moment(moment: str, given: HealthDay) -> dict:
-    """Tick every supplement of a moment not ticked yet, at the time now."""
+@app.put('/api/health/units/{unit_id}')
+def health_unit_time(unit_id: int, given: HealthTime) -> dict:
+    """Change the time of a unit."""
+    try:
+        return _health_view(health_store.set_unit_time(unit_id, given.taken_at))
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    except KeyError as error:
+        raise HTTPException(404, NO_UNIT) from error
+
+
+@app.delete('/api/health/units/{unit_id}')
+def health_unit_remove(unit_id: int) -> dict:
+    """Remove a unit at once."""
+    try:
+        return _health_view(health_store.remove_unit(unit_id))
+    except KeyError as error:
+        raise HTTPException(404, NO_UNIT) from error
+
+
+@app.post('/api/health/supplements')
+def health_supplement_add(given: HealthSupplement) -> dict:
+    """Add a supplement to the list, from the day of the page on."""
     day = _health_day(given.day)
     try:
-        health_store.take_moment(day, moment, _health_now().strftime('%H:%M'))
-    except KeyError as error:
-        raise HTTPException(404, f'There is no moment "{moment}" in the schedule. Reload the page.') from error
+        health_store.add_supplement(day, given.name, given.unit, given.per_day)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
     return _health_view(day)
+
+
+@app.put('/api/health/supplements/{supplement_id}')
+def health_supplement_change(supplement_id: int, given: HealthSupplement) -> dict:
+    """Change the name, the unit or the units a day of a supplement."""
+    day = _health_day(given.day)
+    try:
+        health_store.change_supplement(supplement_id, given.name, given.unit, given.per_day)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    except KeyError as error:
+        raise HTTPException(404, NO_SUPPLEMENT) from error
+    return _health_view(day)
+
+
+@app.delete('/api/health/supplements/{supplement_id}')
+def health_supplement_remove(supplement_id: int, day: str) -> dict:
+    """Take a supplement out of the list from the day of the page on, at once; its units stay."""
+    chosen = _health_day(day)
+    try:
+        health_store.remove_supplement(supplement_id, chosen)
+    except KeyError as error:
+        raise HTTPException(404, NO_SUPPLEMENT) from error
+    return _health_view(chosen)
 
 
 @app.put('/api/health/angina')
@@ -1517,6 +1578,17 @@ def health_angina(given: HealthAngina) -> dict:
     day = _health_day(given.day)
     try:
         health_store.set_angina(day, given.score, given.note, given.not_measured)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    return _health_view(day)
+
+
+@app.put('/api/health/tape')
+def health_tape(given: HealthTape) -> dict:
+    """One tape measurement of the day, or its removal."""
+    day = _health_day(given.day)
+    try:
+        health_store.set_tape(day, given.site, given.cm)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
     return _health_view(day)
@@ -1619,5 +1691,6 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     research_store.fail_running()
     chat_store.fail_writing()
+    health_store.convert_ticks()
     threading.Thread(target=_task_stats_every_morning, daemon=True).start()
     uvicorn.run(app, host='127.0.0.1', port=config().port)

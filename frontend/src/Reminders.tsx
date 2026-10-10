@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 
 import { getReminders, reminderDone, snoozeReminder, type Reminder } from './api'
+import { closeOutside } from './dialog'
 import { when } from './format'
 
 // due reminders pop up once per page load; the sidebar entry opens them any time
@@ -26,7 +27,7 @@ function ReminderDialog({ reminders, onClose }: { reminders: Reminder[]; onClose
   useEffect(() => { if (reminders.length === 0) dialog.current?.close() }, [reminders.length])
 
   return (
-    <dialog ref={dialog} className="reminder-dialog" onClose={onClose} aria-labelledby="reminder-title">
+    <dialog ref={dialog} className="reminder-dialog" onClose={onClose} aria-labelledby="reminder-title" {...closeOutside}>
       <h2 id="reminder-title">{reminders.length === 1 ? 'Reminder' : `${reminders.length} reminders`}</h2>
       {reminders.map(r => (
         <section key={r.id} className="reminder">
