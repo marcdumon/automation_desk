@@ -586,6 +586,8 @@ details.news-card[open] > summary { margin-bottom: 14px; }
 .manage summary h2::before { content: '▸ '; color: var(--muted); }
 .manage[open] summary h2::before { content: '▾ '; }
 .manage-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+/* the grid gap of the card does not reach the content of its details element: the new habit gets the space between two habits */
+.manage-list + .manage-add { margin-top: 10px; }
 .manage-list li, .manage-add { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .manage-list input, .manage-add input, .reminder input, .rhythm select { padding: 7px 10px; border: 1px solid var(--rule); border-radius: 6px;
   background: var(--paper); color: var(--ink); font: inherit; }
