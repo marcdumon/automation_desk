@@ -15,6 +15,8 @@
   --health: #5c7a1c;
   --series-1: #2a78d6;
   --series-2: #eb6834;
+  /* the third categorical slot: the newest day in the chart analysis */
+  --series-3: #1baf7a;
   --error: #a83a34;
   --accent: var(--ink);
   --accent-wash: color-mix(in srgb, var(--accent) 8%, transparent);
@@ -39,6 +41,7 @@
     --health: #a9c96b;
     --series-1: #3987e5;
     --series-2: #d95926;
+    --series-3: #199e70;
     --error: #e2837c;
     color-scheme: dark;
   }
@@ -971,9 +974,40 @@ dialog.health-regime { width: min(1100px, calc(100vw - 32px)); max-height: calc(
   border-radius: 12px; background: var(--surface); color: var(--ink); }
 dialog.health-regime::backdrop { background: rgb(0 0 0 / 0.5); }
 dialog.health-regime .analysis-head { margin-bottom: 8px; }
+/* how to measure with the tape: the figure with its numbered measure lines beside the steps; under each other on a phone */
+dialog.health-guide { width: min(900px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 20px 28px;
+  border: 1px solid var(--rule); border-radius: 12px; background: var(--surface); color: var(--ink); }
+dialog.health-guide::backdrop { background: rgb(0 0 0 / 0.5); }
+.guide-layout { display: grid; grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); gap: 28px; align-items: start; margin-top: 12px; }
+@media (max-width: 640px) {
+  dialog.health-guide { padding: 16px; }
+  .guide-layout { grid-template-columns: minmax(0, 1fr); }
+  .guide-figure { max-width: 240px; justify-self: center; }
+}
+.guide-figure { width: 100%; height: auto; }
+.guide-body { fill: color-mix(in srgb, var(--ink) 13%, var(--surface)); }
+.guide-line { stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; }
+.guide-point { fill: var(--ink); }
+.guide-badge circle { fill: var(--accent); }
+.guide-badge text { fill: var(--surface); font-size: 10px; font-weight: 700; }
+.guide-side { fill: var(--muted); font-size: 11px; }
+.guide-text { font-size: 14px; line-height: 1.5; }
+.guide-text > p { margin: 0 0 10px; }
+.guide-text h3 { margin: 16px 0 6px; font-size: 15px; }
+.guide-sites, .guide-rules { margin: 0; padding-left: 22px; display: grid; gap: 6px; }
+.guide-sites li::marker { font-weight: 700; color: var(--accent); }
 .health-time { flex: none; padding: 3px 6px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper);
   font: inherit; font-size: 14px; font-variant-numeric: tabular-nums; color: inherit; }
 .health-angina { display: grid; gap: 8px; padding-top: 14px; border-top: 1px solid var(--rule); }
+/* the parts of the Today card fold: the line of a closed part says what the day holds */
+.health-fold { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--rule); min-width: 0; }
+.health-fold > .health-angina { padding-top: 0; border-top: 0; }
+.health-fold-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; width: 100%; padding: 2px 0; border: 0;
+  background: none; color: inherit; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.health-fold-head:hover .health-fold-title { text-decoration: underline; }
+.health-fold-mark { width: 1em; color: var(--muted); }
+.health-fold-title { font-size: 15px; font-weight: 650; color: var(--accent); }
+.health-hint { margin: 0; font-size: 13px; }
 .health-scores { display: flex; flex-wrap: wrap; gap: 6px; }
 .health-scores .choice-chip { min-width: 40px; font-variant-numeric: tabular-nums; }
 .health-scores .choice-chip.chosen { background: var(--accent); border-color: var(--accent); color: var(--surface); font-weight: 600; }
@@ -1048,6 +1082,14 @@ dialog.health-regime .analysis-head { margin-bottom: 8px; }
 .health-measure-time { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .health-day-measures button, .health-removed button { padding: 3px 10px; font-size: 13px; }
 .health-removed { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.health-side { display: grid; gap: 20px; align-content: start; min-width: 0; }
+/* the hidden header of the last column stays inside the box that scrolls, not on the page */
+.polar-sessions { position: relative; }
+.polar-sessions td, .polar-sessions th { white-space: nowrap; }
+.polar-sessions button { padding: 3px 10px; font-size: 13px; }
+.polar-more { justify-self: start; }
+dialog.health-sessions .polar-more { margin-top: 12px; }
+dialog.health-sessions .health-removed { margin-top: 18px; }
 .health-removed h3 { margin: 0; font-size: 14px; }
 .health-removed h3 .muted { margin-left: 6px; font-weight: 400; font-size: 12px; }
 /* the large view of one Health chart: over the whole window, its parts as cards on the page colour; the trend over the
@@ -1117,6 +1159,13 @@ dialog.health-analysis::backdrop { background: rgb(0 0 0 / 0.5); }
 .analysis-say { margin: 0; font-size: 14px; line-height: 1.5; max-width: 75ch; }
 .chart .mark-line.limit { stroke: var(--series-2); stroke-dasharray: 5 3; }
 .key.limit { background: var(--series-2); }
+/* the newest day: a line in the histograms with its value written at the top (aqua is too light on the light background to
+   stand alone), and the newest point of the relation chart, larger and full on top of the others */
+.chart .mark-line.latest { stroke: var(--series-3); }
+.key.latest { background: var(--series-3); }
+.key.round { width: 9px; height: 9px; border-radius: 50%; }
+.chart .dot.latest { fill: var(--series-3); stroke: var(--surface); stroke-width: 2; }
+.chart .mark-label { font-size: 11px; font-weight: 600; fill: var(--ink); font-variant-numeric: tabular-nums; }
 .analysis-earlier { font-size: 14px; }
 .analysis-earlier th[scope='row'] { color: var(--ink); font-weight: 600; text-align: left; white-space: normal; border-top: 0; }
 .analysis-earlier th[scope='row'] small { display: block; margin-top: 1px; font-weight: 400; font-size: 12px; }

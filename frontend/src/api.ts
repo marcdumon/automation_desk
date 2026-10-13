@@ -458,7 +458,7 @@ export type KetostixLevel = { level: number; label: string; mg_dl: number }
 export type HealthView = {
   day: string; today: string; now: string; moments: HealthMoment[]; supplements: HealthSupplement[]
   angina: { score: number | null; note: string; not_measured: boolean } | null
-  ketones: KetoneReading[]; ketostix: KetostixLevel[]; latest: HealthLatest; withings: WithingsStatus
+  ketones: KetoneReading[]; ketostix: KetostixLevel[]; latest: HealthLatest; withings: WithingsStatus; polar: PolarStatus
   // the tape measurements of the day by site, and the last day with any before it
   tape: { values: Record<string, number>; last: { day: string; values: Record<string, number> } | null }
 }
@@ -523,3 +523,25 @@ export const setKetoneTime = (id: number, takenAt: string) =>
   send<HealthView>(`/api/health/ketones/${id}`, 'PUT', { taken_at: takenAt })
 export const removeKetoneReading = (id: number) => send<HealthView>(`/api/health/ketones/${id}`, 'DELETE')
 export const fetchWithings = (day: string) => call<HealthView>(`/api/health/withings/fetch?day=${day}`, {})
+// the Polar H10 import: set up (the two folders in automation_desk.toml), running with its progress in files, the last
+// import, a failure, the number of sessions
+export type PolarStatus = {
+  configured: boolean; running: boolean; done: number; total: number; last_import: string | null; error: string
+  sessions: number
+  // the newest exercise session and the newest rest session with values, up to the day of the page
+  last_exercise: PolarSession | null; last_rest: PolarSession | null
+}
+// one session, times in UTC: a rest session has its resting HR and RMSSD, an exercise session its heart rate recovery and
+// the state of it
+export type PolarSession = {
+  id: number; source: 'phone' | 'logger'; serial: string; start_at: string; end_at: string; day: string
+  kind: 'exercise' | 'rest'; seconds: number; mean_hr: number | null; max_hr: number | null; recovery: number | null
+  recovery_state: 'counted' | 'moved' | 'no movement data' | null; rest_hr: number | null; rmssd: number | null
+  wrong_beats_pct: number | null; copy_of: number | null; copy_of_start: string | null; removed: boolean
+}
+export const importPolar = (day: string) => call<HealthView>(`/api/health/polar/import?day=${day}`, {})
+export const getPolarSessions = (offset: number, limit: number) =>
+  call<{ sessions: PolarSession[]; total: number; removed: PolarSession[] }>(`/api/health/polar/sessions?offset=${offset}&limit=${limit}`)
+export const getPolarDay = (day: string) => call<{ sessions: PolarSession[] }>(`/api/health/polar/days/${day}`)
+export const removePolarSession = (id: number) => call<{ ok: boolean }>(`/api/health/polar/sessions/${id}/remove`, {})
+export const showPolarSession = (id: number) => call<{ ok: boolean }>(`/api/health/polar/sessions/${id}/show`, {})

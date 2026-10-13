@@ -48,8 +48,8 @@ from automation_desk.groups.tasks import stats as task_stats_store
 from automation_desk.health import analysis as health_analysis
 from automation_desk.health import history as health_history
 from automation_desk.health import measurements as health_measurements
+from automation_desk.health import polar, polar_store, withings
 from automation_desk.health import store as health_store
-from automation_desk.health import withings
 from automation_desk.interpret import fill_args, route
 from automation_desk.llm import LLMError
 from automation_desk.plans import CHECK_TTL_SECONDS, Plan, PlanStore
@@ -1385,14 +1385,15 @@ def _health_day(day: str | None) -> date:
 def _health_view(day: date) -> dict:
     """The Health page for a day: the supplement regime for reference, the supplements with the day's units, the angina
     score, the Ketostix readings, the tape measurements with the last ones before the day, the latest Withings values up to
-    the end of the day (04:00 the next morning), the link."""
+    the end of the day (04:00 the next morning), the link, the Polar H10 import with the last sessions up to the day."""
     now = _health_now()
     return {'day': day.isoformat(), 'today': health_store.health_day(now).isoformat(), 'now': now.strftime('%H:%M'),
             'moments': health_store.moments(), 'supplements': health_store.supplements(day),
             'angina': health_store.angina(day), 'ketones': health_store.ketone_readings(day),
             'ketostix': health_store.KETOSTIX, 'tape': {'values': health_store.tape(day), 'last': health_store.last_tape(day)},
             'latest': withings.latest(before=f'{day + timedelta(days=1)}T{health_store.DAY_START_HOUR:02d}:00'),
-            'withings': withings.status()}
+            'withings': withings.status(),
+            'polar': polar.status() | polar_store.latest(day.isoformat())}
 
 
 class HealthSupplement(BaseModel):
@@ -1673,6 +1674,50 @@ def withings_fetch(day: str | None = None) -> dict:
     except withings.TooSoon as error:
         raise HTTPException(429, str(error)) from error
     return _health_view(_health_day(day))
+
+
+@app.post('/api/health/polar/import')
+def polar_import(day: str | None = None) -> dict:
+    """Import the new and changed Polar H10 sessions of the two folders, in the background; the page asks for the progress.
+    A second press while an import runs does nothing."""
+    if not polar.status()['configured']:
+        raise HTTPException(409, polar.NOT_SET)
+    # the timezone first: a failure to find it must not keep the import taken
+    tz = _health_now().tzinfo
+    if polar.begin():
+        _in_background(polar.run_import, tz)
+    return _health_view(_health_day(day))
+
+
+@app.get('/api/health/polar/sessions')
+def polar_sessions(offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=500)) -> dict:
+    """The sessions newest first, how many there are, and the removed ones."""
+    return polar_store.sessions(offset, limit) | {'removed': polar_store.removed_sessions()}
+
+
+@app.get('/api/health/polar/days/{day}')
+def polar_day(day: str) -> dict:
+    """The sessions of one day, removed ones too: for a day of the history table or an outlier of the analysis."""
+    return {'sessions': polar_store.day_sessions(_health_day(day).isoformat())}
+
+
+def _polar_mark(session_id: int, removed: bool) -> dict:
+    """Take a session out of the history and the analysis, or put it back."""
+    if not polar_store.set_removed(session_id, removed):
+        raise HTTPException(404, 'There is no Polar H10 session with that number. Reload the page.')
+    return {'ok': True}
+
+
+@app.post('/api/health/polar/sessions/{session_id}/remove')
+def polar_remove(session_id: int) -> dict:
+    """Remove a wrong session at once; Show again puts it back."""
+    return _polar_mark(session_id, True)
+
+
+@app.post('/api/health/polar/sessions/{session_id}/show')
+def polar_show(session_id: int) -> dict:
+    """Put a removed session back in the history and the analysis."""
+    return _polar_mark(session_id, False)
 
 
 if STATIC.exists():

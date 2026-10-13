@@ -30,3 +30,8 @@ cap_usd = 0.30
 max_words = 60
 # headlines per model call; the model only sorts them into subjects
 batch_size = 60
+
+[polar]
+# the Polar Sensor Logger files (phone) and the sessions of the logger on the PC; read only on Import sessions
+phone_dir = '/path/to/polar_h10_logger'
+logger_dir = '/mnt/Dev/active_python_projects/polar_h10_logger/data/sessions'

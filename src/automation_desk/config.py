@@ -22,6 +22,14 @@ class NewsSettings:
 
 
 @dataclass(frozen=True)
+class PolarSettings:
+    """The two folders of the Polar H10 sessions: the phone app's files and the logger's sessions; '' when not set."""
+
+    phone_dir: str = ''
+    logger_dir: str = ''
+
+
+@dataclass(frozen=True)
 class Config:
     """Everything configurable, in one place."""
 
@@ -34,6 +42,7 @@ class Config:
     price_in_per_m: float
     price_out_per_m: float
     news: NewsSettings
+    polar: PolarSettings = PolarSettings()
 
     @property
     def openrouter_key(self) -> str:
@@ -56,4 +65,5 @@ def config() -> Config:
         price_in_per_m=float(raw['prices']['input_per_m']),
         price_out_per_m=float(raw['prices']['output_per_m']),
         news=NewsSettings(**raw['news']),
+        polar=PolarSettings(**raw.get('polar', {})),
     )

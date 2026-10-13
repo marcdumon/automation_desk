@@ -128,6 +128,15 @@ def ledger(tmp_path, monkeypatch: pytest.MonkeyPatch):
     return path
 
 
+@pytest.fixture(autouse=True)
+def polar_in_tmp(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The raw Polar samples of a test go to its own folder, and no test reads the user's Polar folders."""
+    from automation_desk.health import polar, polar_store
+
+    monkeypatch.setattr(polar_store, 'RAW_DB', tmp_path / 'polar.db')
+    monkeypatch.setattr(polar, 'folders', lambda: (None, None))
+
+
 class FakeTodoist:
     """Stands in for automation_desk.todoist.Todoist: projects and tasks in memory, every change recorded in `calls`."""
 
