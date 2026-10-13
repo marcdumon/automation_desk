@@ -5,7 +5,7 @@ from datetime import date, time
 import pytest
 
 from automation_desk.capture import NeedsPerson
-from automation_desk.groups.calendar import watch
+from automation_desk.groups.calendar import same_event, watch
 from automation_desk.groups.calendar.organisers import Organiser
 from automation_desk.groups.calendar.tasks import check_watched as module
 from automation_desk.groups.calendar.tasks.add_events_from_web import event_body, page_tag, source_key
@@ -150,9 +150,24 @@ def test_an_event_added_by_hand_is_already_in_the_calendar(make_ctx, sites: dict
     calls['events.list'] = lambda **kw: {'items': [by_hand] if kw['calendarId'] == 'cal-e' else earlier(**kw)['items'] + [linked]}
     pages = {**PAGES, A: [ev('Nieuw', date(2026, 10, 3), 'https://a.be/agenda/nieuw'), *PAGES[A][1:]]}
     monkeypatch.setattr(module, 'read_events', lambda url, *a: (pages[url], [], ''))
+    # 'Iets anders' is on Nieuw's day: the model is asked, and finds other words; the link then finds it
+    monkeypatch.setattr(same_event, 'ask', lambda *a, **k: same_event.SameEvents(pairs=[]))
     preview, _payload = CheckWatchedSites().check(make_ctx(sites['google'], 'x'))
     assert [r.cells['Title'] for r in preview.rows] == ['Overgeslagen'], 'Concert by its title and day, Nieuw by its link'
     assert [g.note for g in preview.groups] == ['nothing new', 'nothing new · 1 declined before']
+
+
+def test_an_event_the_user_typed_in_with_other_words_is_not_offered(make_ctx, sites: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The user typed b.be's concert in as 'Optreden in B' at 14:30: other words, so the model judges it the same event."""
+    mine = {'id': 'mine', 'summary': 'Optreden in B', 'start': {'dateTime': '2026-10-09T14:30:00+02:00'},
+            'end': {'dateTime': '2026-10-09T16:00:00+02:00'}}
+    calls = sites['google'].handlers
+    earlier = calls['events.list']
+    calls['events.list'] = lambda **kw: {'items': [mine] if kw['calendarId'] == 'cal-e' else earlier(**kw)['items']}
+    monkeypatch.setattr(same_event, 'ask', lambda *a, **k: same_event.SameEvents(pairs=[same_event.SamePair(new=1, existing=1)]))
+    preview, _payload = CheckWatchedSites().check(make_ctx(sites['google'], 'x'))
+    assert 'Concert' not in [r.cells['Title'] for r in preview.rows]
+    assert [g.note for g in preview.groups][1] == 'nothing new · 1 declined before'
 
 
 def test_an_imported_event_whose_page_changed_is_not_offered(make_ctx, sites: dict, monkeypatch: pytest.MonkeyPatch) -> None:

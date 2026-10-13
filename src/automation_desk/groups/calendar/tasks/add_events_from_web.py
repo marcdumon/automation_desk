@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 from email.utils import parseaddr
 
 import httpx
+from googleapiclient.discovery import Resource
 from pydantic import Field
 
 from automation_desk.config import config
@@ -21,12 +22,14 @@ from automation_desk.dates import (
     weekday_index,
 )
 from automation_desk.groups.base import Context, Preview, PreviewOption, Row, StandardTask, TaskArgs, UserError
-from automation_desk.groups.calendar.client import events_tagged, pick_calendar, writable_calendars
+from automation_desk.groups.calendar import same_event
+from automation_desk.groups.calendar.client import events_between, events_tagged, pick_calendar, writable_calendars
 from automation_desk.groups.calendar.organisers import Organiser, organiser_for, placed, save, titled
 from automation_desk.groups.calendar.pdf import PdfError, is_pdf
 from automation_desk.groups.calendar.web_page import WebEvent, pdf_as_html, pdf_events, read_dates, read_events, typed_events
 from automation_desk.groups.gmail.client import gmail_link, mail_pdfs, message_ids, metadata, received, sender
 from automation_desk.groups.gmail.select import any_of
+from automation_desk.llm import LLMError
 
 URL = re.compile(r'(?:https?://|www\.)[^\s<>"\']+', re.IGNORECASE)
 DEFAULT_DURATION = timedelta(hours=2)
@@ -156,16 +159,32 @@ def _moment(value: dict) -> str:
     return value.get('date') or value.get('dateTime', '')[:16]
 
 
-def differences(earlier: dict, body: dict) -> list[str]:
-    """What an update would change in an earlier import, in the user's words."""
-    checks = {
-        'title': (earlier.get('summary', ''), body['summary']),
-        'place': (earlier.get('location', ''), body['location']),
-        'info and source': (earlier.get('description', ''), body['description']),
-        'dates': ((_moment(earlier.get('start', {})), _moment(earlier.get('end', {}))),
-                  (_moment(body['start']), _moment(body['end']))),
+def _info_and_source(description: str) -> tuple[str, str]:
+    """The info of an event and the link of its source line (see event_body)."""
+    info, found, source = description.rpartition('Source: ')
+    return (info.strip(), source.strip()) if found else (description.strip(), '')
+
+
+def _agenda_copy(link: str) -> bool:
+    """Whether a source is a copy of a whole agenda (a mail, a PDF file) rather than a page of the event or the agenda."""
+    return link.startswith('https://mail.google.com/') or not link.startswith('http')
+
+
+def differences(earlier: dict, body: dict, end_assumed: bool = False) -> list[str]:
+    """What an update would change in an earlier import, in the user's words. Not a change: a guessed end (the agenda gives
+    none, and the user may have set the real one by hand), and a source that is only another copy of the agenda (a newer
+    newsletter with the same events)."""
+    old_info, old_source = _info_and_source(earlier.get('description', ''))
+    new_info, new_source = _info_and_source(body['description'])
+    same_source = old_source == new_source or (_agenda_copy(old_source) and _agenda_copy(new_source))
+    old_end, new_end = _moment(earlier.get('end', {})), _moment(body['end'])
+    changed = {
+        'title': earlier.get('summary', '') != body['summary'],
+        'place': earlier.get('location', '') != body['location'],
+        'info and source': old_info != new_info or not same_source,
+        'dates': _moment(earlier.get('start', {})) != _moment(body['start']) or (not end_assumed and old_end != new_end),
     }
-    return [label for label, (old, new) in checks.items() if old != new]
+    return [label for label, change in changed.items() if change]
 
 
 # the source is where the event comes from: shown as a link, never edited
@@ -358,7 +377,7 @@ class AddEventsFromWeb(StandardTask):
                              **({'start_time': None, 'end_time': None} if all_day else {})))
                  for e in payload['events']]
         find = EarlierImports(events_tagged(svc, payload['calendar_id'], PAGE_TAG, payload['page_tag']), [e for e, _ in pairs])
-        rows, bodies, updates, seen = [], {}, {}, set()
+        items, seen = [], set()
         for raw, event in sorted(pairs, key=lambda p: (p[0].start, p[0].start_time or datetime.min.time())):
             key = source_key(url, raw)
             if key in seen:
@@ -369,21 +388,39 @@ class AddEventsFromWeb(StandardTask):
             if not reason and abs(event.start.year - usual_year) >= 2:
                 reason = f'the page says {event.start.year} while the other events are in {usual_year}: check the year'
             body = event_body(event, str(ctx.tz), key, payload['page_tag'], default, override)
-            earlier = find.match(key, raw) or find.match(key, event)
-            changed = differences(earlier, body) if earlier else []
+            items.append((raw, event, key, override, reason, body, find.match(key, raw) or find.match(key, event)))
+        checks, same, note = self._same_events(items, payload, svc, ctx)
+
+        rows, bodies, updates, elsewhere = [], {}, {}, set()
+        for _raw, event, key, override, reason, body, earlier in items:
+            other = same.get(key)
+            # an import of this agenda worded a little differently is an earlier import; any other event is the user's
+            if other and other.get('extendedProperties', {}).get('private', {}).get(PAGE_TAG) == payload['page_tag'] \
+                    and not other.get('recurringEventId'):
+                earlier, other = other, None
+            end_assumed = is_timed(event) and timed_span(event, default, override)[2]
+            if earlier and end_assumed and _moment(earlier.get('start', {})) == _moment(body['start']):
+                # the agenda gives no end: an update keeps the end in the calendar, maybe set by hand
+                body = {**body, 'end': earlier.get('end', body['end'])}
+            changed = differences(earlier, body, end_assumed) if earlier else []
             unchanged = earlier is not None and not changed
+            if other:
+                # never changed by the import; unticked, and it can still be ticked
+                elsewhere.add(key)
+                start = same_event.start_of(other)
+                reason = f'already in the calendar as "{other.get("summary", "")}"' + (f' at {start[11:]}' if 'T' in start else '')
             if earlier and changed:
                 updates[key] = earlier['id']
-                note = f"in the calendar; will be updated: {', '.join(changed)}" + (f' ({reason})' if reason else '')
+                row_note = f"in the calendar; will be updated: {', '.join(changed)}" + (f' ({reason})' if reason else '')
             else:
-                note = 'already in the calendar, unchanged' if unchanged else reason
+                row_note = 'already in the calendar, unchanged' if unchanged else reason
             day, clock, duration = when(event, default, override)
             info = (event.description[:140] + '…') if len(event.description) > 140 else event.description
             inputs = {'Date': day, 'Time': event.start_time.strftime('%H:%M') if event.start_time else 'all day',
                       'Title': event.title, 'Place': event.location, 'Info': event.description}
             if is_timed(event):
                 inputs['Duration'] = duration.removesuffix(' (assumed)')
-            rows.append(Row(id=key, selectable=not unchanged, selected=not (unchanged or reason), note=note,
+            rows.append(Row(id=key, selectable=not unchanged, selected=not (unchanged or reason), note=row_note,
                             cells={'Date': day, 'Time': clock, 'Duration': duration, 'Title': event.title,
                                    'Place': event.location or '—', 'Info': info or '—', 'Source': event.url},
                             inputs=inputs))
@@ -396,7 +433,7 @@ class AddEventsFromWeb(StandardTask):
                  f'Events with a start time but no end time get the default duration ({duration_label(default)}); '
                  'change it for all above, or for one event in its Duration box.',
                  'Every field of an event can be edited in its row; Update preview applies the changes. An edited title '
-                 'or place is used exactly as typed.']
+                 'or place is used exactly as typed.', *([note] if note else [])]
         summary = f"Add {chosen - updating} and update {updating} of {len(rows)} event(s) in calendar '{payload['calendar']}'"
         options = [
             PreviewOption(name='organiser', label='Organiser', value=organiser.name,
@@ -410,7 +447,41 @@ class AddEventsFromWeb(StandardTask):
         ]
         preview = Preview(summary=summary, columns=['Date', 'Time', 'Duration', 'Title', 'Place', 'Info', 'Source'], rows=rows,
                           notes=notes, options=options)
-        return preview, {**payload, 'bodies': bodies, 'updates': updates}
+        return preview, {**payload, 'bodies': bodies, 'updates': updates, 'same_checks': checks, 'elsewhere': elsewhere}
+
+    @staticmethod
+    def _same_events(items: list[tuple], payload: dict, svc: Resource, ctx: Context) -> tuple[dict, dict[str, dict], str]:
+        """The events already in the calendar in another form (see same_event) by key, the answers kept for the next
+        compose, and a note when the model could not judge. An event is judged once: Update preview asks again only for
+        an event whose title or start changed. Earlier imports of this agenda and past events are not judged."""
+        checks = dict(payload.get('same_checks', {}))
+        same, todo = {}, {}
+        for raw, _event, key, _override, reason, body, earlier in items:
+            if earlier or reason == 'in the past':
+                continue
+            check = f'{key}|{same_event.start_of(body)}|{body["summary"]}'
+            if check in checks:
+                if checks[check]:
+                    same[key] = checks[check]
+                continue
+            todo[key] = (check, {'titles': [raw.title, body['summary']], 'start': same_event.start_of(body),
+                                 'place': body['location']})
+        if not todo:
+            return checks, same, ''
+        days = sorted(date.fromisoformat(new['start'][:10]) for _, new in todo.values())
+        bounds = [datetime.combine(day, datetime.min.time(), ctx.tz).isoformat() for day in (days[0], days[-1] + timedelta(days=1))]
+        known = {item[-1]['id'] for item in items if item[-1]}
+        calendar = [e for e in events_between(svc, payload['calendar_id'], *bounds) if e['id'] not in known]
+        try:
+            found = same_event.find({key: new for key, (_, new) in todo.items()}, calendar)
+        except LLMError as error:
+            return checks, same, (f'Could not check whether these events are in the calendar in another form ({error}): '
+                                  'look in the calendar before you add them.')
+        for key, (check, _) in todo.items():
+            checks[check] = found.get(key)
+            if key in found:
+                same[key] = found[key]
+        return checks, same, ''
 
     @staticmethod
     def _excluded(event: WebEvent, weekdays: set[int], period: tuple[date, date] | None, now: datetime) -> str:

@@ -319,7 +319,9 @@ class CheckWatchedSites(StandardTask):
             # not in the calendar (imported unchanged: not selectable; typed in by the user: matched here), not past;
             # declined at an earlier check: listed unticked
             # an earlier import the page now words differently is in the calendar too: a check offers new events only
+            # in the calendar in another form (typed in, another source; see same_event): not new either
             offered = [r for r in preview.rows if r.selectable and r.note != 'in the past' and r.id not in site_payload['updates']
+                       and r.id not in site_payload['elsewhere']
                        and not _already_there(site_payload['bodies'][r.id], r.cells['Source'], site['url'], known)]
             for row in offered:
                 row.group = site['label']
