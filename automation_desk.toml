@@ -32,6 +32,8 @@ max_words = 60
 batch_size = 60
 
 [polar]
-# the Polar Sensor Logger files (phone) and the sessions of the logger on the PC; read only on Import sessions
-phone_dir = '/path/to/polar_h10_logger'
-logger_dir = '/mnt/Dev/active_python_projects/polar_h10_logger/data/sessions'
+# the Polar Sensor Logger files (phone) and the sessions of the logger on the PC, read only on Import sessions; the
+# logger's project folder, where Start recording runs it
+phone_dir = '/path/to/polar_h10_logger/phone_sessions'
+logger_dir = '/path/to/polar_h10_logger/pc_sessions'
+logger_project = '/mnt/Dev/active_python_projects/polar_h10_logger'

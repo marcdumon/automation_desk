@@ -151,7 +151,7 @@ export function useWidth(): [React.RefObject<HTMLDivElement | null>, number] {
 const PAD = { left: 36, right: 16, top: 12, bottom: 28 }
 const HEIGHT = 220
 
-function niceMax(value: number): number {
+export function niceMax(value: number): number {
   if (value <= 5) return 5
   const step = 10 ** Math.floor(Math.log10(value))
   return Math.ceil(value / step) * step

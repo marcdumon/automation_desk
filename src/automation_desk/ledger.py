@@ -164,6 +164,13 @@ CREATE INDEX IF NOT EXISTS polar_beats_by_session ON polar_beats (session_id, t_
 CREATE TABLE IF NOT EXISTS polar_seconds (
     session_id INTEGER NOT NULL, t INTEGER NOT NULL, hr REAL, movement REAL, PRIMARY KEY (session_id, t)
 );
+CREATE TABLE IF NOT EXISTS polar_markers (
+    session_id INTEGER NOT NULL, t_ms INTEGER NOT NULL, label TEXT NOT NULL, hr REAL, recovery REAL, recovery_state TEXT
+);
+CREATE INDEX IF NOT EXISTS polar_markers_by_session ON polar_markers (session_id, t_ms);
+CREATE TABLE IF NOT EXISTS polar_activities (
+    id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, position INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS chats (
     id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, model TEXT NOT NULL, created TEXT NOT NULL,
     updated TEXT NOT NULL, target TEXT, note TEXT
@@ -192,7 +199,13 @@ _ready_lock = threading.Lock()
 # columns added after a table first shipped: (table, column, type); a ledger made before gets them on start-up
 ADDED_COLUMNS = [('task_day_planned', 'completed_count', 'INTEGER'), ('habits', 'position', 'INTEGER'),
                  ('research', 'requirements', 'TEXT'), ('research', 'title', 'TEXT'), ('research', 'target', 'TEXT'),
-                 ('health_angina', 'not_measured', 'INTEGER NOT NULL DEFAULT 0')]
+                 ('health_angina', 'not_measured', 'INTEGER NOT NULL DEFAULT 0'),
+                 ('polar_sessions', 'activity_id', 'INTEGER'), ('polar_sessions', 'note', 'TEXT'),
+                 ('polar_sessions', 'moving_s', 'INTEGER'), ('polar_sessions', 'still_s', 'INTEGER'),
+                 ('polar_sessions', 'moving_hr', 'REAL'), ('polar_sessions', 'still_hr', 'REAL')]
+# the first activities of the Polar H10 sessions, given once: when the sessions get their activity column (in a new
+# database too), so a default that the user removed does not come back
+ACTIVITIES = ('Walk', 'Gym cardio', 'Weightlifting', 'Bike', 'Rest')
 
 
 def _ensure_schema(target: Path) -> None:
@@ -208,6 +221,10 @@ def _ensure_schema(target: Path) -> None:
             for table, column, kind in ADDED_COLUMNS:
                 if column not in {row[1] for row in connection.execute(f'PRAGMA table_info({table})')}:
                     connection.execute(f'ALTER TABLE {table} ADD COLUMN {column} {kind}')
+                    if (table, column) == ('polar_sessions', 'activity_id'):
+                        connection.executemany('INSERT OR IGNORE INTO polar_activities (name, position) VALUES (?, ?)',
+                                               [(name, n) for n, name in enumerate(ACTIVITIES)])
+                        connection.commit()
             # the first Withings table had no body part, so the values per arm, leg and trunk did not fit: it goes,
             # and the next fetch gets the whole history again (Withings keeps it); the sign-in stays
             if connection.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'withings_measures'").fetchone():

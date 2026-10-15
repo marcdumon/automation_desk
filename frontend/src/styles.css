@@ -17,6 +17,18 @@
   --series-2: #eb6834;
   /* the third categorical slot: the newest day in the chart analysis */
   --series-3: #1baf7a;
+  /* slots 4 to 8 of the chart colours: the activities in the weekly Polar H10 bars */
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #6250d6;
+  --series-8: #e34948;
+  /* the 5 heart rate zones: one blue, lighter to darker */
+  --zone-1: #86b6ef;
+  --zone-2: #5598e7;
+  --zone-3: #2a78d6;
+  --zone-4: #1c5cab;
+  --zone-5: #104281;
   --error: #a83a34;
   --accent: var(--ink);
   --accent-wash: color-mix(in srgb, var(--accent) 8%, transparent);
@@ -42,6 +54,16 @@
     --series-1: #3987e5;
     --series-2: #d95926;
     --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+    --zone-1: #256abf;
+    --zone-2: #3987e5;
+    --zone-3: #6da7ec;
+    --zone-4: #9ec5f4;
+    --zone-5: #cde2fb;
     --error: #e2837c;
     color-scheme: dark;
   }
@@ -1087,8 +1109,70 @@ dialog.health-guide::backdrop { background: rgb(0 0 0 / 0.5); }
 .polar-sessions { position: relative; }
 .polar-sessions td, .polar-sessions th { white-space: nowrap; }
 .polar-sessions button { padding: 3px 10px; font-size: 13px; }
+.polar-sessions .tick { width: 16px; padding-left: 12px; padding-right: 0; }
+.polar-selected { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.polar-selected button { padding: 3px 10px; font-size: 13px; }
+.polar-selected .cap-error { margin: 0; }
+.polar-sessions button.link { padding: 0; font-size: 14px; color: inherit; }
+.polar-sessions tr.polar-row { cursor: pointer; }
+.polar-source { display: block; }
+.polar-activity { font: inherit; font-size: 13px; padding: 2px 4px; border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--paper); color: inherit; }
+.polar-waiting { font-weight: 600; }
+.polar-head-actions { display: flex; gap: 8px; }
+.polar-activities { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.polar-activities li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.polar-activities input, .polar-activity-add input, .polar-birth input { font: inherit; padding: 4px 8px;
+  border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); color: inherit; }
+.polar-activity-add, .polar-birth { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.polar-detail { display: grid; gap: 18px; }
+.polar-detail-head { display: grid; gap: 8px; }
+.polar-detail-head p { margin: 0; }
+.polar-detail-label { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.polar-note { flex: 1 1 260px; min-height: 2.6em; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--paper); color: inherit; font: inherit; resize: vertical; }
+.chart .stop-band { fill: var(--muted); opacity: .16; }
+.chart .zone-line { stroke: var(--muted); stroke-dasharray: 3 4; opacity: .7; }
+.chart .zone-label { fill: var(--muted); font-size: 11px; }
+.chart .marker-tick { stroke: var(--ink); stroke-width: 2; }
+tr.polar-stop td { color: var(--muted); }
+.polar-zones li { grid-template-columns: minmax(150px, 38%) 1fr auto; }
+.polar-zones .bar-track { background: color-mix(in srgb, var(--muted) 14%, transparent); }
+.polar-zones .bar-fill.z0 { background: var(--muted); }
+.polar-zones .bar-fill.z1 { background: var(--zone-1); }
+.polar-zones .bar-fill.z2 { background: var(--zone-2); }
+.polar-zones .bar-fill.z3 { background: var(--zone-3); }
+.polar-zones .bar-fill.z4 { background: var(--zone-4); }
+.polar-zones .bar-fill.z5 { background: var(--zone-5); }
+/* the activities in the weekly bars: the chart colours in list order, a surface line between two parts; later
+   activities and the sessions without one share grey */
+.chart .seg { stroke: var(--surface); stroke-width: 2px; }
+.chart .seg.c1 { fill: var(--series-1); } .key.c1 { background: var(--series-1); }
+.chart .seg.c2 { fill: var(--series-2); } .key.c2 { background: var(--series-2); }
+.chart .seg.c3 { fill: var(--series-3); } .key.c3 { background: var(--series-3); }
+.chart .seg.c4 { fill: var(--series-4); } .key.c4 { background: var(--series-4); }
+.chart .seg.c5 { fill: var(--series-5); } .key.c5 { background: var(--series-5); }
+.chart .seg.c6 { fill: var(--series-6); } .key.c6 { background: var(--series-6); }
+.chart .seg.c7 { fill: var(--series-7); } .key.c7 { background: var(--series-7); }
+.chart .seg.c8 { fill: var(--series-8); } .key.c8 { background: var(--series-8); }
+.chart .seg.other { fill: var(--muted); } .key.other { background: var(--muted); }
+.polar-week-table { margin-top: 8px; font-size: 14px; }
+.polar-week-table summary { cursor: pointer; }
+.polar-filter { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.polar-filter select { font: inherit; padding: 4px 8px; border: 1px solid var(--rule); border-radius: 6px;
+  background: var(--paper); color: inherit; }
 .polar-more { justify-self: start; }
 dialog.health-sessions .polar-more { margin-top: 12px; }
+.polar-live { display: grid; gap: 10px; padding: 4px 0 12px; }
+.polar-live p { margin: 0; }
+.polar-live-line { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; font-variant-numeric: tabular-nums; }
+.polar-markers, .polar-live-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.polar-live-actions { justify-content: space-between; }
+.polar-cooldown { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; font-variant-numeric: tabular-nums; }
+.polar-cooldown-left { font-size: 48px; font-weight: 700; line-height: 1; }
+.polar-marker-row td { padding-top: 0; white-space: normal; }
+.polar-marker-list { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+.polar-hint { flex-basis: 100%; margin: 0; font-size: 13px; }
 dialog.health-sessions .health-removed { margin-top: 18px; }
 .health-removed h3 { margin: 0; font-size: 14px; }
 .health-removed h3 .muted { margin-left: 6px; font-weight: 400; font-size: 12px; }

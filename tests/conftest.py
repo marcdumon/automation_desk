@@ -130,11 +130,15 @@ def ledger(tmp_path, monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture(autouse=True)
 def polar_in_tmp(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The raw Polar samples of a test go to its own folder, and no test reads the user's Polar folders."""
-    from automation_desk.health import polar, polar_store
+    """The raw Polar samples of a test go to its own folder, and no test reads the user's Polar folders or reaches the user's
+    logger."""
+    from automation_desk.health import polar, polar_record, polar_store
 
     monkeypatch.setattr(polar_store, 'RAW_DB', tmp_path / 'polar.db')
     monkeypatch.setattr(polar, 'folders', lambda: (None, None))
+    monkeypatch.setattr(polar_record, 'settings', lambda: (None, 'http://127.0.0.1:9'))
+    monkeypatch.setattr(polar_record, 'LOG', tmp_path / 'polar_record.log')
+    monkeypatch.setattr(polar_record, '_state', polar_record._fresh())
 
 
 class FakeTodoist:

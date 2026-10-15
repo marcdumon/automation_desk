@@ -23,10 +23,13 @@ class NewsSettings:
 
 @dataclass(frozen=True)
 class PolarSettings:
-    """The two folders of the Polar H10 sessions: the phone app's files and the logger's sessions; '' when not set."""
+    """The Polar H10 settings: the folders of the phone app's files and the logger's sessions, the logger's project folder
+    (where `uv run polar-h10 record` runs) and the address of its API; '' when not set."""
 
     phone_dir: str = ''
     logger_dir: str = ''
+    logger_project: str = ''
+    logger_api: str = 'http://127.0.0.1:8770'
 
 
 @dataclass(frozen=True)

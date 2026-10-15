@@ -474,8 +474,10 @@ export const getHealth = (day?: string) => call<HealthView>(`/api/health${day ? 
 export type HealthMeasurement = {
   kind: 'scale' | 'pressure'; measured_at: string; grpids: number[]; values: Record<string, number>; day?: string
 }
-export const getHealthHistory = (days: number) =>
-  call<{ days: HealthDayRow[]; removed: HealthMeasurement[] }>(`/api/health/history?days=${days}`)
+// the Polar H10 values of one activity only; nothing for all sessions
+const activityParam = (activity: number | null) => (activity === null ? '' : `&activity=${activity}`)
+export const getHealthHistory = (days: number, activity: number | null = null) =>
+  call<{ days: HealthDayRow[]; removed: HealthMeasurement[] }>(`/api/health/history?days=${days}${activityParam(activity)}`)
 export const getDayMeasurements = (day: string) => call<{ measurements: HealthMeasurement[] }>(`/api/health/days/${day}/measurements`)
 export const hideMeasurement = (grpids: number[]) => call<{ removed: HealthMeasurement[] }>('/api/health/measurements/hide', { grpids })
 export const showMeasurement = (grpids: number[]) => call<{ removed: HealthMeasurement[] }>('/api/health/measurements/show', { grpids })
@@ -494,16 +496,17 @@ export type HealthAnalysis = {
   earlier: { ago: number; from: string; to: string; count: number; mean: number | null; diff: number | null }[]
   years: { year: number; months: (number | null)[] }[]
 }
-export const getHealthAnalysis = (key: string, days: number | null, window: number) =>
-  call<HealthAnalysis>(`/api/health/analysis?key=${encodeURIComponent(key)}&window=${window}${days ? `&days=${days}` : ''}`)
+export const getHealthAnalysis = (key: string, days: number | null, window: number, activity: number | null = null) =>
+  call<HealthAnalysis>(`/api/health/analysis?key=${encodeURIComponent(key)}&window=${window}${days ? `&days=${days}` : ''}`
+    + activityParam(activity))
 // the second value on day D - lag against the first value on day D; by_lag: r and n of every delay from 0 to 30 days
 export type HealthRelation = {
   key: string; other: string; lag: number; points: { day: string; x_day: string; x: number; y: number }[]; n: number
   r: number | null; slope: number | null; intercept: number | null; by_lag: { lag: number; r: number | null; n: number }[]
 }
-export const getHealthRelation = (key: string, other: string, days: number | null, lag = 0) =>
+export const getHealthRelation = (key: string, other: string, days: number | null, lag = 0, activity: number | null = null) =>
   call<HealthRelation>(`/api/health/relation?key=${encodeURIComponent(key)}&other=${encodeURIComponent(other)}`
-    + (days ? `&days=${days}` : '') + `&lag=${lag}`)
+    + (days ? `&days=${days}` : '') + `&lag=${lag}` + activityParam(activity))
 export const addUnit = (day: string, supplementId: number, takenAt: string) =>
   call<HealthView>('/api/health/units', { day, supplement_id: supplementId, taken_at: takenAt })
 export const setUnitTime = (id: number, takenAt: string) => send<HealthView>(`/api/health/units/${id}`, 'PUT', { taken_at: takenAt })
@@ -526,18 +529,23 @@ export const fetchWithings = (day: string) => call<HealthView>(`/api/health/with
 // the Polar H10 import: set up (the two folders in automation_desk.toml), running with its progress in files, the last
 // import, a failure, the number of sessions
 export type PolarStatus = {
-  configured: boolean; running: boolean; done: number; total: number; last_import: string | null; error: string
+  configured: boolean; running: boolean; done: number; total: number; saved: number; last_import: string | null
+  error: string
   sessions: number
   // the newest exercise session and the newest rest session with values, up to the day of the page
   last_exercise: PolarSession | null; last_rest: PolarSession | null
+  // the newest angina onset marker with an HR, up to the day of the page
+  last_angina: { at: string; hr: number } | null
 }
-// one session, times in UTC: a rest session has its resting HR and RMSSD, an exercise session its heart rate recovery and
-// the state of it
+// one session, times in UTC: its activity and note, its time in movement and still with their mean HR; a rest session
+// has its resting HR and RMSSD; a session with a Cooldown press its heart rate recovery and the state of it
 export type PolarSession = {
   id: number; source: 'phone' | 'logger'; serial: string; start_at: string; end_at: string; day: string
   kind: 'exercise' | 'rest'; seconds: number; mean_hr: number | null; max_hr: number | null; recovery: number | null
   recovery_state: 'counted' | 'moved' | 'no movement data' | null; rest_hr: number | null; rmssd: number | null
   wrong_beats_pct: number | null; copy_of: number | null; copy_of_start: string | null; removed: boolean
+  markers: PolarMarker[]; activity_id: number | null; activity: string | null; note: string | null
+  moving_s: number | null; still_s: number | null; moving_hr: number | null; still_hr: number | null
 }
 export const importPolar = (day: string) => call<HealthView>(`/api/health/polar/import?day=${day}`, {})
 export const getPolarSessions = (offset: number, limit: number) =>
@@ -545,3 +553,61 @@ export const getPolarSessions = (offset: number, limit: number) =>
 export const getPolarDay = (day: string) => call<{ sessions: PolarSession[] }>(`/api/health/polar/days/${day}`)
 export const removePolarSession = (id: number) => call<{ ok: boolean }>(`/api/health/polar/sessions/${id}/remove`, {})
 export const showPolarSession = (id: number) => call<{ ok: boolean }>(`/api/health/polar/sessions/${id}/show`, {})
+export const removePolarSessions = (ids: number[]) => call<{ ok: boolean }>('/api/health/polar/sessions/remove', { ids })
+export const showPolarSessions = (ids: number[]) => call<{ ok: boolean }>('/api/health/polar/sessions/show', { ids })
+// the activities of the sessions, in list order, each with how many sessions have it; last_used: the activity of the
+// last recording started from the card
+export type PolarActivity = { id: number; name: string; sessions: number }
+export const getPolarActivities = () =>
+  call<{ activities: PolarActivity[]; last_used: number | null }>('/api/health/polar/activities')
+export const addPolarActivity = (name: string) => call<{ id: number }>('/api/health/polar/activities', { name })
+export const renamePolarActivity = (id: number, name: string) =>
+  call<{ ok: boolean }>(`/api/health/polar/activities/${id}`, { name })
+export const removePolarActivity = (id: number) => call<{ ok: boolean }>(`/api/health/polar/activities/${id}/remove`, {})
+// only the fields given change
+export const labelPolarSession = (id: number, fields: { activity_id?: number | null; note?: string }) =>
+  call<{ ok: boolean }>(`/api/health/polar/sessions/${id}/label`, fields)
+// the popup of one session: each second from start (epoch s) with its HR and whether it is still (null: no movement
+// data), the zones (null without a birth year: below zone 1, then zone 1 to 5, in seconds), the parts between stops and
+// the comparison with the last earlier sessions of the same activity
+export type PolarPart = {
+  kind: 'movement' | 'stop'; from: number; to: number; seconds: number; mean_hr: number | null; max_hr: number | null
+}
+export type PolarCompareValues = {
+  seconds: number | null; moving_hr: number | null; max_hr: number | null; high_zone_min: number | null
+}
+export type PolarDetail = {
+  session: PolarSession; start: number; hr: (number | null)[]; still: (0 | 1 | null)[] | null; birth_year: number | null
+  zones: { max_hr: number; limits: number[]; seconds: number[] } | null
+  parts: PolarPart[] | null
+  compare: { count: number; this: PolarCompareValues; usual: PolarCompareValues } | null
+}
+export const getPolarDetail = (id: number) => call<PolarDetail>(`/api/health/polar/sessions/${id}`)
+export const setBirthYear = (year: number) => call<{ birth_year: number }>('/api/health/polar/birth-year', { year })
+// how many sessions the next Import sessions reads; recalc: because the calculations changed
+export const getPolarWaiting = () => call<{ sessions: number; recalc: boolean }>('/api/health/polar/waiting')
+// the minutes of the sessions per week (its Monday) by activity name, and the activity names in list order
+export type PolarWeek = { week: string; minutes: Record<string, number> }
+export const getPolarWeeks = (days: number, activity: number | null) =>
+  call<{ weeks: PolarWeek[]; activities: string[] }>(`/api/health/polar/weeks?days=${days}${activityParam(activity)}`)
+// a marker of a logger session: its time (UTC), its label and the HR of its second; a cooldown has its recovery
+export type PolarMarker = {
+  at: string; label: string; hr: number | null; recovery: number | null
+  recovery_state: 'counted' | 'moved' | 'no movement data' | null
+}
+// the recording with the user's own logger now: its state, the live values, the last marker, the 60 s cooldown (its press
+// in UTC, the HR then, the seconds left, and after the minute the HR then and the drop) and the last error
+export type PolarLive = {
+  configured: boolean
+  state: 'off' | 'connecting' | 'recording' | 'connection lost' | 'stopping' | 'importing'
+  seconds: number | null; hr: number | null; battery: number | null
+  last_marker: { label: string; at: string } | null
+  cooldown: { at: string; hr: number | null; left: number; after: number | null; drop: number | null } | null
+  error: string
+}
+export const getPolarLive = () => call<PolarLive>('/api/health/polar/live')
+export const startPolarRecording = (activityId: number | null) =>
+  call<PolarLive>('/api/health/polar/live/start', { activity_id: activityId })
+export const stopPolarRecording = () => call<PolarLive>('/api/health/polar/live/stop', {})
+export const markPolar = (label: string) => call<PolarLive>('/api/health/polar/live/markers', { label })
+export const coolPolar = () => call<PolarLive>('/api/health/polar/live/cooldown', {})

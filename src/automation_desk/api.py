@@ -48,7 +48,7 @@ from automation_desk.groups.tasks import stats as task_stats_store
 from automation_desk.health import analysis as health_analysis
 from automation_desk.health import history as health_history
 from automation_desk.health import measurements as health_measurements
-from automation_desk.health import polar, polar_store, withings
+from automation_desk.health import polar, polar_detail, polar_record, polar_store, withings
 from automation_desk.health import store as health_store
 from automation_desk.interpret import fill_args, route
 from automation_desk.llm import LLMError
@@ -1371,7 +1371,7 @@ def _health_now() -> datetime:
 
 
 def _health_day(day: str | None) -> date:
-    """A day of the Health page, checked: today (from 04:00) or an earlier day."""
+    """A day of the Health page, checked: today or an earlier day."""
     today = health_store.health_day(_health_now())
     try:
         chosen = date.fromisoformat(day) if day else today
@@ -1385,7 +1385,7 @@ def _health_day(day: str | None) -> date:
 def _health_view(day: date) -> dict:
     """The Health page for a day: the supplement regime for reference, the supplements with the day's units, the angina
     score, the Ketostix readings, the tape measurements with the last ones before the day, the latest Withings values up to
-    the end of the day (04:00 the next morning), the link, the Polar H10 import with the last sessions up to the day."""
+    the end of the day, the link, the Polar H10 import with the last sessions up to the day."""
     now = _health_now()
     return {'day': day.isoformat(), 'today': health_store.health_day(now).isoformat(), 'now': now.strftime('%H:%M'),
             'moments': health_store.moments(), 'supplements': health_store.supplements(day),
@@ -1451,28 +1451,31 @@ def health_view(day: str | None = None) -> dict:
 
 
 @app.get('/api/health/history')
-def health_history_view(days: int = Query(30, ge=7, le=365)) -> dict:
-    """One row per day: supplements taken, angina, blood pressure, scale values; and the measurements removed as wrong."""
-    return {'days': health_history.days(days, health_store.health_day(_health_now())), 'removed': health_measurements.removed()}
+def health_history_view(days: int = Query(30, ge=7, le=365), activity: int | None = None) -> dict:
+    """One row per day: supplements taken, angina, blood pressure, scale values, the Polar H10 values (with `activity`, of
+    that activity only); and the measurements removed as wrong."""
+    return {'days': health_history.days(days, health_store.health_day(_health_now()), activity),
+            'removed': health_measurements.removed()}
 
 
 @app.get('/api/health/analysis')
-def health_analysis_view(key: str, days: int | None = Query(None, ge=7, le=20000), window: int = Query(30, ge=3, le=365)) -> dict:
+def health_analysis_view(key: str, days: int | None = Query(None, ge=7, le=20000), window: int = Query(30, ge=3, le=365),
+                         activity: int | None = None) -> dict:
     """The analysis of one value of the history, for the large view of a chart; without a number of days, of all data."""
     if not health_analysis.known(key):
         raise HTTPException(404, f'The Health history has no value named {key}.')
-    return health_analysis.analyse(key, days, window, health_store.health_day(_health_now()))
+    return health_analysis.analyse(key, days, window, health_store.health_day(_health_now()), activity)
 
 
 @app.get('/api/health/relation')
 def health_relation_view(key: str, other: str, days: int | None = Query(None, ge=7, le=20000),
-                         lag: int = Query(0, ge=0, le=health_analysis.MAX_LAG)) -> dict:
+                         lag: int = Query(0, ge=0, le=health_analysis.MAX_LAG), activity: int | None = None) -> dict:
     """Two values of the history by day, the second one `lag` days earlier, with their correlation and that of every
     delay; without a number of days, of all data."""
     for name in (key, other):
         if not health_analysis.known(name):
             raise HTTPException(404, f'The Health history has no value named {name}.')
-    return health_analysis.relation(key, other, days, health_store.health_day(_health_now()), lag)
+    return health_analysis.relation(key, other, days, health_store.health_day(_health_now()), lag, activity)
 
 
 class HealthGroups(BaseModel):
@@ -1689,6 +1692,12 @@ def polar_import(day: str | None = None) -> dict:
     return _health_view(_health_day(day))
 
 
+@app.get('/api/health/polar/waiting')
+def polar_waiting() -> dict:
+    """How many sessions wait for Import sessions; it only lists the two folders and changes nothing."""
+    return polar.waiting()
+
+
 @app.get('/api/health/polar/sessions')
 def polar_sessions(offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=500)) -> dict:
     """The sessions newest first, how many there are, and the removed ones."""
@@ -1701,23 +1710,214 @@ def polar_day(day: str) -> dict:
     return {'sessions': polar_store.day_sessions(_health_day(day).isoformat())}
 
 
-def _polar_mark(session_id: int, removed: bool) -> dict:
-    """Take a session out of the history and the analysis, or put it back."""
-    if not polar_store.set_removed(session_id, removed):
-        raise HTTPException(404, 'There is no Polar H10 session with that number. Reload the page.')
+@app.get('/api/health/polar/sessions/{session_id}')
+def polar_session_detail(session_id: int) -> dict:
+    """One session for its popup: each second, the zones, the parts and the comparison with the same activity."""
+    found = polar_detail.detail(session_id)
+    if found is None:
+        raise HTTPException(404, 'There is no such Polar H10 session. Reload the page.')
+    return found
+
+
+@app.get('/api/health/polar/weeks')
+def polar_weeks(days: int = Query(30, ge=7, le=365), activity: int | None = None) -> dict:
+    """The minutes of the sessions per week (Monday first) and per activity, and the activity names in list order (the
+    colours of the chart follow it)."""
+    today = health_store.health_day(_health_now())
+    return {'weeks': polar_store.weeks(today - timedelta(days=days - 1), today, activity),
+            'activities': [a['name'] for a in polar_store.activities()]}
+
+
+class PolarSessions(BaseModel):
+    """The sessions that the user selected in the list of all sessions."""
+
+    ids: list[int] = Field(min_length=1, max_length=500)
+
+
+def _polar_mark(ids: list[int], removed: bool) -> dict:
+    """Take sessions out of the history and the analysis, or put them back."""
+    if not polar_store.set_removed(ids, removed):
+        raise HTTPException(404, 'There is no such Polar H10 session. Reload the page.')
     return {'ok': True}
+
+
+@app.post('/api/health/polar/sessions/remove')
+def polar_remove_selected(given: PolarSessions) -> dict:
+    """Remove the selected sessions at once; Show again puts them back."""
+    return _polar_mark(given.ids, True)
+
+
+@app.post('/api/health/polar/sessions/show')
+def polar_show_selected(given: PolarSessions) -> dict:
+    """Put the selected removed sessions back in the history and the analysis."""
+    return _polar_mark(given.ids, False)
 
 
 @app.post('/api/health/polar/sessions/{session_id}/remove')
 def polar_remove(session_id: int) -> dict:
     """Remove a wrong session at once; Show again puts it back."""
-    return _polar_mark(session_id, True)
+    return _polar_mark([session_id], True)
 
 
 @app.post('/api/health/polar/sessions/{session_id}/show')
 def polar_show(session_id: int) -> dict:
     """Put a removed session back in the history and the analysis."""
-    return _polar_mark(session_id, False)
+    return _polar_mark([session_id], False)
+
+
+class ActivityName(BaseModel):
+    """The name of an activity of the Polar H10 sessions."""
+
+    name: str = Field(max_length=40)
+
+
+def _activity_name(given: ActivityName) -> str:
+    """The name without spaces around it; 422 when nothing is left."""
+    name = given.name.strip()
+    if not name:
+        raise HTTPException(422, 'Type a name for the activity.')
+    return name
+
+
+@app.get('/api/health/polar/activities')
+def polar_activities() -> dict:
+    """The activities in list order, each with how many sessions have it, and the activity of the last recording started
+    from the card (None when it is not in the list)."""
+    found = polar_store.activities()
+    last = health_store.setting('polar_last_activity')
+    return {'activities': found, 'last_used': int(last) if last and any(a['id'] == int(last) for a in found) else None}
+
+
+@app.post('/api/health/polar/activities')
+def polar_activity_add(given: ActivityName) -> dict:
+    """Add an activity at the end of the list."""
+    try:
+        return {'id': polar_store.add_activity(_activity_name(given))}
+    except polar_store.ActivityError as error:
+        raise HTTPException(409, str(error)) from error
+
+
+@app.post('/api/health/polar/activities/{activity_id}')
+def polar_activity_rename(activity_id: int, given: ActivityName) -> dict:
+    """Give an activity another name."""
+    try:
+        found = polar_store.rename_activity(activity_id, _activity_name(given))
+    except polar_store.ActivityError as error:
+        raise HTTPException(409, str(error)) from error
+    if not found:
+        raise HTTPException(404, 'There is no such activity. Reload the page.')
+    return {'ok': True}
+
+
+@app.post('/api/health/polar/activities/{activity_id}/remove')
+def polar_activity_remove(activity_id: int) -> dict:
+    """Remove an activity that no session has."""
+    try:
+        found = polar_store.remove_activity(activity_id)
+    except polar_store.ActivityError as error:
+        raise HTTPException(409, str(error)) from error
+    if not found:
+        raise HTTPException(404, 'There is no such activity. Reload the page.')
+    return {'ok': True}
+
+
+class SessionLabel(BaseModel):
+    """The activity (None: none) or the note of a session, or both; a field that is not sent stays as it is."""
+
+    activity_id: int | None = None
+    note: str | None = Field(None, max_length=2000)
+
+
+@app.post('/api/health/polar/sessions/{session_id}/label')
+def polar_label(session_id: int, given: SessionLabel) -> dict:
+    """Set the activity or the note of a session; only the fields sent change."""
+    sent = given.model_fields_set
+    if 'activity_id' in sent and not polar_store.set_activity(session_id, given.activity_id):
+        raise HTTPException(404, 'There is no such Polar H10 session or activity. Reload the page.')
+    if 'note' in sent and not polar_store.set_note(session_id, given.note or ''):
+        raise HTTPException(404, 'There is no such Polar H10 session. Reload the page.')
+    return {'ok': True}
+
+
+class BirthYear(BaseModel):
+    """The user's birth year, for the heart rate zones."""
+
+    year: int
+
+
+@app.post('/api/health/polar/birth-year')
+def polar_birth_year(given: BirthYear) -> dict:
+    """Keep the birth year for the zones: 220 - age is the maximum HR."""
+    this_year = date.today().year
+    if not 1900 <= given.year <= this_year:
+        raise HTTPException(422, f'Type a birth year from 1900 to {this_year}.')
+    health_store.set_setting('polar_birth_year', str(given.year))
+    return {'birth_year': given.year}
+
+
+class PolarMarker(BaseModel):
+    """A marker for the running recording: one of the four labels."""
+
+    label: str
+
+
+def _polar_live() -> dict:
+    """The recording of the logger now, for the card."""
+    return polar_record.live(_health_now().tzinfo)
+
+
+@app.get('/api/health/polar/live')
+def polar_live() -> dict:
+    """The recording with the logger now: its state, HR, battery, the last marker, the cooldown and the last error."""
+    return _polar_live()
+
+
+class RecordStart(BaseModel):
+    """The activity of a recording started from the card (None: none)."""
+
+    activity_id: int | None = None
+
+
+@app.post('/api/health/polar/live/start')
+def polar_live_start(given: RecordStart) -> dict:
+    """Start a recording with the logger; its session gets the activity chosen."""
+    try:
+        polar_record.start(_health_now().tzinfo, given.activity_id)
+    except polar_record.RecordError as error:
+        raise HTTPException(409, str(error)) from error
+    return _polar_live()
+
+
+@app.post('/api/health/polar/live/stop')
+def polar_live_stop() -> dict:
+    """Stop the recording; its session is imported when the logger has ended."""
+    try:
+        polar_record.stop(_health_now().tzinfo)
+    except polar_record.RecordError as error:
+        raise HTTPException(409, str(error)) from error
+    return _polar_live()
+
+
+@app.post('/api/health/polar/live/markers')
+def polar_live_marker(given: PolarMarker) -> dict:
+    """A marker in the running recording."""
+    try:
+        polar_record.mark(given.label)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    except polar_record.RecordError as error:
+        raise HTTPException(409, str(error)) from error
+    return _polar_live()
+
+
+@app.post('/api/health/polar/live/cooldown')
+def polar_live_cooldown() -> dict:
+    """Cooldown 60 s: the marker and the timer."""
+    try:
+        polar_record.cooldown()
+    except polar_record.RecordError as error:
+        raise HTTPException(409, str(error)) from error
+    return _polar_live()
 
 
 if STATIC.exists():
