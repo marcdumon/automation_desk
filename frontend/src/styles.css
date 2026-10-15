@@ -1118,7 +1118,13 @@ dialog.health-guide::backdrop { background: rgb(0 0 0 / 0.5); }
 .polar-source { display: block; }
 .polar-activity { font: inherit; font-size: 13px; padding: 2px 4px; border: 1px solid var(--rule); border-radius: 6px;
   background: var(--paper); color: inherit; }
-.polar-waiting { font-weight: 600; }
+.polar-waiting { font-weight: 600; color: var(--ink); }
+/* the bottom of the Polar H10 card: the import line, then the session buttons left and Start recording right */
+.health-status.polar-status { display: grid; gap: 10px; }
+.polar-import-line { margin: 0; font-size: 13px; }
+.polar-buttons { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; }
+.polar-group { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.polar-group .cap-error { flex-basis: 100%; margin: 0; }
 .polar-head-actions { display: flex; gap: 8px; }
 .polar-activities { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .polar-activities li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
