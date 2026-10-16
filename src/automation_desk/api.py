@@ -1883,7 +1883,7 @@ def _polar_live() -> dict:
 
 @app.get('/api/health/polar/live')
 def polar_live() -> dict:
-    """The recording with the logger now: its state, HR, battery, the last marker, the cooldown and the last error."""
+    """The recording with the logger now: its state, HR, battery, the last marker and the last error."""
     return _polar_live()
 
 
@@ -1920,16 +1920,6 @@ def polar_live_marker(given: PolarMarker) -> dict:
         polar_record.mark(given.label)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
-    except polar_record.RecordError as error:
-        raise HTTPException(409, str(error)) from error
-    return _polar_live()
-
-
-@app.post('/api/health/polar/live/cooldown')
-def polar_live_cooldown() -> dict:
-    """Cooldown 60 s: the marker and the timer."""
-    try:
-        polar_record.cooldown()
     except polar_record.RecordError as error:
         raise HTTPException(409, str(error)) from error
     return _polar_live()

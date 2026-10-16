@@ -1179,8 +1179,6 @@ dialog.health-sessions .polar-more { margin-top: 12px; }
 .polar-live-line { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; font-variant-numeric: tabular-nums; }
 .polar-markers, .polar-live-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .polar-live-actions { justify-content: space-between; }
-.polar-cooldown { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; font-variant-numeric: tabular-nums; }
-.polar-cooldown-left { font-size: 48px; font-weight: 700; line-height: 1; }
 .polar-marker-row td { padding-top: 0; white-space: normal; }
 .polar-marker-list { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
 .polar-hint { flex-basis: 100%; margin: 0; font-size: 13px; }

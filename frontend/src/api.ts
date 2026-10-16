@@ -538,13 +538,12 @@ export type PolarStatus = {
   // the newest angina onset marker with an HR, up to the day of the page
   last_angina: { at: string; hr: number } | null
 }
-// one session, times in UTC: its activity and note, its time in movement and still with their mean HR; a session with a
-// Cooldown press its heart rate recovery and the state of it. kind, rest_hr, rmssd and wrong_beats_pct are old fields that
-// the import no longer fills (the HRV test has its own values)
+// one session, times in UTC: its activity and note, its time in movement and still with their mean HR. kind, rest_hr, rmssd
+// and wrong_beats_pct are old fields that the import no longer fills (the HRV test has its own values)
 export type PolarSession = {
   id: number; source: 'phone' | 'logger'; serial: string; start_at: string; end_at: string; day: string
-  kind: 'exercise' | 'rest'; seconds: number; mean_hr: number | null; max_hr: number | null; recovery: number | null
-  recovery_state: 'counted' | 'moved' | 'no movement data' | null; rest_hr: number | null; rmssd: number | null
+  kind: 'exercise' | 'rest'; seconds: number; mean_hr: number | null; max_hr: number | null; rest_hr: number | null
+  rmssd: number | null
   wrong_beats_pct: number | null; copy_of: number | null; copy_of_start: string | null; removed: boolean
   markers: PolarMarker[]; activity_id: number | null; activity: string | null; activity_test: string | null
   activity_no_split: boolean
@@ -610,19 +609,15 @@ export const getPolarWaiting = () => call<{ sessions: number; recalc: boolean }>
 export type PolarWeek = { week: string; minutes: Record<string, number> }
 export const getPolarWeeks = (days: number, activity: number | null) =>
   call<{ weeks: PolarWeek[]; activities: string[] }>(`/api/health/polar/weeks?days=${days}${activityParam(activity)}`)
-// a marker of a logger session: its time (UTC), its label and the HR of its second; a cooldown has its recovery
-export type PolarMarker = {
-  at: string; label: string; hr: number | null; recovery: number | null
-  recovery_state: 'counted' | 'moved' | 'no movement data' | null
-}
-// the recording with the user's own logger now: its state, the live values, the last marker, the 60 s cooldown (its press
-// in UTC, the HR then, the seconds left, and after the minute the HR then and the drop) and the last error
+// a marker of a logger session: its time (UTC), its label and the HR of its second
+export type PolarMarker = { at: string; label: string; hr: number | null }
+// the recording with the user's own logger now: its state, the live values, the last marker, the last error and the
+// activity chosen at Start
 export type PolarLive = {
   configured: boolean
   state: 'off' | 'connecting' | 'recording' | 'connection lost' | 'stopping' | 'importing'
   seconds: number | null; hr: number | null; battery: number | null
   last_marker: { label: string; at: string } | null
-  cooldown: { at: string; hr: number | null; left: number; after: number | null; drop: number | null } | null
   error: string
   // the activity chosen at Start recording (null for a recording started elsewhere)
   activity: number | null
@@ -632,4 +627,3 @@ export const startPolarRecording = (activityId: number | null) =>
   call<PolarLive>('/api/health/polar/live/start', { activity_id: activityId })
 export const stopPolarRecording = () => call<PolarLive>('/api/health/polar/live/stop', {})
 export const markPolar = (label: string) => call<PolarLive>('/api/health/polar/live/markers', { label })
-export const coolPolar = () => call<PolarLive>('/api/health/polar/live/cooldown', {})
