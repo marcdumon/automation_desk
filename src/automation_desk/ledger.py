@@ -202,7 +202,8 @@ ADDED_COLUMNS = [('task_day_planned', 'completed_count', 'INTEGER'), ('habits', 
                  ('health_angina', 'not_measured', 'INTEGER NOT NULL DEFAULT 0'),
                  ('polar_sessions', 'activity_id', 'INTEGER'), ('polar_sessions', 'note', 'TEXT'),
                  ('polar_sessions', 'moving_s', 'INTEGER'), ('polar_sessions', 'still_s', 'INTEGER'),
-                 ('polar_sessions', 'moving_hr', 'REAL'), ('polar_sessions', 'still_hr', 'REAL')]
+                 ('polar_sessions', 'moving_hr', 'REAL'), ('polar_sessions', 'still_hr', 'REAL'),
+                 ('polar_activities', 'test', 'TEXT'), ('polar_activities', 'no_split', 'INTEGER NOT NULL DEFAULT 0')]
 # the first activities of the Polar H10 sessions, given once: when the sessions get their activity column (in a new
 # database too), so a default that the user removed does not come back
 ACTIVITIES = ('Walk', 'Gym cardio', 'Weightlifting', 'Bike', 'Rest')
@@ -224,6 +225,16 @@ def _ensure_schema(target: Path) -> None:
                     if (table, column) == ('polar_sessions', 'activity_id'):
                         connection.executemany('INSERT OR IGNORE INTO polar_activities (name, position) VALUES (?, ?)',
                                                [(name, n) for n, name in enumerate(ACTIVITIES)])
+                        connection.commit()
+                    if (table, column) == ('polar_activities', 'test'):
+                        # the HRV test: an activity named HRV gets the flag, else the activity is added at the end, once
+                        if not connection.execute("UPDATE polar_activities SET test = 'hrv' WHERE name = 'HRV'").rowcount:
+                            connection.execute("INSERT INTO polar_activities (name, position, test) VALUES ('HRV', "
+                                               "(SELECT COALESCE(MAX(position), -1) + 1 FROM polar_activities), 'hrv')")
+                        connection.commit()
+                    if (table, column) == ('polar_activities', 'no_split'):
+                        # weights on a bench move the chest little: no split in movement and still for Weightlifting, once
+                        connection.execute("UPDATE polar_activities SET no_split = 1 WHERE name = 'Weightlifting'")
                         connection.commit()
             # the first Withings table had no body part, so the values per arm, leg and trunk did not fit: it goes,
             # and the next fetch gets the whole history again (Withings keeps it); the sign-in stays

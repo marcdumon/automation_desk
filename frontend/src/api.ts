@@ -532,19 +532,23 @@ export type PolarStatus = {
   configured: boolean; running: boolean; done: number; total: number; saved: number; last_import: string | null
   error: string
   sessions: number
-  // the newest exercise session and the newest rest session with values, up to the day of the page
-  last_exercise: PolarSession | null; last_rest: PolarSession | null
+  // the newest session that is not an HRV test, up to the day of the page, and the newest HRV test of the page's day and
+  // the 7 days before
+  last_exercise: PolarSession | null; last_hrv: PolarHrvCard | null
   // the newest angina onset marker with an HR, up to the day of the page
   last_angina: { at: string; hr: number } | null
 }
-// one session, times in UTC: its activity and note, its time in movement and still with their mean HR; a rest session
-// has its resting HR and RMSSD; a session with a Cooldown press its heart rate recovery and the state of it
+// one session, times in UTC: its activity and note, its time in movement and still with their mean HR; a session with a
+// Cooldown press its heart rate recovery and the state of it. kind, rest_hr, rmssd and wrong_beats_pct are old fields that
+// the import no longer fills (the HRV test has its own values)
 export type PolarSession = {
   id: number; source: 'phone' | 'logger'; serial: string; start_at: string; end_at: string; day: string
   kind: 'exercise' | 'rest'; seconds: number; mean_hr: number | null; max_hr: number | null; recovery: number | null
   recovery_state: 'counted' | 'moved' | 'no movement data' | null; rest_hr: number | null; rmssd: number | null
   wrong_beats_pct: number | null; copy_of: number | null; copy_of_start: string | null; removed: boolean
-  markers: PolarMarker[]; activity_id: number | null; activity: string | null; note: string | null
+  markers: PolarMarker[]; activity_id: number | null; activity: string | null; activity_test: string | null
+  activity_no_split: boolean
+  note: string | null
   moving_s: number | null; still_s: number | null; moving_hr: number | null; still_hr: number | null
 }
 export const importPolar = (day: string) => call<HealthView>(`/api/health/polar/import?day=${day}`, {})
@@ -557,13 +561,16 @@ export const removePolarSessions = (ids: number[]) => call<{ ok: boolean }>('/ap
 export const showPolarSessions = (ids: number[]) => call<{ ok: boolean }>('/api/health/polar/sessions/show', { ids })
 // the activities of the sessions, in list order, each with how many sessions have it; last_used: the activity of the
 // last recording started from the card
-export type PolarActivity = { id: number; name: string; sessions: number }
+// no_split: the chest stays still during the effort (weights on a bench), so its sessions have no split in movement and still
+export type PolarActivity = { id: number; name: string; test: string | null; no_split: boolean; sessions: number }
 export const getPolarActivities = () =>
   call<{ activities: PolarActivity[]; last_used: number | null }>('/api/health/polar/activities')
 export const addPolarActivity = (name: string) => call<{ id: number }>('/api/health/polar/activities', { name })
 export const renamePolarActivity = (id: number, name: string) =>
   call<{ ok: boolean }>(`/api/health/polar/activities/${id}`, { name })
 export const removePolarActivity = (id: number) => call<{ ok: boolean }>(`/api/health/polar/activities/${id}/remove`, {})
+export const setPolarNoSplit = (id: number, on: boolean) =>
+  call<{ ok: boolean }>(`/api/health/polar/activities/${id}/no-split`, { on })
 // only the fields given change
 export const labelPolarSession = (id: number, fields: { activity_id?: number | null; note?: string }) =>
   call<{ ok: boolean }>(`/api/health/polar/sessions/${id}/label`, fields)
@@ -581,7 +588,20 @@ export type PolarDetail = {
   zones: { max_hr: number; limits: number[]; seconds: number[] } | null
   parts: PolarPart[] | null
   compare: { count: number; this: PolarCompareValues; usual: PolarCompareValues } | null
+  hrv: (PolarHrv & { beats: [number, number, number][] }) | null
 }
+// the values of an HRV test (the 5 minutes after the first minute, the window in UTC ms), or the reason it has none
+export type PolarHrv = {
+  reason: string | null; rest_hr: number | null; rmssd: number | null; ln_rmssd: number | null; sdnn: number | null
+  pnn50: number | null; lf: number | null; hf: number | null; lf_hf: number | null; stress: number | null
+  wrong_pct: number | null; from_ms: number | null; to_ms: number | null
+}
+// the 7-day mean of ln RMSSD against the normal range of 60 days; without a range (fewer than 14 tests) missing says how
+// many more tests are needed
+export type PolarHrvStatus = {
+  mean_7d: number | null; low: number | null; high: number | null; status: 'below' | 'within' | 'above' | null; missing: number
+}
+export type PolarHrvCard = PolarHrv & { session_id: number; start_at: string; status: PolarHrvStatus }
 export const getPolarDetail = (id: number) => call<PolarDetail>(`/api/health/polar/sessions/${id}`)
 export const setBirthYear = (year: number) => call<{ birth_year: number }>('/api/health/polar/birth-year', { year })
 // how many sessions the next Import sessions reads; recalc: because the calculations changed
@@ -604,6 +624,8 @@ export type PolarLive = {
   last_marker: { label: string; at: string } | null
   cooldown: { at: string; hr: number | null; left: number; after: number | null; drop: number | null } | null
   error: string
+  // the activity chosen at Start recording (null for a recording started elsewhere)
+  activity: number | null
 }
 export const getPolarLive = () => call<PolarLive>('/api/health/polar/live')
 export const startPolarRecording = (activityId: number | null) =>

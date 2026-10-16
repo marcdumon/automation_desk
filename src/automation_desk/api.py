@@ -48,7 +48,7 @@ from automation_desk.groups.tasks import stats as task_stats_store
 from automation_desk.health import analysis as health_analysis
 from automation_desk.health import history as health_history
 from automation_desk.health import measurements as health_measurements
-from automation_desk.health import polar, polar_detail, polar_record, polar_store, withings
+from automation_desk.health import polar, polar_detail, polar_hrv, polar_record, polar_store, withings
 from automation_desk.health import store as health_store
 from automation_desk.interpret import fill_args, route
 from automation_desk.llm import LLMError
@@ -1393,7 +1393,7 @@ def _health_view(day: date) -> dict:
             'ketostix': health_store.KETOSTIX, 'tape': {'values': health_store.tape(day), 'last': health_store.last_tape(day)},
             'latest': withings.latest(before=f'{day + timedelta(days=1)}T{health_store.DAY_START_HOUR:02d}:00'),
             'withings': withings.status(),
-            'polar': polar.status() | polar_store.latest(day.isoformat())}
+            'polar': polar.status() | polar_store.latest(day.isoformat()) | {'last_hrv': polar_hrv.last_test(day.isoformat())}}
 
 
 class HealthSupplement(BaseModel):
@@ -1817,6 +1817,21 @@ def polar_activity_remove(activity_id: int) -> dict:
     except polar_store.ActivityError as error:
         raise HTTPException(409, str(error)) from error
     if not found:
+        raise HTTPException(404, 'There is no such activity. Reload the page.')
+    return {'ok': True}
+
+
+class ActivitySplit(BaseModel):
+    """Whether the chest stays still during the effort of an activity (weights on a bench): then its sessions have no split
+    in movement and still."""
+
+    on: bool
+
+
+@app.post('/api/health/polar/activities/{activity_id}/no-split')
+def polar_activity_no_split(activity_id: int, given: ActivitySplit) -> dict:
+    """Set whether the sessions of an activity have no split in movement and still."""
+    if not polar_store.set_no_split(activity_id, given.on):
         raise HTTPException(404, 'There is no such activity. Reload the page.')
     return {'ok': True}
 

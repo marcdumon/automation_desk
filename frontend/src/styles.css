@@ -1125,9 +1125,13 @@ dialog.health-guide::backdrop { background: rgb(0 0 0 / 0.5); }
 .polar-buttons { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; }
 .polar-group { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .polar-group .cap-error { flex-basis: 100%; margin: 0; }
+.polar-hrv-status { margin: 4px 0 0; font-size: 13px; }
+.polar-hrv-timer { margin: 0; font-variant-numeric: tabular-nums; }
+.polar-hrv-timer strong { font-size: 22px; }
 .polar-head-actions { display: flex; gap: 8px; }
 .polar-activities { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .polar-activities li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.polar-no-split { display: flex; gap: 6px; align-items: center; font-size: 13px; }
 .polar-activities input, .polar-activity-add input, .polar-birth input { font: inherit; padding: 4px 8px;
   border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); color: inherit; }
 .polar-activity-add, .polar-birth { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
@@ -1141,6 +1145,7 @@ dialog.health-guide::backdrop { background: rgb(0 0 0 / 0.5); }
 .chart .zone-line { stroke: var(--muted); stroke-dasharray: 3 4; opacity: .7; }
 .chart .zone-label { fill: var(--muted); font-size: 11px; }
 .chart .marker-tick { stroke: var(--ink); stroke-width: 2; }
+.chart .rr-wrong { fill: var(--surface); stroke: var(--ink); stroke-width: 1.5; }
 tr.polar-stop td { color: var(--muted); }
 .polar-zones li { grid-template-columns: minmax(150px, 38%) 1fr auto; }
 .polar-zones .bar-track { background: color-mix(in srgb, var(--muted) 14%, transparent); }
@@ -1220,6 +1225,7 @@ dialog.health-analysis::backdrop { background: rgb(0 0 0 / 0.5); }
 .chart .dot.other { fill: var(--muted); opacity: .45; }
 .chart .dot.s2 { fill: var(--series-2); }
 .key.dots { width: 8px; height: 8px; border-radius: 50%; background: var(--series-1); opacity: .5; }
+.key.dot { width: 8px; height: 8px; border-radius: 50%; }
 .key.band { width: 14px; background: color-mix(in srgb, var(--series-1) 40%, transparent); }
 .key.median { background: var(--ink); }
 .key.other { background: var(--muted); }
