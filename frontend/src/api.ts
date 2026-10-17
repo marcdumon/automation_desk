@@ -476,8 +476,12 @@ export type HealthMeasurement = {
 }
 // the Polar H10 values of one activity only; nothing for all sessions
 const activityParam = (activity: number | null) => (activity === null ? '' : `&activity=${activity}`)
+// an HRV test or HR recovery test at its time, for the charts that show every test: its start (UTC), its day and its
+// values under their history keys
+export type TestPoint = { at: string; day: string } & Record<string, number | string>
 export const getHealthHistory = (days: number, activity: number | null = null) =>
-  call<{ days: HealthDayRow[]; removed: HealthMeasurement[] }>(`/api/health/history?days=${days}${activityParam(activity)}`)
+  call<{ days: HealthDayRow[]; tests: TestPoint[]; removed: HealthMeasurement[] }>(
+    `/api/health/history?days=${days}${activityParam(activity)}`)
 export const getDayMeasurements = (day: string) => call<{ measurements: HealthMeasurement[] }>(`/api/health/days/${day}/measurements`)
 export const hideMeasurement = (grpids: number[]) => call<{ removed: HealthMeasurement[] }>('/api/health/measurements/hide', { grpids })
 export const showMeasurement = (grpids: number[]) => call<{ removed: HealthMeasurement[] }>('/api/health/measurements/show', { grpids })

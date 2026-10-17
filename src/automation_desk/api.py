@@ -1454,8 +1454,9 @@ def health_view(day: str | None = None) -> dict:
 @app.get('/api/health/history')
 def health_history_view(days: int = Query(30, ge=7, le=365), activity: int | None = None) -> dict:
     """One row per day: supplements taken, angina, blood pressure, scale values, the Polar H10 values (with `activity`, of
-    that activity only); and the measurements removed as wrong."""
-    return {'days': health_history.days(days, health_store.health_day(_health_now()), activity),
+    that activity only); each HRV test and HR recovery test at its time; and the measurements removed as wrong."""
+    today = health_store.health_day(_health_now())
+    return {'days': health_history.days(days, today, activity), 'tests': health_history.chart_points(days, today),
             'removed': health_measurements.removed()}
 
 
