@@ -48,7 +48,7 @@ from automation_desk.groups.tasks import stats as task_stats_store
 from automation_desk.health import analysis as health_analysis
 from automation_desk.health import history as health_history
 from automation_desk.health import measurements as health_measurements
-from automation_desk.health import polar, polar_detail, polar_hrv, polar_record, polar_store, withings
+from automation_desk.health import polar, polar_detail, polar_hrv, polar_record, polar_recovery, polar_store, withings
 from automation_desk.health import store as health_store
 from automation_desk.interpret import fill_args, route
 from automation_desk.llm import LLMError
@@ -1393,7 +1393,8 @@ def _health_view(day: date) -> dict:
             'ketostix': health_store.KETOSTIX, 'tape': {'values': health_store.tape(day), 'last': health_store.last_tape(day)},
             'latest': withings.latest(before=f'{day + timedelta(days=1)}T{health_store.DAY_START_HOUR:02d}:00'),
             'withings': withings.status(),
-            'polar': polar.status() | polar_store.latest(day.isoformat()) | {'last_hrv': polar_hrv.last_test(day.isoformat())}}
+            'polar': polar.status() | polar_store.latest(day.isoformat()) | {
+                'last_hrv': polar_hrv.last_test(day.isoformat()), 'last_recovery': polar_recovery.last_test(day.isoformat())}}
 
 
 class HealthSupplement(BaseModel):
@@ -1870,8 +1871,22 @@ def polar_birth_year(given: BirthYear) -> dict:
     return {'birth_year': given.year}
 
 
+# the values of the newest session of each test, for the result in its popup
+TEST_VALUES = {polar_store.HRV_TEST: polar_hrv.values_of, polar_store.RECOVERY_TEST: polar_recovery.values_of}
+
+
+@app.get('/api/health/polar/tests/{test}/last')
+def polar_last_test(test: str) -> dict | None:
+    """The newest session of a test (hrv or recovery), any day, with its values or the reason it has none; None without
+    one."""
+    if test not in TEST_VALUES:
+        raise HTTPException(404, f'There is no test {test}. Reload the page.')
+    found = polar_store.last_session_of_test(test)
+    return None if found is None else TEST_VALUES[test](found['id']) | {'session_id': found['id'], 'start_at': found['start_at']}
+
+
 class PolarMarker(BaseModel):
-    """A marker for the running recording: one of the four labels."""
+    """A marker for the running recording: effort done (the HR recovery test)."""
 
     label: str
 

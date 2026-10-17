@@ -1126,15 +1126,18 @@ dialog.health-guide::backdrop { background: rgb(0 0 0 / 0.5); }
 .polar-group { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .polar-group .cap-error { flex-basis: 100%; margin: 0; }
 .polar-hrv-status { margin: 4px 0 0; font-size: 13px; }
-.polar-hrv-timer { margin: 0; font-variant-numeric: tabular-nums; }
-.polar-hrv-timer strong { font-size: 22px; }
+.polar-timer { margin: 0; font-variant-numeric: tabular-nums; }
+.polar-timer strong { font-size: 22px; }
+dialog.polar-test { width: min(560px, calc(100vw - 32px)); }
+.polar-test-steps { margin: 0 0 14px; padding-left: 20px; display: grid; gap: 4px; }
 .polar-head-actions { display: flex; gap: 8px; }
 .polar-activities { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .polar-activities li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .polar-no-split { display: flex; gap: 6px; align-items: center; font-size: 13px; }
-.polar-activities input, .polar-activity-add input, .polar-birth input { font: inherit; padding: 4px 8px;
+.polar-activities input, .polar-activity-add input, .polar-activity-new input, .polar-birth input { font: inherit; padding: 4px 8px;
   border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); color: inherit; }
 .polar-activity-add, .polar-birth { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.polar-activity-new { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .polar-detail { display: grid; gap: 18px; }
 .polar-detail-head { display: grid; gap: 8px; }
 .polar-detail-head p { margin: 0; }
@@ -1177,8 +1180,7 @@ dialog.health-sessions .polar-more { margin-top: 12px; }
 .polar-live { display: grid; gap: 10px; padding: 4px 0 12px; }
 .polar-live p { margin: 0; }
 .polar-live-line { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; font-variant-numeric: tabular-nums; }
-.polar-markers, .polar-live-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.polar-live-actions { justify-content: space-between; }
+.polar-live-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
 .polar-marker-row td { padding-top: 0; white-space: normal; }
 .polar-marker-list { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
 .polar-hint { flex-basis: 100%; margin: 0; font-size: 13px; }

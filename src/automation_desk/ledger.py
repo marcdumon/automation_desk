@@ -236,6 +236,13 @@ def _ensure_schema(target: Path) -> None:
                         # weights on a bench move the chest little: no split in movement and still for Weightlifting, once
                         connection.execute("UPDATE polar_activities SET no_split = 1 WHERE name = 'Weightlifting'")
                         connection.commit()
+            # the HR recovery test (2026-10-17): an activity named HR recovery gets the flag, else the activity is added at
+            # the end; once, as a test activity cannot be removed
+            if not connection.execute("SELECT 1 FROM polar_activities WHERE test = 'recovery'").fetchone():
+                if not connection.execute("UPDATE polar_activities SET test = 'recovery' WHERE name = 'HR recovery'").rowcount:
+                    connection.execute("INSERT INTO polar_activities (name, position, test) VALUES ('HR recovery', "
+                                       "(SELECT COALESCE(MAX(position), -1) + 1 FROM polar_activities), 'recovery')")
+                connection.commit()
             # the first Withings table had no body part, so the values per arm, leg and trunk did not fit: it goes,
             # and the next fetch gets the whole history again (Withings keeps it); the sign-in stays
             if connection.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'withings_measures'").fetchone():
