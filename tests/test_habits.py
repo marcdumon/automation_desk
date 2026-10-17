@@ -60,6 +60,24 @@ def test_x_times_a_week_counts_weeks() -> None:
     assert [h['name'] for h in habits.overview(WED)['today']] == ['Sport'], 'shown until the week is met'
 
 
+def test_x_times_a_week_is_a_minimum_and_more_can_be_ticked() -> None:
+    """Cardio 5 times a week, done Monday 12 to Friday 16 October: on Saturday it is still on the check-in to tick a sixth
+    time, as not due (no reminder for it); the sixth and the seventh tick count and the week stays met."""
+    cardio = habits.add('Cardio', 'weekly:5', created=date(2026, 10, 5))
+    for day in range(12, 17):
+        habits.check(cardio, date(2026, 10, day), True)
+    sat, sun = date(2026, 10, 17), date(2026, 10, 18)
+    assert [(h['name'], h['done'], h['due']) for h in habits.overview(sat)['today']] == [('Cardio', False, False)]
+    habits.set_reminder('21:00')
+    assert habits.reminder_text(datetime(2026, 10, 17, 21, 5, tzinfo=TZ)) is None, 'the week is met: nothing open'
+    habits.check(cardio, sat, True)
+    habits.check(cardio, sun, True)
+    assert [(h['done'], h['due']) for h in habits.overview(sun)['today']] == [(True, False)]
+    row = next(h for h in habits.overview(sun)['habits'] if h['id'] == cardio)
+    assert row['streak'] == 1
+    assert [d['day'][8:] for d in row['days'] if d['state'] == 'done'] == ['12', '13', '14', '15', '16', '17', '18']
+
+
 def test_editing_pausing_and_deleting() -> None:
     weight = habits.add('Measure: Weight', 'daily', created=WED)
     habits.update(weight, name='Weigh: Morning', schedule='days:mon,thu')

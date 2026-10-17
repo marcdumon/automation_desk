@@ -1,8 +1,9 @@
 """The user's habits, kept in the ledger, outside Todoist: one evening check-in instead of a task per habit per day.
 
 A habit has a rhythm: every day ('daily'), on weekdays ('weekdays'), on set days ('days:mon,wed,fri') or a number of times a
-week ('weekly:3', shown every day until the week is met). Streaks count the days (or, for weekly habits, the weeks) the
-habit was due and done; today does not break a streak while it can still be ticked. No model is involved.
+week ('weekly:3', a minimum: on the check-in every day of the week, due until the week is met). Streaks count the days (or,
+for weekly habits, the weeks) the habit was due and done; today does not break a streak while it can still be ticked. No
+model is involved.
 """
 
 from datetime import date, datetime, timedelta
@@ -174,8 +175,10 @@ def overview(today: date) -> dict:
         listed.append({'id': habit['id'], 'name': habit['name'], 'schedule': habit['schedule'], 'paused': bool(habit['paused']),
                        'streak': streak, 'best': best, 'month_pct': share, 'days': days})
         ticked = today in ticks
-        if not habit['paused'] and (ticked or is_due(habit['schedule'], today, _week_count(ticks, today))):
-            due_today.append({'id': habit['id'], 'name': habit['name'], 'done': ticked, 'streak': streak})
+        due = is_due(habit['schedule'], today, _week_count(ticks, today))
+        # a weekly number is a minimum: a met week can still be ticked on its other days
+        if not habit['paused'] and (ticked or due or habit['schedule'].startswith('weekly:')):
+            due_today.append({'id': habit['id'], 'name': habit['name'], 'done': ticked, 'due': due, 'streak': streak})
     return {'day': today.isoformat(), 'today': due_today, 'habits': listed, 'reminder': reminder()}
 
 
@@ -210,7 +213,7 @@ def reminder_text(now: datetime) -> str | None:
         row = db.execute("SELECT value FROM habit_settings WHERE key = 'reminded'").fetchone()
     if row and row[0] == now.date().isoformat():
         return None
-    open_ = [h['name'] for h in overview(now.date())['today'] if not h['done']]
+    open_ = [h['name'] for h in overview(now.date())['today'] if h['due'] and not h['done']]
     if not open_:
         return None
     return f"Habits: {len(open_)} still open today ({', '.join(open_)})"

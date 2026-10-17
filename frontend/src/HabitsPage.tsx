@@ -36,6 +36,8 @@ export default function HabitsPage() {
   const data = view.data
   const isToday = data.day === data.today_date
   const done = data.today.filter(h => h.done).length
+  // a weekly habit whose week is met stays on the list to tick again, but is no longer open
+  const counted = data.today.filter(h => h.due || h.done).length
   return (
     <section className="page accent-habits">
       <header className="page-head"><h1>Habits</h1></header>
@@ -45,7 +47,7 @@ export default function HabitsPage() {
             <button type="button" className="quiet" aria-label="Previous day" onClick={() => setDay(shift(data.day, -1))}>‹</button>
             <div>
               <h2>{isToday ? 'Today' : longDay(data.day)}</h2>
-              <p className="muted">{isToday ? longDay(data.day) : 'catching up a day you missed'} · {done} of {data.today.length} done</p>
+              <p className="muted">{isToday ? longDay(data.day) : 'catching up a day you missed'} · {done} of {counted} done</p>
             </div>
             <button type="button" className="quiet" aria-label="Next day" disabled={isToday}
                     onClick={() => setDay(shift(data.day, 1) === data.today_date ? null : shift(data.day, 1))}>›</button>
@@ -60,6 +62,7 @@ export default function HabitsPage() {
                             disabled={tick.isPending} onClick={() => tick.mutate({ id: h.id, done: !h.done })}>
                       <span className="tick-mark" aria-hidden="true">{h.done ? '✓' : ''}</span>
                       <span className="habit-name">{h.name}</span>
+                      {!h.due && !h.done && <span className="muted">week met</span>}
                       {h.streak > 0 && <span className="habit-streak">🔥 {h.streak}</span>}
                     </button>
                   </li>

@@ -161,7 +161,7 @@ export type Habit = {
   days: HabitDay[]
 }
 export type HabitsView = {
-  day: string; today_date: string; today: { id: number; name: string; done: boolean; streak: number }[]; habits: Habit[]
+  day: string; today_date: string; today: { id: number; name: string; done: boolean; due: boolean; streak: number }[]; habits: Habit[]
   reminder: string
 }
 export const getHabits = (day?: string) => call<HabitsView>(`/api/habits${day ? `?day=${day}` : ''}`)
