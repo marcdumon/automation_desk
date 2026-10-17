@@ -543,8 +543,9 @@ export type PolarStatus = {
   error: string
   sessions: number
   // the newest session that is not an HRV test, up to the day of the page, the newest HRV test of the page's day and the 7
-  // days before, and the newest HR recovery test of the page's day and the 30 days before
+  // days before, and the newest HR recovery test and stairs test of the page's day and the 30 days before
   last_exercise: PolarSession | null; last_hrv: PolarHrvCard | null; last_recovery: PolarRecoveryCard | null
+  last_stairs: PolarStairsCard | null
 }
 // one session, times in UTC: its activity and note, its time in movement and still with their mean HR. kind, rest_hr, rmssd
 // and wrong_beats_pct are old fields that the import no longer fills (the HRV test has its own values)
@@ -597,6 +598,7 @@ export type PolarDetail = {
   compare: { count: number; this: PolarCompareValues; usual: PolarCompareValues } | null
   hrv: (PolarHrv & { beats: [number, number, number][] }) | null
   recovery: PolarRecovery | null
+  stairs: PolarStairs | null
 }
 // the values of an HRV test (the 5 minutes after the first minute, the window in UTC ms), or the reason it has none
 export type PolarHrv = {
@@ -616,9 +618,19 @@ export type PolarRecovery = {
   drop_120: number | null; stop_s: number | null; stop_from: 'marker' | 'highest HR' | null
 }
 export type PolarRecoveryCard = PolarRecovery & { session_id: number; start_at: string }
+// the values of a stairs test (the climb: from the first press of the phone marker to the last; each stop with a start
+// after it is a pause; the seconds from the start of the session), or the reason it has none. The HR at the top and after
+// it follow the HR recovery rules, with their own reason
+export type PolarStairs = {
+  reason: string | null; climb_s: number | null; pauses: number | null; pause_s: number | null; max_hr: number | null
+  start_s: number | null; end_s: number | null; pause_list: { at_s: number; seconds: number }[] | null
+  hr_top: number | null; hr_60: number | null; hr_120: number | null; drop_60: number | null; drop_120: number | null
+  recovery_reason: string | null
+}
+export type PolarStairsCard = PolarStairs & { session_id: number; start_at: string }
 // the newest session of a test with its values, for the result in its popup
-export type PolarLastTest = (PolarHrv | PolarRecovery) & { session_id: number; start_at: string }
-export const getPolarLastTest = (test: 'hrv' | 'recovery') =>
+export type PolarLastTest = (PolarHrv | PolarRecovery | PolarStairs) & { session_id: number; start_at: string }
+export const getPolarLastTest = (test: 'hrv' | 'recovery' | 'stairs') =>
   call<PolarLastTest | null>(`/api/health/polar/tests/${test}/last`)
 export type PolarHrvCard = PolarHrv & { session_id: number; start_at: string; status: PolarHrvStatus }
 export const getPolarDetail = (id: number) => call<PolarDetail>(`/api/health/polar/sessions/${id}`)

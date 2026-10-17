@@ -1063,6 +1063,9 @@ dialog.health-guide::backdrop { background: rgb(0 0 0 / 0.5); }
 .chart .dot.s2 { fill: var(--series-2); stroke: var(--surface); stroke-width: 2; }
 .health-table-wrap > summary { cursor: pointer; }
 .health-table-wrap > summary { font-size: 14px; font-weight: 600; }
+/* the steps of the stairs test under the charts of the Stairs tab, folded like the table */
+.health-stairs-steps { margin-bottom: 14px; }
+.health-stairs-steps > summary { cursor: pointer; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
 .health-table-wrap .health-table table { min-width: 760px; }
 /* the day table scrolls in its own box with its column names always on top: a year of rows hid them. A line
    between the columns; separate borders, as a collapsed border does not move with a fixed cell */
