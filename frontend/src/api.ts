@@ -476,11 +476,12 @@ export type HealthMeasurement = {
 }
 // the Polar H10 values of one activity only; nothing for all sessions
 const activityParam = (activity: number | null) => (activity === null ? '' : `&activity=${activity}`)
-// an HRV test or HR recovery test at its time, for the charts that show every test: its start (UTC), its day and its
-// values under their history keys
-export type TestPoint = { at: string; day: string } & Record<string, number | string>
+// a recording at its time, for the charts that show every recording of a day (a blood pressure reading, a measurement of
+// the scale, a Ketostix reading, a Polar H10 session, an HRV or HR recovery test): its time (local, or UTC with its
+// offset), its day and its values under their history keys
+export type RecordingPoint = { at: string; day: string } & Record<string, number | string>
 export const getHealthHistory = (days: number, activity: number | null = null) =>
-  call<{ days: HealthDayRow[]; tests: TestPoint[]; removed: HealthMeasurement[] }>(
+  call<{ days: HealthDayRow[]; points: RecordingPoint[]; removed: HealthMeasurement[] }>(
     `/api/health/history?days=${days}${activityParam(activity)}`)
 export const getDayMeasurements = (day: string) => call<{ measurements: HealthMeasurement[] }>(`/api/health/days/${day}/measurements`)
 export const hideMeasurement = (grpids: number[]) => call<{ removed: HealthMeasurement[] }>('/api/health/measurements/hide', { grpids })
@@ -499,6 +500,11 @@ export type HealthAnalysis = {
   steps: { count: number; median_size: number; p90_size: number; histogram: { edges: number[]; counts: number[] } } | null
   earlier: { ago: number; from: string; to: string; count: number; mean: number | null; diff: number | null }[]
   years: { year: number; months: (number | null)[] }[]
+  // each recording of the value at its time (none for a value of the day: angina, supplements, the tape)
+  readings: { at: string; day: string; value: number }[]
+  // what the numbers count: the values of the days, or each session (a value of the Polar H10 sessions has no value of a
+  // day, so no change from day to day and no correlation by day)
+  per: 'day' | 'session'
 }
 export const getHealthAnalysis = (key: string, days: number | null, window: number, activity: number | null = null) =>
   call<HealthAnalysis>(`/api/health/analysis?key=${encodeURIComponent(key)}&window=${window}${days ? `&days=${days}` : ''}`
@@ -621,6 +627,10 @@ export const setBirthYear = (year: number) => call<{ birth_year: number }>('/api
 export const getPolarWaiting = () => call<{ sessions: number; recalc: boolean }>('/api/health/polar/waiting')
 // the minutes of the sessions per week (its Monday) by activity name, and the activity names in list order
 export type PolarWeek = { week: string; minutes: Record<string, number> }
+// the minutes per week in each of the 5 HR zones (zone 1 first) and the lower limits of the zones this year; both null
+// without a birth year
+export const getPolarZones = (days: number) =>
+  call<{ limits: number[] | null; weeks: { week: string; minutes: number[] }[] | null }>(`/api/health/polar/zones?days=${days}`)
 export const getPolarWeeks = (days: number, activity: number | null) =>
   call<{ weeks: PolarWeek[]; activities: string[] }>(`/api/health/polar/weeks?days=${days}${activityParam(activity)}`)
 // a marker of a logger session: its time (UTC), its label and the HR of its second

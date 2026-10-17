@@ -1454,9 +1454,10 @@ def health_view(day: str | None = None) -> dict:
 @app.get('/api/health/history')
 def health_history_view(days: int = Query(30, ge=7, le=365), activity: int | None = None) -> dict:
     """One row per day: supplements taken, angina, blood pressure, scale values, the Polar H10 values (with `activity`, of
-    that activity only); each HRV test and HR recovery test at its time; and the measurements removed as wrong."""
+    that activity only); each recording at its time (points); and the measurements removed as wrong."""
     today = health_store.health_day(_health_now())
-    return {'days': health_history.days(days, today, activity), 'tests': health_history.chart_points(days, today),
+    return {'days': health_history.days(days, today),
+            'points': health_history.chart_points(today - timedelta(days=days - 1), today, activity),
             'removed': health_measurements.removed()}
 
 
@@ -1471,13 +1472,16 @@ def health_analysis_view(key: str, days: int | None = Query(None, ge=7, le=20000
 
 @app.get('/api/health/relation')
 def health_relation_view(key: str, other: str, days: int | None = Query(None, ge=7, le=20000),
-                         lag: int = Query(0, ge=0, le=health_analysis.MAX_LAG), activity: int | None = None) -> dict:
+                         lag: int = Query(0, ge=0, le=health_analysis.MAX_LAG)) -> dict:
     """Two values of the history by day, the second one `lag` days earlier, with their correlation and that of every
-    delay; without a number of days, of all data."""
+    delay; without a number of days, of all data. A value of the Polar H10 sessions has no value of a day: 400."""
     for name in (key, other):
         if not health_analysis.known(name):
             raise HTTPException(404, f'The Health history has no value named {name}.')
-    return health_analysis.relation(key, other, days, health_store.health_day(_health_now()), lag, activity)
+    try:
+        return health_analysis.relation(key, other, days, health_store.health_day(_health_now()), lag)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
 
 
 class HealthGroups(BaseModel):
@@ -1719,6 +1723,14 @@ def polar_session_detail(session_id: int) -> dict:
     if found is None:
         raise HTTPException(404, 'There is no such Polar H10 session. Reload the page.')
     return found
+
+
+@app.get('/api/health/polar/zones')
+def polar_zones(days: int = Query(30, ge=7, le=365)) -> dict:
+    """The minutes per week in each of the 5 HR zones of the sessions that are not HRV tests, with the zone limits of this
+    year; both None without a birth year."""
+    today = health_store.health_day(_health_now())
+    return polar_detail.zone_weeks(today - timedelta(days=days - 1), today) or {'limits': None, 'weeks': None}
 
 
 @app.get('/api/health/polar/weeks')

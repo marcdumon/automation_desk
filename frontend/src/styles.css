@@ -1173,6 +1173,11 @@ tr.polar-stop td { color: var(--muted); }
 .chart .seg.c7 { fill: var(--series-7); } .key.c7 { background: var(--series-7); }
 .chart .seg.c8 { fill: var(--series-8); } .key.c8 { background: var(--series-8); }
 .chart .seg.other { fill: var(--muted); } .key.other { background: var(--muted); }
+.chart .seg.z1 { fill: var(--zone-1); } .key.z1 { background: var(--zone-1); }
+.chart .seg.z2 { fill: var(--zone-2); } .key.z2 { background: var(--zone-2); }
+.chart .seg.z3 { fill: var(--zone-3); } .key.z3 { background: var(--zone-3); }
+.chart .seg.z4 { fill: var(--zone-4); } .key.z4 { background: var(--zone-4); }
+.chart .seg.z5 { fill: var(--zone-5); } .key.z5 { background: var(--zone-5); }
 .polar-week-table { margin-top: 8px; font-size: 14px; }
 .polar-week-table summary { cursor: pointer; }
 .polar-filter { display: flex; gap: 8px; align-items: center; font-size: 14px; }
