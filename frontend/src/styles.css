@@ -1130,9 +1130,26 @@ dialog.health-guide::backdrop { background: rgb(0 0 0 / 0.5); }
 .polar-group { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .polar-group .cap-error { flex-basis: 100%; margin: 0; }
 .polar-hrv-status { margin: 4px 0 0; font-size: 13px; }
-.polar-timer { margin: 0; font-variant-numeric: tabular-nums; }
-.polar-timer strong { font-size: 22px; }
 dialog.polar-test { width: min(560px, calc(100vw - 32px)); }
+/* the large view of a recording: a wide popup with the timer and the HR in digits to read from a few metres away, what to do
+   now in large type under them, then the buttons */
+dialog.polar-big { width: min(1000px, calc(100vw - 32px)); }
+dialog.polar-big .polar-live { gap: 16px; padding: 12px 0 0; }
+.polar-digits { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.polar-digits p { display: grid; justify-items: center; }
+.polar-digits span { font-size: clamp(16px, 2.4vh, 24px); color: var(--muted); }
+.polar-digits strong { font-size: min(140px, 11vw, 17vh); line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; }
+.polar-prompt { text-align: center; font-size: clamp(18px, 3vh, 30px); min-height: 1.3em; }
+.polar-prompt.act { color: var(--accent); font-weight: 600; }
+.polar-prompt.lost { color: var(--error); font-weight: 600; }
+.polar-prompt + .polar-live-actions { margin-top: 8px; }
+dialog.polar-big .polar-live-actions { align-items: center; }
+dialog.polar-big .polar-metronome { font-size: 18px; }
+dialog.polar-big .polar-live-actions button, dialog.polar-big .polar-metronome select { font-size: 18px; padding: 8px 18px; }
+@media (max-width: 700px) {
+  .polar-digits { grid-template-columns: minmax(0, 1fr); }
+  .polar-digits strong { font-size: min(22vw, 14vh); }
+}
 .polar-test-steps { margin: 0 0 14px; padding-left: 20px; display: grid; gap: 4px; }
 .polar-metronome { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .polar-metronome select { font: inherit; padding: 4px 6px; border: 1px solid var(--rule); border-radius: 6px;

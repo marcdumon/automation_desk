@@ -32,13 +32,13 @@ max_words = 60
 batch_size = 60
 
 [polar]
-# the Polar Sensor Logger files (phone) and the sessions of the logger on the PC, read only on Import sessions; the
-# logger's project folder, where Start recording runs it
+# the Polar Sensor Logger files (phone) and the sessions of the logger on the PC, read only on an import (the import button,
+# or the end of a recording on the PC); the logger's project folder, where Start recording runs it
 phone_dir = '/path/to/polar_h10_logger/phone_sessions'
 logger_dir = '/path/to/polar_h10_logger/pc_sessions'
 logger_project = '/mnt/Dev/active_python_projects/polar_h10_logger'
-# the folder of the Polar Sensor Logger files on the phone, through the phone app WiFi FTP Server: Import sessions first copies
-# its new files to phone_dir; the password is POLAR_PHONE_FTP_PASSWORD in .env
+# the folder of the Polar Sensor Logger files on the phone, through the phone app WiFi FTP Server: Import from phone and PC
+# first moves its files to phone_dir (copied, then deleted on the phone); the password is POLAR_PHONE_FTP_PASSWORD in .env
 phone_ftp = 'ftp://user@192.168.1.20:2221/Documents/Polar_hr_data/'
 
 [sleep]

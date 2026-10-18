@@ -1725,7 +1725,7 @@ def sleep_times(days: int | None = Query(None, ge=7, le=20000)) -> dict:
 
 @app.get('/api/health/polar/waiting')
 def polar_waiting() -> dict:
-    """How many sessions wait for Import sessions; it only lists the two folders and changes nothing."""
+    """How many sessions in the two folders on the PC wait for the import; it only lists the folders and changes nothing."""
     return polar.waiting()
 
 

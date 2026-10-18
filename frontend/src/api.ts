@@ -554,10 +554,13 @@ export const getSleepTimes = (days: number | null) =>
   call<{ first: string; last: string; sleeps: (SleepTime & { day: string })[] }>(`/api/health/sleep/times${days ? `?days=${days}` : ''}`)
 // the Polar H10 import: set up (the two folders in automation_desk.toml), running with its progress in files (first the
 // copy from the phone, then the reading), the last import, a failure, the number of sessions
+// button: the name of the import button, where it imports from; phase: moving the files from the phone, or reading the
+// files on the PC; last_note: where the last import read from, and what the move from the phone did; phone_error: why the
+// last import did not read the phone, with what to do (no import error: the phone's FTP server is often off)
 export type PolarStatus = {
-  configured: boolean; running: boolean; phase: 'copy' | 'read'; done: number; total: number; saved: number
-  last_import: string | null
-  error: string
+  configured: boolean; button: string; running: boolean; phase: 'copy' | 'read'; done: number; total: number; saved: number
+  last_import: string | null; last_note: string
+  error: string; phone_error: string
   sessions: number
   // the newest session that is not an HRV test, up to the day of the page, the newest HRV test of the page's day and the 7
   // days before, and the newest HR recovery test and stairs test of the page's day and the 30 days before
@@ -587,7 +590,10 @@ export const showPolarSessions = (ids: number[]) => call<{ ok: boolean }>('/api/
 // the activities of the sessions, in list order, each with how many sessions have it; last_used: the activity of the
 // last recording started from the card
 // no_split: the chest stays still during the effort (weights on a bench), so its sessions have no split in movement and still
-export type PolarActivity = { id: number; name: string; test: string | null; no_split: boolean; sessions: number }
+// last_at: the start of the newest session that is not removed (null without one)
+export type PolarActivity = {
+  id: number; name: string; test: string | null; no_split: boolean; sessions: number; last_at: string | null
+}
 export const getPolarActivities = () =>
   call<{ activities: PolarActivity[]; last_used: number | null }>('/api/health/polar/activities')
 export const addPolarActivity = (name: string) => call<{ id: number }>('/api/health/polar/activities', { name })
@@ -652,7 +658,7 @@ export const getPolarLastTest = (test: 'hrv' | 'recovery' | 'stairs') =>
 export type PolarHrvCard = PolarHrv & { session_id: number; start_at: string; status: PolarHrvStatus }
 export const getPolarDetail = (id: number) => call<PolarDetail>(`/api/health/polar/sessions/${id}`)
 export const setBirthYear = (year: number) => call<{ birth_year: number }>('/api/health/polar/birth-year', { year })
-// how many sessions the next Import sessions reads; recalc: because the calculations changed
+// how many sessions in the folders on the PC the next import reads; recalc: because the calculations changed
 export const getPolarWaiting = () => call<{ sessions: number; recalc: boolean }>('/api/health/polar/waiting')
 // the minutes of the sessions per week (its Monday) by activity name, and the activity names in list order
 export type PolarWeek = { week: string; minutes: Record<string, number> }
