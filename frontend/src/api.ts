@@ -552,10 +552,11 @@ export const importSleep = (day: string) => call<HealthView>(`/api/health/sleep/
 // each sleep of the last `days` days (null: from the first sleep on), for the large view of the sleep times
 export const getSleepTimes = (days: number | null) =>
   call<{ first: string; last: string; sleeps: (SleepTime & { day: string })[] }>(`/api/health/sleep/times${days ? `?days=${days}` : ''}`)
-// the Polar H10 import: set up (the two folders in automation_desk.toml), running with its progress in files, the last
-// import, a failure, the number of sessions
+// the Polar H10 import: set up (the two folders in automation_desk.toml), running with its progress in files (first the
+// copy from the phone, then the reading), the last import, a failure, the number of sessions
 export type PolarStatus = {
-  configured: boolean; running: boolean; done: number; total: number; saved: number; last_import: string | null
+  configured: boolean; running: boolean; phase: 'copy' | 'read'; done: number; total: number; saved: number
+  last_import: string | null
   error: string
   sessions: number
   // the newest session that is not an HRV test, up to the day of the page, the newest HRV test of the page's day and the 7
