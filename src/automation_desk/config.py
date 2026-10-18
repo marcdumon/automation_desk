@@ -33,6 +33,13 @@ class PolarSettings:
 
 
 @dataclass(frozen=True)
+class SleepSettings:
+    """The sleep settings: the Sleep as Android backup that Dropbox syncs to the PC (a zip); '' when not set."""
+
+    backup_file: str = ''
+
+
+@dataclass(frozen=True)
 class Config:
     """Everything configurable, in one place."""
 
@@ -46,6 +53,7 @@ class Config:
     price_out_per_m: float
     news: NewsSettings
     polar: PolarSettings = PolarSettings()
+    sleep: SleepSettings = SleepSettings()
 
     @property
     def openrouter_key(self) -> str:
@@ -69,4 +77,5 @@ def config() -> Config:
         price_out_per_m=float(raw['prices']['output_per_m']),
         news=NewsSettings(**raw['news']),
         polar=PolarSettings(**raw.get('polar', {})),
+        sleep=SleepSettings(**raw.get('sleep', {})),
     )

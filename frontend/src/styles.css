@@ -949,7 +949,8 @@ details.habit-card > summary { cursor: pointer; font-weight: 600; }
 .health-top { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 20px; align-items: start; margin-bottom: 20px; }
 /* a card's column never grows past the card: the grid of values sized the Withings card to 712 px in a 271 px column */
 .health-today, .health-latest, .health-history { grid-template-columns: minmax(0, 1fr); min-width: 0; }
-@media (max-width: 1000px) { .health-top { grid-template-columns: minmax(0, 1fr); } }
+/* one column below 1200 px: in a narrower right column the Withings card grows to 1800 px and leaves a gap on the left */
+@media (max-width: 1200px) { .health-top { grid-template-columns: minmax(0, 1fr); } }
 .health-day-head { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; }
 .health-day-steps { display: flex; gap: 4px; }
 .health-day-head h2 { margin: 0; }

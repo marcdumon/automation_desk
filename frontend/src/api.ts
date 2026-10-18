@@ -459,6 +459,7 @@ export type HealthView = {
   day: string; today: string; now: string; moments: HealthMoment[]; supplements: HealthSupplement[]
   angina: { score: number | null; note: string; not_measured: boolean } | null
   ketones: KetoneReading[]; ketostix: KetostixLevel[]; latest: HealthLatest; withings: WithingsStatus; polar: PolarStatus
+  sleep: SleepStatus
   // the tape measurements of the day by site, and the last day with any before it
   tape: { values: Record<string, number>; last: { day: string; values: Record<string, number> } | null }
 }
@@ -481,7 +482,7 @@ const activityParam = (activity: number | null) => (activity === null ? '' : `&a
 // offset), its day and its values under their history keys
 export type RecordingPoint = { at: string; day: string } & Record<string, number | string>
 export const getHealthHistory = (days: number, activity: number | null = null) =>
-  call<{ days: HealthDayRow[]; points: RecordingPoint[]; removed: HealthMeasurement[] }>(
+  call<{ days: HealthDayRow[]; points: RecordingPoint[]; sleeps: (SleepTime & { day: string })[]; removed: HealthMeasurement[] }>(
     `/api/health/history?days=${days}${activityParam(activity)}`)
 export const getDayMeasurements = (day: string) => call<{ measurements: HealthMeasurement[] }>(`/api/health/days/${day}/measurements`)
 export const hideMeasurement = (grpids: number[]) => call<{ removed: HealthMeasurement[] }>('/api/health/measurements/hide', { grpids })
@@ -536,6 +537,21 @@ export const setKetoneTime = (id: number, takenAt: string) =>
   send<HealthView>(`/api/health/ketones/${id}`, 'PUT', { taken_at: takenAt })
 export const removeKetoneReading = (id: number) => send<HealthView>(`/api/health/ketones/${id}`, 'DELETE')
 export const fetchWithings = (day: string) => call<HealthView>(`/api/health/withings/fetch?day=${day}`, {})
+// one sleep of Sleep as Android: its bedtime and wake time (with their offset) and its sleep time
+export type SleepTime = { start_at: string; end_at: string; sleep_min: number }
+// the sleep of a day (the sleeps that end on it): its values under their history keys ('sleep:total', …), a value not
+// measured left out, and its sleeps in time order
+export type SleepDay = { values: Record<string, number>; sleeps: SleepTime[] }
+// the Sleep as Android backup that Dropbox syncs to the PC: its place set, its time, the last import, a newer backup
+// waiting, what to do (not set, not there, old); and the sleep of the page's day
+export type SleepStatus = {
+  configured: boolean; backup_at: string | null; imported_at: string | null; waiting: boolean; message: string
+  day: SleepDay | null
+}
+export const importSleep = (day: string) => call<HealthView>(`/api/health/sleep/import?day=${day}`, {})
+// each sleep of the last `days` days (null: from the first sleep on), for the large view of the sleep times
+export const getSleepTimes = (days: number | null) =>
+  call<{ first: string; last: string; sleeps: (SleepTime & { day: string })[] }>(`/api/health/sleep/times${days ? `?days=${days}` : ''}`)
 // the Polar H10 import: set up (the two folders in automation_desk.toml), running with its progress in files, the last
 // import, a failure, the number of sessions
 export type PolarStatus = {

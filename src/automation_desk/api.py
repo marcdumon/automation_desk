@@ -49,6 +49,7 @@ from automation_desk.health import analysis as health_analysis
 from automation_desk.health import history as health_history
 from automation_desk.health import measurements as health_measurements
 from automation_desk.health import polar, polar_detail, polar_hrv, polar_record, polar_recovery, polar_stairs, polar_store, withings
+from automation_desk.health import sleep as health_sleep
 from automation_desk.health import store as health_store
 from automation_desk.interpret import fill_args, route
 from automation_desk.llm import LLMError
@@ -1385,7 +1386,8 @@ def _health_day(day: str | None) -> date:
 def _health_view(day: date) -> dict:
     """The Health page for a day: the supplement regime for reference, the supplements with the day's units, the angina
     score, the Ketostix readings, the tape measurements with the last ones before the day, the latest Withings values up to
-    the end of the day, the link, the Polar H10 import with the last sessions up to the day."""
+    the end of the day, the link, the Polar H10 import with the last sessions up to the day, and the sleep of the day with
+    a look at the Sleep as Android backup."""
     now = _health_now()
     return {'day': day.isoformat(), 'today': health_store.health_day(now).isoformat(), 'now': now.strftime('%H:%M'),
             'moments': health_store.moments(), 'supplements': health_store.supplements(day),
@@ -1395,7 +1397,8 @@ def _health_view(day: date) -> dict:
             'withings': withings.status(),
             'polar': polar.status() | polar_store.latest(day.isoformat()) | {
                 'last_hrv': polar_hrv.last_test(day.isoformat()), 'last_recovery': polar_recovery.last_test(day.isoformat()),
-                'last_stairs': polar_stairs.last_test(day.isoformat())}}
+                'last_stairs': polar_stairs.last_test(day.isoformat())},
+            'sleep': health_sleep.status(now) | {'day': health_sleep.day_card(day.isoformat())}}
 
 
 class HealthSupplement(BaseModel):
@@ -1455,11 +1458,12 @@ def health_view(day: str | None = None) -> dict:
 @app.get('/api/health/history')
 def health_history_view(days: int = Query(30, ge=7, le=365), activity: int | None = None) -> dict:
     """One row per day: supplements taken, angina, blood pressure, scale values, the Polar H10 values (with `activity`, of
-    that activity only); each recording at its time (points); and the measurements removed as wrong."""
+    that activity only), the sleep; each recording at its time (points); each sleep with its times (sleeps); and the
+    measurements removed as wrong."""
     today = health_store.health_day(_health_now())
-    return {'days': health_history.days(days, today),
-            'points': health_history.chart_points(today - timedelta(days=days - 1), today, activity),
-            'removed': health_measurements.removed()}
+    first = today - timedelta(days=days - 1)
+    return {'days': health_history.days(days, today), 'points': health_history.chart_points(first, today, activity),
+            'sleeps': health_sleep.sleeps(first.isoformat(), today.isoformat()), 'removed': health_measurements.removed()}
 
 
 @app.get('/api/health/analysis')
@@ -1697,6 +1701,26 @@ def polar_import(day: str | None = None) -> dict:
     if polar.begin():
         _in_background(polar.run_import, tz)
     return _health_view(_health_day(day))
+
+
+@app.post('/api/health/sleep/import')
+def sleep_import(day: str | None = None) -> dict:
+    """Read the Sleep as Android backup and replace the stored sleeps with its sleeps. A backup that is not set, not there
+    or cannot be read changes nothing: 409 with what to do."""
+    try:
+        health_sleep.import_backup()
+    except health_sleep.SleepError as error:
+        raise HTTPException(409, str(error)) from error
+    return _health_view(_health_day(day))
+
+
+@app.get('/api/health/sleep/times')
+def sleep_times(days: int | None = Query(None, ge=7, le=20000)) -> dict:
+    """Each sleep of the last `days` days with its times, for the large view of the sleep times; without a number of days,
+    from the first sleep on. The first and the last day of the period."""
+    today = health_store.health_day(_health_now())
+    first = (today - timedelta(days=days - 1)).isoformat() if days else health_sleep.first_day() or today.isoformat()
+    return {'first': first, 'last': today.isoformat(), 'sleeps': health_sleep.sleeps(first, today.isoformat())}
 
 
 @app.get('/api/health/polar/waiting')

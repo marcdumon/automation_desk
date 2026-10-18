@@ -141,6 +141,14 @@ def polar_in_tmp(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(polar_record, '_state', polar_record._fresh())
 
 
+@pytest.fixture(autouse=True)
+def no_real_sleep_backup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test reads the user's Sleep as Android backup in Dropbox; tests of the import set their own file."""
+    from automation_desk.health import sleep
+
+    monkeypatch.setattr(sleep, 'backup_file', lambda: None)
+
+
 class FakeTodoist:
     """Stands in for automation_desk.todoist.Todoist: projects and tasks in memory, every change recorded in `calls`."""
 

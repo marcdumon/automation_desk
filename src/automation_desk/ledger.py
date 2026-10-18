@@ -171,6 +171,12 @@ CREATE INDEX IF NOT EXISTS polar_markers_by_session ON polar_markers (session_id
 CREATE TABLE IF NOT EXISTS polar_activities (
     id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, position INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS sleep_records (
+    id INTEGER PRIMARY KEY, tz TEXT NOT NULL, start_at TEXT NOT NULL, end_at TEXT NOT NULL, day TEXT NOT NULL,
+    in_bed_min REAL NOT NULL, sleep_min REAL NOT NULL, awake_min REAL, deep_min REAL, light_min REAL, rem_min REAL,
+    cycles INTEGER
+);
+CREATE INDEX IF NOT EXISTS sleep_records_by_day ON sleep_records (day, start_at);
 CREATE TABLE IF NOT EXISTS chats (
     id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, model TEXT NOT NULL, created TEXT NOT NULL,
     updated TEXT NOT NULL, target TEXT, note TEXT

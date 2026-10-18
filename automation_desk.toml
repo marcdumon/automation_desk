@@ -37,3 +37,8 @@ batch_size = 60
 phone_dir = '/path/to/polar_h10_logger/phone_sessions'
 logger_dir = '/path/to/polar_h10_logger/pc_sessions'
 logger_project = '/mnt/Dev/active_python_projects/polar_h10_logger'
+
+[sleep]
+# the Sleep as Android backup: the phone's SleepCloud add-on writes it to Dropbox, the Dropbox app syncs it here; read only
+# on Import sleep
+backup_file = '/path/to/Dropbox/Apps/Sleep Cloud Backup/Sleep as Android Data.zip'
