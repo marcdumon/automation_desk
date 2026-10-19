@@ -548,7 +548,25 @@ export type SleepStatus = {
   configured: boolean; backup_at: string | null; imported_at: string | null; waiting: boolean; message: string
   day: SleepDay | null
 }
+// a tile of the overview row: its value as text ('' without data: then `empty` says what to do), its change against the
+// 30-day mean, its status (within, above, below; falling, steady, rising; met, open) in words, a detail line, and 30 days
+// of values for the sparkline
+export type OverviewTile = {
+  key: string; label: string; unit: string; value: number | null; text: string; change: { value: number; unit: string } | null
+  status: string | null; status_text: string; detail: string; empty: string; spark: (number | null)[]
+}
+export const getHealthOverview = (day: string) => call<{ tiles: OverviewTile[] }>(`/api/health/overview?day=${day}`)
 export const importSleep = (day: string) => call<HealthView>(`/api/health/sleep/import?day=${day}`, {})
+// the sleep pattern of the last `days` days from the main sleep of each day (its longest): the standard deviation of the
+// bedtime and the wake time in minutes (null below 3 nights), the weekdays and the weekend (by the wake day; clock times),
+// the social jetlag in minutes, and the main sleep against the ln RMSSD of the same morning (r null below 10 mornings;
+// slope: ln RMSSD per hour of sleep); null without a sleep
+export type SleepGroup = { nights: number; sleep_min: number; bedtime: string; wake: string; mid: string }
+export type SleepSummary = {
+  nights: number; bedtime_sd: number | null; wake_sd: number | null; weekday: SleepGroup | null; weekend: SleepGroup | null
+  jetlag_min: number | null; hrv: { pairs: number; r: number | null; slope: number | null }
+}
+export const getSleepSummary = (days: number) => call<SleepSummary | null>(`/api/health/sleep/summary?days=${days}`)
 // each sleep of the last `days` days (null: from the first sleep on), for the large view of the sleep times
 export const getSleepTimes = (days: number | null) =>
   call<{ first: string; last: string; sleeps: (SleepTime & { day: string })[] }>(`/api/health/sleep/times${days ? `?days=${days}` : ''}`)
@@ -564,7 +582,9 @@ export type PolarStatus = {
   sessions: number
   // the newest session that is not an HRV test, up to the day of the page, the newest HRV test of the page's day and the 7
   // days before, and the newest HR recovery test and stairs test of the page's day and the 30 days before
-  last_exercise: PolarSession | null; last_hrv: PolarHrvCard | null; last_recovery: PolarRecoveryCard | null
+  // last_exercise.energy: its energy expenditure in kcal, an estimate (null when person.toml lacks a value it needs)
+  last_exercise: (PolarSession & { energy: number | null }) | null; last_hrv: PolarHrvCard | null
+  last_recovery: PolarRecoveryCard | null
   last_stairs: PolarStairsCard | null
 }
 // one session, times in UTC: its activity and note, its time in movement and still with their mean HR. kind, rest_hr, rmssd
@@ -622,6 +642,10 @@ export type PolarDetail = {
   hrv: (PolarHrv & { beats: [number, number, number][] }) | null
   recovery: PolarRecovery | null
   stairs: PolarStairs | null
+  // the energy expenditure in kcal, an estimate (null when person.toml lacks a value it needs: energy_missing says which);
+  // energy_note: the correction factor of person.toml, or why it is not used ('' without one); trimp: the Edwards TRIMP
+  // (null without a birth date)
+  energy: number | null; energy_missing: string; energy_note: string; trimp: number | null
 }
 // the values of an HRV test (the 5 minutes after the first minute, the window in UTC ms), or the reason it has none
 export type PolarHrv = {
@@ -629,10 +653,11 @@ export type PolarHrv = {
   pnn50: number | null; lf: number | null; hf: number | null; lf_hf: number | null; stress: number | null
   wrong_pct: number | null; from_ms: number | null; to_ms: number | null
 }
-// the 7-day mean of ln RMSSD against the normal range of 60 days; without a range (fewer than 14 tests) missing says how
-// many more tests are needed
+// the 7-day mean of ln RMSSD against the normal range of 60 days, and its 7-day coefficient of variation in % (null below
+// 3 tests); without a range (fewer than 14 tests) missing says how many more tests are needed
 export type PolarHrvStatus = {
-  mean_7d: number | null; low: number | null; high: number | null; status: 'below' | 'within' | 'above' | null; missing: number
+  mean_7d: number | null; cv_7d: number | null; low: number | null; high: number | null
+  status: 'below' | 'within' | 'above' | null; missing: number
 }
 // the values of an HR recovery test (the stop: the last Effort done marker, else the last second with the highest HR;
 // stop_s: its second from the start of the session), or the reason it has none
@@ -657,17 +682,26 @@ export const getPolarLastTest = (test: 'hrv' | 'recovery' | 'stairs') =>
   call<PolarLastTest | null>(`/api/health/polar/tests/${test}/last`)
 export type PolarHrvCard = PolarHrv & { session_id: number; start_at: string; status: PolarHrvStatus }
 export const getPolarDetail = (id: number) => call<PolarDetail>(`/api/health/polar/sessions/${id}`)
-export const setBirthYear = (year: number) => call<{ birth_year: number }>('/api/health/polar/birth-year', { year })
 // how many sessions in the folders on the PC the next import reads; recalc: because the calculations changed
 export const getPolarWaiting = () => call<{ sessions: number; recalc: boolean }>('/api/health/polar/waiting')
 // the minutes of the sessions per week (its Monday) by activity name, and the activity names in list order
 export type PolarWeek = { week: string; minutes: Record<string, number> }
 // the minutes per week in each of the 5 HR zones (zone 1 first) and the lower limits of the zones this year; both null
-// without a birth year
+// without a birth date in person.toml
 export const getPolarZones = (days: number) =>
   call<{ limits: number[] | null; weeks: { week: string; minutes: number[] }[] | null }>(`/api/health/polar/zones?days=${days}`)
 export const getPolarWeeks = (days: number, activity: number | null) =>
   call<{ weeks: PolarWeek[]; activities: string[] }>(`/api/health/polar/weeks?days=${days}${activityParam(activity)}`)
+// the energy expenditure in kcal per week (its Monday) by activity name, of the sessions that are not HRV tests; the activity
+// names in list order; what person.toml must give when a value is missing ('' when none is)
+// the minutes of moderate and of vigorous activity per week (its Monday), the WHO minimum a week (a vigorous minute counts
+// double), and what person.toml must give when it is missing ('' when nothing is)
+export const getPolarActivity = (days: number) =>
+  call<{ weeks: { week: string; moderate: number; vigorous: number }[]; target: number; missing: string }>(
+    `/api/health/polar/activity?days=${days}`)
+export const getPolarEnergy = (days: number) =>
+  call<{ weeks: { week: string; kcal: Record<string, number> }[]; activities: string[]; missing: string }>(
+    `/api/health/polar/energy?days=${days}`)
 // a marker of a logger session: its time (UTC), its label and the HR of its second
 export type PolarMarker = { at: string; label: string; hr: number | null }
 // the recording with the user's own logger now: its state, the live values, the last marker (Effort done of the HR

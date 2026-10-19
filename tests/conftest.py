@@ -143,6 +143,15 @@ def polar_in_tmp(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def no_real_person(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test reads the user's own values in person.toml; tests that need values set their own (polar_fixtures.set_person)."""
+    from automation_desk.config import PersonSettings
+    from automation_desk.health import person
+
+    monkeypatch.setattr(person, 'settings', lambda: PersonSettings())
+
+
+@pytest.fixture(autouse=True)
 def no_real_sleep_backup(monkeypatch: pytest.MonkeyPatch) -> None:
     """No test reads the user's Sleep as Android backup in Dropbox; tests of the import set their own file."""
     from automation_desk.health import sleep

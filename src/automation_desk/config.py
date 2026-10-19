@@ -1,8 +1,9 @@
-"""Settings from `automation_desk.toml` and secrets from `.env`."""
+"""Settings from `automation_desk.toml`, the user's own values from `person.toml` (not in git) and secrets from `.env`."""
 
 import os
 import tomllib
 from dataclasses import dataclass
+from datetime import date
 from functools import cache
 from pathlib import Path
 
@@ -10,6 +11,8 @@ from dotenv import dotenv_values, load_dotenv
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_FILE = ROOT / 'automation_desk.toml'
+# the user's own values: git ignores this file, person.example.toml shows its part
+PERSON_FILE = ROOT / 'person.toml'
 
 
 @dataclass(frozen=True)
@@ -42,6 +45,21 @@ class SleepSettings:
 
 
 @dataclass(frozen=True)
+class PersonSettings:
+    """The user's own values, from the [person] part of person.toml: the birth date (YYYY-MM-DD, or a TOML date), the sex
+    ('male' or 'female'), the HR from which the energy expenditure follows the HR, the personal correction factor of the
+    energy expenditure, and the weight (kg) and height (cm) for when the Withings scale has none; '' or None when not
+    set."""
+
+    birth_date: str | date = ''
+    sex: str = ''
+    energy_from_hr: int = 90
+    energy_factor: float = 1.0
+    weight_kg: float | None = None
+    height_cm: float | None = None
+
+
+@dataclass(frozen=True)
 class Config:
     """Everything configurable, in one place."""
 
@@ -56,6 +74,7 @@ class Config:
     news: NewsSettings
     polar: PolarSettings = PolarSettings()
     sleep: SleepSettings = SleepSettings()
+    person: PersonSettings = PersonSettings()
 
     @property
     def openrouter_key(self) -> str:
@@ -80,4 +99,5 @@ def config() -> Config:
         news=NewsSettings(**raw['news']),
         polar=PolarSettings(**raw.get('polar', {})),
         sleep=SleepSettings(**raw.get('sleep', {})),
+        person=PersonSettings(**(tomllib.loads(PERSON_FILE.read_text()).get('person', {}) if PERSON_FILE.is_file() else {})),
     )

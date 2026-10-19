@@ -91,6 +91,7 @@ output goes to `data/server.log`.
 ```bash
 uv sync
 cp .env.example .env                                  # set OPENROUTER_API_KEY and TODOIST_API_TOKEN
+cp person.example.toml person.toml                    # your birth date and sex for the Health page (not in git)
 uv run python -m automation_desk.google_auth           # one-time Google login (Calendar, Gmail)
 cd frontend && npm install && npm run build && cd ..
 uv run automation-desk                                 # http://127.0.0.1:8765

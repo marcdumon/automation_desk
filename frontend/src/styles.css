@@ -30,6 +30,9 @@
   --zone-4: #1c5cab;
   --zone-5: #104281;
   --error: #a83a34;
+  /* the status of a value: within its usual range (calm), outside it (notice) */
+  --calm: #2f7a57;
+  --notice: #9a5b13;
   --accent: var(--ink);
   --accent-wash: color-mix(in srgb, var(--accent) 8%, transparent);
   color-scheme: light;
@@ -65,6 +68,8 @@
     --zone-4: #9ec5f4;
     --zone-5: #cde2fb;
     --error: #e2837c;
+    --calm: #6cc39a;
+    --notice: #e3a85b;
     color-scheme: dark;
   }
 }
@@ -946,6 +951,29 @@ details.habit-card > summary { cursor: pointer; font-weight: 600; }
 .group-error { margin: 6px 0 0; max-width: 70ch; white-space: normal; }
 /* Health tracking: today (supplements per unit, angina) next to the Withings values; then the history charts, one
    under the other on one date axis */
+/* the overview row: one tile for each key value, its value large, its change, a sparkline and its status */
+/* 6 tiles in full rows: 3, 2 or 1 a row, so no tile stands alone (the page is too narrow for 6 readable tiles) */
+.health-overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
+@media (max-width: 700px) { .health-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 460px) { .health-overview { grid-template-columns: minmax(0, 1fr); } }
+.overview-tile { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px;
+  display: grid; gap: 3px; align-content: start; min-width: 0; }
+.overview-tile h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); }
+.overview-value { margin: 0; font-size: 28px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.overview-value small { font-size: 14px; font-weight: 500; color: var(--muted); }
+.overview-change, .overview-detail { margin: 0; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.overview-status { margin: 0; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.overview-status.calm { color: var(--calm); }
+.overview-status.notice { color: var(--notice); }
+.overview-status.plain { color: var(--ink); }
+.overview-empty { margin: 0; font-size: 13px; color: var(--muted); }
+/* the sleep pattern above the sleep charts */
+.sleep-pattern { margin-bottom: 16px; }
+.sleep-pattern p { margin: 0; }
+.spark { display: block; width: 100%; height: auto; margin: 6px 0 4px; }
+.spark-line { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; }
+.spark-area { fill: color-mix(in srgb, var(--accent) 12%, transparent); }
+.spark-end { fill: var(--accent); }
 .health-top { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 20px; align-items: start; margin-bottom: 20px; }
 /* a card's column never grows past the card: the grid of values sized the Withings card to 712 px in a 271 px column */
 .health-today, .health-latest, .health-history { grid-template-columns: minmax(0, 1fr); min-width: 0; }
@@ -1158,9 +1186,9 @@ dialog.polar-big .polar-live-actions button, dialog.polar-big .polar-metronome s
 .polar-activities { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .polar-activities li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .polar-no-split { display: flex; gap: 6px; align-items: center; font-size: 13px; }
-.polar-activities input, .polar-activity-add input, .polar-activity-new input, .polar-birth input { font: inherit; padding: 4px 8px;
+.polar-activities input, .polar-activity-add input, .polar-activity-new input { font: inherit; padding: 4px 8px;
   border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); color: inherit; }
-.polar-activity-add, .polar-birth { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.polar-activity-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
 .polar-activity-new { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .polar-detail { display: grid; gap: 18px; }
 .polar-detail-head { display: grid; gap: 8px; }
@@ -1185,6 +1213,9 @@ tr.polar-stop td { color: var(--muted); }
 /* the activities in the weekly bars: the chart colours in list order, a surface line between two parts; later
    activities and the sessions without one share grey */
 .chart .seg { stroke: var(--surface); stroke-width: 2px; }
+/* a target of the weekly bars (the WHO minimum): a dashed line with its name at the right */
+.chart .target { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.chart .target-label { font-size: 12px; fill: var(--ink); }
 .chart .seg.c1 { fill: var(--series-1); } .key.c1 { background: var(--series-1); }
 .chart .seg.c2 { fill: var(--series-2); } .key.c2 { background: var(--series-2); }
 .chart .seg.c3 { fill: var(--series-3); } .key.c3 { background: var(--series-3); }
@@ -1206,6 +1237,7 @@ tr.polar-stop td { color: var(--muted); }
   background: var(--paper); color: inherit; }
 .polar-more { justify-self: start; }
 dialog.health-sessions .polar-more { margin-top: 12px; }
+.polar-energy-note { margin: 4px 0 0; font-size: 13px; }
 .polar-live { display: grid; gap: 10px; padding: 4px 0 12px; }
 .polar-live p { margin: 0; }
 .polar-live-line { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; font-variant-numeric: tabular-nums; }

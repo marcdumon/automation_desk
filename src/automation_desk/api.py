@@ -48,7 +48,20 @@ from automation_desk.groups.tasks import stats as task_stats_store
 from automation_desk.health import analysis as health_analysis
 from automation_desk.health import history as health_history
 from automation_desk.health import measurements as health_measurements
-from automation_desk.health import polar, polar_detail, polar_hrv, polar_record, polar_recovery, polar_stairs, polar_store, withings
+from automation_desk.health import (
+    overview,
+    polar,
+    polar_detail,
+    polar_energy,
+    polar_hrv,
+    polar_load,
+    polar_record,
+    polar_recovery,
+    polar_stairs,
+    polar_store,
+    sleep_summary,
+    withings,
+)
 from automation_desk.health import sleep as health_sleep
 from automation_desk.health import store as health_store
 from automation_desk.interpret import fill_args, route
@@ -1395,10 +1408,20 @@ def _health_view(day: date) -> dict:
             'ketostix': health_store.KETOSTIX, 'tape': {'values': health_store.tape(day), 'last': health_store.last_tape(day)},
             'latest': withings.latest(before=f'{day + timedelta(days=1)}T{health_store.DAY_START_HOUR:02d}:00'),
             'withings': withings.status(),
-            'polar': polar.status() | polar_store.latest(day.isoformat()) | {
+            'polar': polar.status() | _polar_latest(day.isoformat()) | {
                 'last_hrv': polar_hrv.last_test(day.isoformat()), 'last_recovery': polar_recovery.last_test(day.isoformat()),
                 'last_stairs': polar_stairs.last_test(day.isoformat())},
             'sleep': health_sleep.status(now) | {'day': health_sleep.day_card(day.isoformat())}}
+
+
+def _polar_latest(day: str) -> dict:
+    """The newest session up to the day that is not an HRV test, with its energy expenditure (None when a value it needs is
+    missing)."""
+    found = polar_store.latest(day)
+    last = found['last_exercise']
+    if last is not None:
+        last['energy'] = polar_energy.energy([last])[last['id']]
+    return found
 
 
 class HealthSupplement(BaseModel):
@@ -1714,6 +1737,19 @@ def sleep_import(day: str | None = None) -> dict:
     return _health_view(_health_day(day))
 
 
+@app.get('/api/health/overview')
+def health_overview(day: str | None = None) -> dict:
+    """The tiles of the overview row of a day (today by default): see overview."""
+    return {'tiles': overview.overview(_health_day(day))}
+
+
+@app.get('/api/health/sleep/summary')
+def health_sleep_summary(days: int = Query(30, ge=7, le=3650)) -> dict | None:
+    """The sleep pattern of the main sleeps of the period (sleep_summary); None without a sleep."""
+    today = health_store.health_day(_health_now())
+    return sleep_summary.summary((today - timedelta(days=days - 1)).isoformat(), today.isoformat())
+
+
 @app.get('/api/health/sleep/times')
 def sleep_times(days: int | None = Query(None, ge=7, le=20000)) -> dict:
     """Each sleep of the last `days` days with its times, for the large view of the sleep times; without a number of days,
@@ -1753,9 +1789,27 @@ def polar_session_detail(session_id: int) -> dict:
 @app.get('/api/health/polar/zones')
 def polar_zones(days: int = Query(30, ge=7, le=365)) -> dict:
     """The minutes per week in each of the 5 HR zones of the sessions that are not HRV tests, with the zone limits of this
-    year; both None without a birth year."""
+    year; both None without a birth date in person.toml."""
     today = health_store.health_day(_health_now())
     return polar_detail.zone_weeks(today - timedelta(days=days - 1), today) or {'limits': None, 'weeks': None}
+
+
+@app.get('/api/health/polar/activity')
+def polar_activity_weeks(days: int = Query(30, ge=7, le=365)) -> dict:
+    """The minutes of moderate and of vigorous activity per week (Monday first) of the sessions that are not HRV tests, the
+    WHO minimum a week (a vigorous minute counts double), and what person.toml must give when it is missing."""
+    today = health_store.health_day(_health_now())
+    return {'weeks': polar_load.weeks(today - timedelta(days=days - 1), today), 'target': polar_load.WHO_WEEK,
+            'missing': polar_load.missing()}
+
+
+@app.get('/api/health/polar/energy')
+def polar_energy_weeks(days: int = Query(30, ge=7, le=365)) -> dict:
+    """The energy expenditure of the sessions that are not HRV tests per week (Monday first) and per activity, the activity
+    names in list order (the colours of the chart follow it), and what person.toml must give when it is missing."""
+    today = health_store.health_day(_health_now())
+    return {'weeks': polar_energy.weeks(today - timedelta(days=days - 1), today),
+            'activities': [a['name'] for a in polar_store.activities()], 'missing': polar_energy.missing()}
 
 
 @app.get('/api/health/polar/weeks')
@@ -1891,22 +1945,6 @@ def polar_label(session_id: int, given: SessionLabel) -> dict:
     if 'note' in sent and not polar_store.set_note(session_id, given.note or ''):
         raise HTTPException(404, 'There is no such Polar H10 session. Reload the page.')
     return {'ok': True}
-
-
-class BirthYear(BaseModel):
-    """The user's birth year, for the heart rate zones."""
-
-    year: int
-
-
-@app.post('/api/health/polar/birth-year')
-def polar_birth_year(given: BirthYear) -> dict:
-    """Keep the birth year for the zones: 220 - age is the maximum HR."""
-    this_year = date.today().year
-    if not 1900 <= given.year <= this_year:
-        raise HTTPException(422, f'Type a birth year from 1900 to {this_year}.')
-    health_store.set_setting('polar_birth_year', str(given.year))
-    return {'birth_year': given.year}
 
 
 # the values of the newest session of each test, for the result in its popup
