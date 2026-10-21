@@ -1179,8 +1179,9 @@ dialog.polar-big .polar-live-actions button, dialog.polar-big .polar-metronome s
   .polar-digits strong { font-size: min(22vw, 14vh); }
 }
 .polar-test-steps { margin: 0 0 14px; padding-left: 20px; display: grid; gap: 4px; }
-.polar-metronome { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.polar-metronome select { font: inherit; padding: 4px 6px; border: 1px solid var(--rule); border-radius: 6px;
+.polar-metronome, .polar-hrv-time { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.polar-hrv-time { margin-bottom: 14px; }
+.polar-metronome select, .polar-hrv-time select { font: inherit; padding: 4px 6px; border: 1px solid var(--rule); border-radius: 6px;
   background: var(--paper); color: inherit; }
 .polar-head-actions { display: flex; gap: 8px; }
 .polar-activities { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }

@@ -1981,16 +1981,18 @@ def polar_live() -> dict:
 
 
 class RecordStart(BaseModel):
-    """The activity of a recording started from the card (None: none)."""
+    """The activity of a recording started from the card (None: none), and the test time of an HRV test: whole minutes, 5
+    to 60."""
 
     activity_id: int | None = None
+    measure_s: int | None = Field(None, ge=300, le=3600, multiple_of=60)
 
 
 @app.post('/api/health/polar/live/start')
 def polar_live_start(given: RecordStart) -> dict:
-    """Start a recording with the logger; its session gets the activity chosen."""
+    """Start a recording with the logger; its session gets the activity and the test time chosen."""
     try:
-        polar_record.start(_health_now().tzinfo, given.activity_id)
+        polar_record.start(_health_now().tzinfo, given.activity_id, given.measure_s)
     except polar_record.RecordError as error:
         raise HTTPException(409, str(error)) from error
     return _polar_live()

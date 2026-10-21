@@ -715,9 +715,11 @@ export type PolarLive = {
   error: string
   // the activity chosen at Start recording (null for a recording started elsewhere)
   activity: number | null
+  // the test time of an HRV test chosen at Start, in seconds (null for any other recording)
+  measure_s: number | null
 }
 export const getPolarLive = () => call<PolarLive>('/api/health/polar/live')
-export const startPolarRecording = (activityId: number | null) =>
-  call<PolarLive>('/api/health/polar/live/start', { activity_id: activityId })
+export const startPolarRecording = (activityId: number | null, measureS: number | null = null) =>
+  call<PolarLive>('/api/health/polar/live/start', { activity_id: activityId, measure_s: measureS })
 export const stopPolarRecording = () => call<PolarLive>('/api/health/polar/live/stop', {})
 export const markPolar = (label: string) => call<PolarLive>('/api/health/polar/live/markers', { label })

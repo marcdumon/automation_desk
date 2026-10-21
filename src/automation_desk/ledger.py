@@ -209,7 +209,8 @@ ADDED_COLUMNS = [('task_day_planned', 'completed_count', 'INTEGER'), ('habits', 
                  ('polar_sessions', 'activity_id', 'INTEGER'), ('polar_sessions', 'note', 'TEXT'),
                  ('polar_sessions', 'moving_s', 'INTEGER'), ('polar_sessions', 'still_s', 'INTEGER'),
                  ('polar_sessions', 'moving_hr', 'REAL'), ('polar_sessions', 'still_hr', 'REAL'),
-                 ('polar_activities', 'test', 'TEXT'), ('polar_activities', 'no_split', 'INTEGER NOT NULL DEFAULT 0')]
+                 ('polar_activities', 'test', 'TEXT'), ('polar_activities', 'no_split', 'INTEGER NOT NULL DEFAULT 0'),
+                 ('polar_sessions', 'measure_s', 'INTEGER')]
 # the first activities of the Polar H10 sessions, given once: when the sessions get their activity column (in a new
 # database too), so a default that the user removed does not come back
 ACTIVITIES = ('Walk', 'Gym cardio', 'Fitness', 'Bike', 'Rest')
