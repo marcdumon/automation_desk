@@ -207,10 +207,9 @@ ADDED_COLUMNS = [('task_day_planned', 'completed_count', 'INTEGER'), ('habits', 
                  ('research', 'requirements', 'TEXT'), ('research', 'title', 'TEXT'), ('research', 'target', 'TEXT'),
                  ('health_angina', 'not_measured', 'INTEGER NOT NULL DEFAULT 0'),
                  ('polar_sessions', 'activity_id', 'INTEGER'), ('polar_sessions', 'note', 'TEXT'),
-                 ('polar_sessions', 'moving_s', 'INTEGER'), ('polar_sessions', 'still_s', 'INTEGER'),
-                 ('polar_sessions', 'moving_hr', 'REAL'), ('polar_sessions', 'still_hr', 'REAL'),
-                 ('polar_activities', 'test', 'TEXT'), ('polar_activities', 'no_split', 'INTEGER NOT NULL DEFAULT 0'),
-                 ('polar_sessions', 'measure_s', 'INTEGER')]
+                 ('polar_activities', 'test', 'TEXT'), ('polar_sessions', 'measure_s', 'INTEGER')]
+# the split of the Polar H10 sessions in movement and still (removed on 2026-10-21) had the columns moving_s, still_s,
+# moving_hr and still_hr of polar_sessions and no_split of polar_activities: an older database keeps them, unused
 # the first activities of the Polar H10 sessions, given once: when the sessions get their activity column (in a new
 # database too), so a default that the user removed does not come back
 ACTIVITIES = ('Walk', 'Gym cardio', 'Fitness', 'Bike', 'Rest')
@@ -238,10 +237,6 @@ def _ensure_schema(target: Path) -> None:
                         if not connection.execute("UPDATE polar_activities SET test = 'hrv' WHERE name = 'HRV'").rowcount:
                             connection.execute("INSERT INTO polar_activities (name, position, test) VALUES ('HRV', "
                                                "(SELECT COALESCE(MAX(position), -1) + 1 FROM polar_activities), 'hrv')")
-                        connection.commit()
-                    if (table, column) == ('polar_activities', 'no_split'):
-                        # weights on a bench move the chest little: no split in movement and still for Fitness, once
-                        connection.execute("UPDATE polar_activities SET no_split = 1 WHERE name = 'Fitness'")
                         connection.commit()
             # the HR recovery test (2026-10-17): an activity named HR recovery gets the flag, else the activity is added at
             # the end; once, as a test activity cannot be removed

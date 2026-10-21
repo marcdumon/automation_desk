@@ -1915,21 +1915,6 @@ def polar_activity_remove(activity_id: int) -> dict:
     return {'ok': True}
 
 
-class ActivitySplit(BaseModel):
-    """Whether the chest stays still during the effort of an activity (weights on a bench): then its sessions have no split
-    in movement and still."""
-
-    on: bool
-
-
-@app.post('/api/health/polar/activities/{activity_id}/no-split')
-def polar_activity_no_split(activity_id: int, given: ActivitySplit) -> dict:
-    """Set whether the sessions of an activity have no split in movement and still."""
-    if not polar_store.set_no_split(activity_id, given.on):
-        raise HTTPException(404, 'There is no such activity. Reload the page.')
-    return {'ok': True}
-
-
 class SessionLabel(BaseModel):
     """The activity (None: none) or the note of a session, or both; a field that is not sent stays as it is."""
 

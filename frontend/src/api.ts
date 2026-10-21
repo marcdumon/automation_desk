@@ -587,17 +587,15 @@ export type PolarStatus = {
   last_recovery: PolarRecoveryCard | null
   last_stairs: PolarStairsCard | null
 }
-// one session, times in UTC: its activity and note, its time in movement and still with their mean HR. kind, rest_hr, rmssd
-// and wrong_beats_pct are old fields that the import no longer fills (the HRV test has its own values)
+// one session, times in UTC: its activity and note. kind, rest_hr, rmssd and wrong_beats_pct are old fields that the
+// import no longer fills (the HRV test has its own values)
 export type PolarSession = {
   id: number; source: 'phone' | 'logger'; serial: string; start_at: string; end_at: string; day: string
   kind: 'exercise' | 'rest'; seconds: number; mean_hr: number | null; max_hr: number | null; rest_hr: number | null
   rmssd: number | null
   wrong_beats_pct: number | null; copy_of: number | null; copy_of_start: string | null; removed: boolean
   markers: PolarMarker[]; activity_id: number | null; activity: string | null; activity_test: string | null
-  activity_no_split: boolean
   note: string | null
-  moving_s: number | null; still_s: number | null; moving_hr: number | null; still_hr: number | null
 }
 export const importPolar = (day: string) => call<HealthView>(`/api/health/polar/import?day=${day}`, {})
 export const getPolarSessions = (offset: number, limit: number) =>
@@ -609,10 +607,9 @@ export const removePolarSessions = (ids: number[]) => call<{ ok: boolean }>('/ap
 export const showPolarSessions = (ids: number[]) => call<{ ok: boolean }>('/api/health/polar/sessions/show', { ids })
 // the activities of the sessions, in list order, each with how many sessions have it; last_used: the activity of the
 // last recording started from the card
-// no_split: the chest stays still during the effort (weights on a bench), so its sessions have no split in movement and still
 // last_at: the start of the newest session that is not removed (null without one)
 export type PolarActivity = {
-  id: number; name: string; test: string | null; no_split: boolean; sessions: number; last_at: string | null
+  id: number; name: string; test: string | null; sessions: number; last_at: string | null
 }
 export const getPolarActivities = () =>
   call<{ activities: PolarActivity[]; last_used: number | null }>('/api/health/polar/activities')
@@ -620,24 +617,17 @@ export const addPolarActivity = (name: string) => call<{ id: number }>('/api/hea
 export const renamePolarActivity = (id: number, name: string) =>
   call<{ ok: boolean }>(`/api/health/polar/activities/${id}`, { name })
 export const removePolarActivity = (id: number) => call<{ ok: boolean }>(`/api/health/polar/activities/${id}/remove`, {})
-export const setPolarNoSplit = (id: number, on: boolean) =>
-  call<{ ok: boolean }>(`/api/health/polar/activities/${id}/no-split`, { on })
 // only the fields given change
 export const labelPolarSession = (id: number, fields: { activity_id?: number | null; note?: string }) =>
   call<{ ok: boolean }>(`/api/health/polar/sessions/${id}/label`, fields)
-// the popup of one session: each second from start (epoch s) with its HR and whether it is still (null: no movement
-// data), the zones (null without a birth year: below zone 1, then zone 1 to 5, in seconds), the parts between stops and
-// the comparison with the last earlier sessions of the same activity
-export type PolarPart = {
-  kind: 'movement' | 'stop'; from: number; to: number; seconds: number; mean_hr: number | null; max_hr: number | null
-}
+// the popup of one session: each second from start (epoch s) with its HR, the zones (null without a birth year: below
+// zone 1, then zone 1 to 5, in seconds) and the comparison with the last earlier sessions of the same activity
 export type PolarCompareValues = {
-  seconds: number | null; moving_hr: number | null; max_hr: number | null; high_zone_min: number | null
+  seconds: number | null; mean_hr: number | null; max_hr: number | null; high_zone_min: number | null
 }
 export type PolarDetail = {
-  session: PolarSession; start: number; hr: (number | null)[]; still: (0 | 1 | null)[] | null; birth_year: number | null
+  session: PolarSession; start: number; hr: (number | null)[]; birth_year: number | null
   zones: { max_hr: number; limits: number[]; seconds: number[] } | null
-  parts: PolarPart[] | null
   compare: { count: number; this: PolarCompareValues; usual: PolarCompareValues } | null
   hrv: (PolarHrv & { beats: [number, number, number][] }) | null
   recovery: PolarRecovery | null
