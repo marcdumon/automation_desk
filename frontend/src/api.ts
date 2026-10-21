@@ -582,7 +582,7 @@ export type PolarStatus = {
   sessions: number
   // the newest session that is not an HRV test, up to the day of the page, the newest HRV test of the page's day and the 7
   // days before, and the newest HR recovery test and stairs test of the page's day and the 30 days before
-  // last_exercise.energy: its energy expenditure in kcal, an estimate (null when person.toml lacks a value it needs)
+  // last_exercise.energy: its net energy expenditure in kcal, an estimate (null when person.toml lacks a value it needs)
   last_exercise: (PolarSession & { energy: number | null }) | null; last_hrv: PolarHrvCard | null
   last_recovery: PolarRecoveryCard | null
   last_stairs: PolarStairsCard | null
@@ -642,7 +642,8 @@ export type PolarDetail = {
   hrv: (PolarHrv & { beats: [number, number, number][] }) | null
   recovery: PolarRecovery | null
   stairs: PolarStairs | null
-  // the energy expenditure in kcal, an estimate (null when person.toml lacks a value it needs: energy_missing says which);
+  // the net energy expenditure in kcal (without the BMR), an estimate (null when person.toml lacks a value it needs:
+  // energy_missing says which);
   // energy_note: the correction factor of person.toml, or why it is not used ('' without one); trimp: the Edwards TRIMP
   // (null without a birth date)
   energy: number | null; energy_missing: string; energy_note: string; trimp: number | null
@@ -692,7 +693,7 @@ export const getPolarZones = (days: number) =>
   call<{ limits: number[] | null; weeks: { week: string; minutes: number[] }[] | null }>(`/api/health/polar/zones?days=${days}`)
 export const getPolarWeeks = (days: number, activity: number | null) =>
   call<{ weeks: PolarWeek[]; activities: string[] }>(`/api/health/polar/weeks?days=${days}${activityParam(activity)}`)
-// the energy expenditure in kcal per week (its Monday) by activity name, of the sessions that are not HRV tests; the activity
+// the net energy expenditure in kcal per week (its Monday) by activity name, of the sessions that are not HRV tests; the activity
 // names in list order; what person.toml must give when a value is missing ('' when none is)
 // the minutes of moderate and of vigorous activity per week (its Monday), the WHO minimum a week (a vigorous minute counts
 // double), and what person.toml must give when it is missing ('' when nothing is)

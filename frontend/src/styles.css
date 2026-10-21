@@ -1235,7 +1235,7 @@ tr.polar-stop td { color: var(--muted); }
 .polar-filter { display: flex; gap: 8px; align-items: center; font-size: 14px; }
 .polar-filter select { font: inherit; padding: 4px 8px; border: 1px solid var(--rule); border-radius: 6px;
   background: var(--paper); color: inherit; }
-.polar-more { justify-self: start; }
+.polar-more, .polar-all-sessions { justify-self: start; }
 dialog.health-sessions .polar-more { margin-top: 12px; }
 .polar-energy-note { margin: 4px 0 0; font-size: 13px; }
 .polar-live { display: grid; gap: 10px; padding: 4px 0 12px; }

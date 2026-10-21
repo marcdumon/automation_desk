@@ -47,9 +47,9 @@ class SleepSettings:
 @dataclass(frozen=True)
 class PersonSettings:
     """The user's own values, from the [person] part of person.toml: the birth date (YYYY-MM-DD, or a TOML date), the sex
-    ('male' or 'female'), the HR from which the energy expenditure follows the HR, the personal correction factor of the
-    energy expenditure, and the weight (kg) and height (cm) for when the Withings scale has none; '' or None when not
-    set."""
+    ('male' or 'female'), the HR from which a second adds to the net energy expenditure, the personal correction factor of
+    the net energy expenditure, and the weight (kg) and height (cm) for when the Withings scale has none; '' or None when
+    not set."""
 
     birth_date: str | date = ''
     sex: str = ''

@@ -1415,8 +1415,8 @@ def _health_view(day: date) -> dict:
 
 
 def _polar_latest(day: str) -> dict:
-    """The newest session up to the day that is not an HRV test, with its energy expenditure (None when a value it needs is
-    missing)."""
+    """The newest session up to the day that is not an HRV test, with its net energy expenditure (None when a value it
+    needs is missing)."""
     found = polar_store.latest(day)
     last = found['last_exercise']
     if last is not None:
@@ -1425,7 +1425,8 @@ def _polar_latest(day: str) -> dict:
 
 
 class HealthSupplement(BaseModel):
-    """A supplement of the list: its name, one unit, the units a day (none: no number a day); the day of the page."""
+    """A supplement of the list: its name, one unit (none: a yes or no of the day), the units a day (none: no number a day);
+    the day of the page."""
 
     day: str
     name: str
@@ -1805,8 +1806,8 @@ def polar_activity_weeks(days: int = Query(30, ge=7, le=365)) -> dict:
 
 @app.get('/api/health/polar/energy')
 def polar_energy_weeks(days: int = Query(30, ge=7, le=365)) -> dict:
-    """The energy expenditure of the sessions that are not HRV tests per week (Monday first) and per activity, the activity
-    names in list order (the colours of the chart follow it), and what person.toml must give when it is missing."""
+    """The net energy expenditure of the sessions that are not HRV tests per week (Monday first) and per activity, the
+    activity names in list order (the colours of the chart follow it), and what person.toml must give when it is missing."""
     today = health_store.health_day(_health_now())
     return {'weeks': polar_energy.weeks(today - timedelta(days=days - 1), today),
             'activities': [a['name'] for a in polar_store.activities()], 'missing': polar_energy.missing()}
