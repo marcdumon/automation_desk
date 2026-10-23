@@ -98,7 +98,8 @@ uv run automation-desk                                 # http://127.0.0.1:8765
 ```
 
 The Google login needs an OAuth client of type Desktop at `secrets/client_secret.json` in this project, and stores
-its token next to it in `secrets/token.json`. The `secrets/` folder is gitignored. Tasks, Calendar and Gmail APIs must be enabled in that Cloud project.
+its token next to it in `secrets/token.json`. The `secrets/` folder is gitignored. The steps for the Cloud project, the
+APIs, the scopes and the client are in [docs/google-setup.md](docs/google-setup.md).
 
 For frontend development, run `npm run dev` in `frontend/`. It proxies `/api` to port 8765.
 
