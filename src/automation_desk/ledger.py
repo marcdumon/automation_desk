@@ -221,7 +221,7 @@ ADDED_COLUMNS = [('task_day_planned', 'completed_count', 'INTEGER'), ('habits', 
 # moving_hr and still_hr of polar_sessions and no_split of polar_activities: an older database keeps them, unused
 # the first activities of the Polar H10 sessions, given once: when the sessions get their activity column (in a new
 # database too), so a default that the user removed does not come back
-ACTIVITIES = ('Walk', 'Gym cardio', 'Fitness', 'Bike', 'Rest')
+ACTIVITIES = ('Walk', 'Gym cardio', 'Weights', 'Bike', 'Rest')
 
 
 def _ensure_schema(target: Path) -> None:
