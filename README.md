@@ -88,7 +88,11 @@ output goes to `data/server.log`.
 
 ## Setup
 
+The Google code is in the library [google_api](https://github.com/marcdumon/google_api), linked from the folder next to
+this one:
+
 ```bash
+git clone https://github.com/marcdumon/google_api ../google_api
 uv sync
 cp .env.example .env                                  # set OPENROUTER_API_KEY and TODOIST_API_TOKEN
 cp person.example.toml person.toml                    # your birth date and sex for the Health page (not in git)

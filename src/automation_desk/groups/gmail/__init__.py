@@ -1,4 +1,5 @@
-"""Gmail task group: the model reads only your sentence, never your mail."""
+"""Gmail task group: the model reads your sentence, and mail content is only shown to you. The one exception: Find a mail
+sends the best matching mails to the model, to answer a question."""
 
 from automation_desk.groups.base import TaskGroup
 from automation_desk.groups.gmail.tasks.draft_mail import DraftMail

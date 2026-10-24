@@ -6,11 +6,11 @@ reads the matching mails' headers. Mail never goes to the model.
 
 from typing import Literal
 
+from google_api.gmail import labels, message_ids, metadata
 from pydantic import Field
 
 from automation_desk.dates import gmail_age
 from automation_desk.groups.base import Context, TaskArgs, UserError, match_name
-from automation_desk.groups.gmail.client import labels, message_ids, metadata
 
 MAX_MAILS = 200
 # system labels people name in plain words; Gmail's own ids differ from what the user types

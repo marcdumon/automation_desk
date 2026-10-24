@@ -7,12 +7,13 @@ reads the sentence; your event titles never go to it, so there is no free-text f
 import re
 from datetime import date, datetime, time, timedelta
 
+from google_api.calendar import events_between, writable_calendars
 from googleapiclient.errors import HttpError
 from pydantic import Field
 
 from automation_desk.dates import label, period_label, resolve_range
 from automation_desk.groups.base import Context, Preview, Row, StandardTask, TaskArgs, UserError
-from automation_desk.groups.calendar.client import events_between, pick_calendar, writable_calendars
+from automation_desk.groups.calendar.client import pick_calendar
 
 SOURCE = re.compile(r'Source:\s*(\S+)')
 # words that mean 'no period' rather than a period

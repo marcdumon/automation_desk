@@ -2,8 +2,9 @@
 
 from zoneinfo import ZoneInfo
 
+from google_api.gmail import gmail_link, received, sender
+
 from automation_desk.groups.base import Row
-from automation_desk.groups.gmail.client import gmail_link, received, sender
 
 MAIL_COLUMNS = ['Received', 'From', 'Subject', 'Preview', 'Open']
 

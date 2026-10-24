@@ -10,10 +10,10 @@ from collections import Counter
 from email.message import EmailMessage
 from email.utils import getaddresses
 
+from google_api.gmail import message_ids, metadata
 from pydantic import Field
 
 from automation_desk.groups.base import Context, Preview, PreviewOption, Row, StandardTask, TaskArgs, UserError
-from automation_desk.groups.gmail.client import message_ids, metadata
 from automation_desk.groups.gmail.select import clean_term
 
 ADDRESS = re.compile(r'^[^@\s,]+@[^@\s,]+\.[^@\s,]+$')

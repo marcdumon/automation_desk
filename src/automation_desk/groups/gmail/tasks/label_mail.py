@@ -2,10 +2,10 @@
 
 from typing import Literal
 
+from google_api.gmail import labels
 from pydantic import Field
 
 from automation_desk.groups.base import Context, Preview, StandardTask, UserError
-from automation_desk.groups.gmail.client import labels
 from automation_desk.groups.gmail.select import MAX_MAILS, SYSTEM_LABELS, MailSelectionArgs, resolve_label, select
 from automation_desk.groups.gmail.tasks._rows import MAIL_COLUMNS, mail_row
 

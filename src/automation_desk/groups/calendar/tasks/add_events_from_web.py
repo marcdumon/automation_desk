@@ -8,6 +8,8 @@ from datetime import date, datetime, timedelta
 from email.utils import parseaddr
 
 import httpx
+from google_api.calendar import events_between, events_tagged, writable_calendars
+from google_api.gmail import gmail_link, mail_pdfs, message_ids, metadata, received, sender
 from googleapiclient.discovery import Resource
 from pydantic import Field
 
@@ -23,11 +25,10 @@ from automation_desk.dates import (
 )
 from automation_desk.groups.base import Context, Preview, PreviewOption, Row, StandardTask, TaskArgs, UserError
 from automation_desk.groups.calendar import same_event
-from automation_desk.groups.calendar.client import events_between, events_tagged, pick_calendar, writable_calendars
+from automation_desk.groups.calendar.client import pick_calendar
 from automation_desk.groups.calendar.organisers import Organiser, organiser_for, placed, save, titled
 from automation_desk.groups.calendar.pdf import PdfError, is_pdf
 from automation_desk.groups.calendar.web_page import WebEvent, pdf_as_html, pdf_events, read_dates, read_events, typed_events
-from automation_desk.groups.gmail.client import gmail_link, mail_pdfs, message_ids, metadata, received, sender
 from automation_desk.groups.gmail.select import any_of
 from automation_desk.llm import LLMError
 

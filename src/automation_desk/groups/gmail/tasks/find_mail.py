@@ -11,11 +11,11 @@ Nothing in the mailbox changes.
 import re
 from itertools import combinations
 
+from google_api.gmail import body_text, gmail_link, message_ids, metadata, received, sender
 from pydantic import BaseModel, Field
 
 from automation_desk.dates import gmail_age
 from automation_desk.groups.base import Context, Evidence, Preview, StandardTask, TaskArgs, UserError
-from automation_desk.groups.gmail.client import body_text, gmail_link, message_ids, metadata, received, sender
 from automation_desk.groups.gmail.select import any_of, resolve_label
 from automation_desk.groups.gmail.tasks._rows import MAIL_COLUMNS, mail_row
 from automation_desk.llm import ask

@@ -10,13 +10,14 @@ from urllib.parse import urljoin, urlsplit
 
 import httpx
 from bs4 import BeautifulSoup
+from google_api.calendar import all_events, writable_calendars
 from googleapiclient.discovery import Resource
 
 from automation_desk import ledger, stop
 from automation_desk.capture import CaptureError, NeedsPerson
 from automation_desk.groups.base import Context, Preview, PreviewGroup, StandardTask, TaskArgs, UserError
 from automation_desk.groups.calendar import watch
-from automation_desk.groups.calendar.client import all_events, pick_calendar, writable_calendars
+from automation_desk.groups.calendar.client import pick_calendar
 from automation_desk.groups.calendar.organisers import organiser_for
 from automation_desk.groups.calendar.tasks.add_events_from_web import (
     ALL_DAY,

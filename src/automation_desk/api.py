@@ -24,6 +24,8 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from google_api.auth import AuthError
+from google_api.calendar import timezone
 from googleapiclient.errors import HttpError
 from pydantic import BaseModel, Field
 
@@ -35,11 +37,9 @@ from automation_desk.chat import store as chat_store
 from automation_desk.chat import talk as chat_talk
 from automation_desk.config import ROOT, config
 from automation_desk.dates import DateExprError
-from automation_desk.google_auth import AuthError
 from automation_desk.groups import GROUPS
 from automation_desk.groups.base import Context, Preview, TaskGroup, UserError
 from automation_desk.groups.calendar import watch
-from automation_desk.groups.calendar.client import timezone
 from automation_desk.groups.calendar.tasks import check_watched
 from automation_desk.groups.news import digest as news_digest
 from automation_desk.groups.news import store as news
