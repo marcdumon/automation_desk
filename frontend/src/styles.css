@@ -937,16 +937,10 @@ details.habit-card > summary { cursor: pointer; font-weight: 600; }
   .chat-question { max-width: 100%; }
   .chat-composer-row .hint { display: none; }
 }
-/* Health: the supplement regime in its popup, one band per moment of the day; the table scrolls inside it on a phone */
+/* Health: a table scrolls inside its card or popup on a phone */
 .health-page { max-width: 1280px; }
 .health-table { overflow-x: auto; }
 .health-table table { min-width: 620px; }
-.health-moment th { padding-top: 16px; color: var(--accent); font-size: 15px; font-weight: 700; background: var(--accent-wash);
-  border-top: 1px solid var(--rule); }
-.health-moment th span { margin-left: 8px; color: var(--muted); font-size: 13px; font-weight: 500; }
-.health-name { font-weight: 600; white-space: nowrap; }
-.health-dose { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.health-effects { width: 42%; font-size: 13px; line-height: 1.45; }
 /* why adding one watched site's events failed, under that site's name and button */
 .group-error { margin: 6px 0 0; max-width: 70ch; white-space: normal; }
 /* Health tracking: today (supplements per unit, angina) next to the Withings values; then the history charts, one
@@ -1007,20 +1001,50 @@ details.habit-card > summary { cursor: pointer; font-weight: 600; }
 .health-unit button { align-self: stretch; padding: 0 8px; border: 0; border-left: 1px solid var(--rule); border-radius: 0 6px 6px 0;
   background: transparent; color: var(--muted); font: inherit; font-size: 16px; line-height: 1; cursor: pointer; }
 .health-unit button:hover { color: var(--error); }
-.health-supplement-list { display: grid; gap: 8px; container-type: inline-size; }
-.health-supplement-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.health-supplement-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) 5.5em 5.5em; gap: 6px 8px; align-items: center; }
-.health-supplement-row input { min-width: 0; padding: 6px 9px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper);
-  color: var(--ink); font: inherit; font-size: 14px; }
-.health-supplement-row button { padding: 6px 10px; font-size: 13px; }
-.health-list-head { font-size: 13px; font-weight: 600; color: var(--muted); }
-/* a narrow card: the name, the units a day and the button on one line, the unit under them over the full width */
-@container (max-width: 520px) {
-  .health-supplement-row { grid-template-columns: minmax(0, 1fr) 5.5em 5.5em; }
-  .health-supplement-row > input:nth-child(2) { grid-row: 2; grid-column: 1 / -1; }
-  .health-list-head span:nth-child(2) { display: none; }
-  .health-supplement-list li { padding-bottom: 8px; border-bottom: 1px solid var(--rule); }
-}
+/* the moments of the day: a button to log the plan of each, and the time it was taken once it is */
+.supplement-moments { display: flex; flex-wrap: wrap; gap: 6px; }
+.supplement-moment { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 2px solid var(--accent);
+  border-radius: 16px; background: transparent; color: var(--accent); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.supplement-moment:hover { background: var(--accent-wash); }
+.supplement-moment.done { padding-right: 4px; border-color: transparent; background: var(--accent-wash); cursor: default; }
+.supplement-moment.done span { font-weight: 500; font-variant-numeric: tabular-nums; }
+.supplement-moment.done button { padding: 0 6px; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 16px;
+  line-height: 1; cursor: pointer; }
+.supplement-moment.done button:hover { color: var(--error); }
+.health-unit-time { padding: 0 6px 0 8px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.health-amount { display: inline-flex; align-items: center; gap: 3px; padding-right: 8px; font-size: 13px; color: var(--muted); }
+.health-amount input { width: 5em; padding: 4px 2px; border: 0; background: transparent; color: var(--ink); font: inherit;
+  font-size: 14px; font-variant-numeric: tabular-nums; text-align: right; }
+/* the regime: one row per supplement with its amount at each moment */
+.regime-table table { min-width: 940px; border-collapse: collapse; }
+.regime-table th { font-size: 13px; text-align: left; white-space: nowrap; }
+.regime-table .regime-plan { background: var(--accent-wash); }
+.regime-table .regime-plan-start { border-left: 2px solid var(--accent); padding-left: 8px; }
+.regime-groups th { padding-top: 4px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.regime-groups th.regime-plan { color: var(--accent); }
+.regime-table td { padding: 3px 4px; }
+.regime-table input:not([type="checkbox"]), .regime-table select { width: 100%; min-width: 0; padding: 5px 7px; border: 1px solid var(--rule);
+  border-radius: 6px; background: var(--paper); color: var(--ink); font: inherit; font-size: 14px; }
+.regime-table input[type="number"] { min-width: 5em; text-align: right; font-variant-numeric: tabular-nums; }
+.regime-table td:first-child input { min-width: 10em; }
+.regime-item tr:first-child td:first-child input { font-weight: 600; }
+.regime-table select { min-width: 6.5em; }
+.regime-table input:disabled, .regime-table select:disabled { opacity: .55; }
+.regime-item tr:last-child td { padding-bottom: 10px; border-bottom: 1px solid var(--rule); }
+.regime-add td { padding-top: 10px; }
+.regime-changes { margin-top: 16px; }
+.regime-changes h3 { margin: 0 0 6px; font-size: 15px; }
+.regime-changes ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 14px; }
+.regime-change-day { display: inline-block; min-width: 4.5em; text-align: left; font-variant-numeric: tabular-nums; }
+.regime-change-day[aria-pressed="true"] { font-weight: 700; }
+/* the day of the regime in its title: any day, a later one too */
+.regime-day { margin-left: 4px; padding: 3px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper);
+  color: var(--ink); font: inherit; font-size: 18px; }
+dialog.health-regime .analysis-head { gap: 8px; }
+/* each supplement against the chosen value: one small scatter plot each, side by side where they fit */
+.supplement-relations { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 18px 24px; }
+.supplement-relations figure { margin: 0; min-width: 0; }
+.supplement-relations .analysis-say { margin: 2px 0 4px; font-size: 13px; }
 dialog.health-regime { width: min(1100px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 20px 28px; border: 1px solid var(--rule);
   border-radius: 12px; background: var(--surface); color: var(--ink); }
 dialog.health-regime::backdrop { background: rgb(0 0 0 / 0.5); }
@@ -1345,3 +1369,6 @@ dialog.health-analysis::backdrop { background: rgb(0 0 0 / 0.5); }
 .health-tape-field input { width: 100%; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper);
   color: var(--ink); font: inherit; font-size: 14px; }
 .health-tape-table td small { white-space: nowrap; }
+/* Save of the regime: it saves every changed supplement; a changed one is marked until then */
+.regime-save { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 10px; font-size: 14px; }
+.regime-item.edited tr:first-child td:first-child { box-shadow: inset 3px 0 0 var(--notice); }

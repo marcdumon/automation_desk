@@ -64,6 +64,7 @@ from automation_desk.health import (
 )
 from automation_desk.health import sleep as health_sleep
 from automation_desk.health import store as health_store
+from automation_desk.health import supplements as health_supplements
 from automation_desk.interpret import fill_args, route
 from automation_desk.llm import LLMError
 from automation_desk.plans import CHECK_TTL_SECONDS, Plan, PlanStore
@@ -1396,14 +1397,22 @@ def _health_day(day: str | None) -> date:
     return chosen
 
 
+def _regime_day(day: str | None) -> date:
+    """A day of the supplement regime, checked: any day, also one that has not come yet (a change planned for it)."""
+    try:
+        return date.fromisoformat(day) if day else health_store.health_day(_health_now())
+    except ValueError as error:
+        raise HTTPException(400, f'"{day}" is not a day. Write it as YYYY-MM-DD.') from error
+
+
 def _health_view(day: date) -> dict:
-    """The Health page for a day: the supplement regime for reference, the supplements with the day's units, the angina
-    score, the Ketostix readings, the tape measurements with the last ones before the day, the latest Withings values up to
-    the end of the day, the link, the Polar H10 import with the last sessions up to the day, and the sleep of the day with
-    a look at the Sleep as Android backup."""
+    """The Health page for a day: the supplements of the day with their entries and moments (the regime has its own
+    route), the angina score, the Ketostix readings, the tape measurements with the last ones before the day, the latest
+    Withings values up to the end of the day, the link, the Polar H10 import with the last sessions up to the day, and the
+    sleep of the day with a look at the Sleep as Android backup."""
     now = _health_now()
     return {'day': day.isoformat(), 'today': health_store.health_day(now).isoformat(), 'now': now.strftime('%H:%M'),
-            'moments': health_store.moments(), 'supplements': health_store.supplements(day),
+            'supplements': health_supplements.day_view(day),
             'angina': health_store.angina(day), 'ketones': health_store.ketone_readings(day),
             'ketostix': health_store.KETOSTIX, 'tape': {'values': health_store.tape(day), 'last': health_store.last_tape(day)},
             'latest': withings.latest(before=f'{day + timedelta(days=1)}T{health_store.DAY_START_HOUR:02d}:00'),
@@ -1425,20 +1434,41 @@ def _polar_latest(day: str) -> dict:
 
 
 class HealthSupplement(BaseModel):
-    """A supplement of the list: its name, one unit (none: a yes or no of the day), the units a day (none: no number a day);
-    the day of the page."""
+    """A supplement of the list: its name, its dose unit (none: a yes or no of the day) and the amount of one dose; the day
+    of the page."""
 
     day: str
     name: str
-    unit: str
-    per_day: int | None = None
+    dose_unit: str = ''
+    step: float | None = None
 
 
-class HealthUnit(BaseModel):
-    """One unit of a supplement taken on a day at a time."""
+class HealthSupplementChange(HealthSupplement):
+    """A supplement of the list with its plan (the amount at each moment) from the day on."""
+
+    plan: dict[str, float] = {}
+
+
+class HealthIntake(BaseModel):
+    """An amount of a supplement taken on a day at a time; none: one dose."""
 
     day: str
     supplement_id: int
+    taken_at: str
+    amount: float | None = None
+
+
+class HealthAmount(BaseModel):
+    """A new amount of an entry."""
+
+    amount: float
+
+
+class HealthMoment(BaseModel):
+    """A moment of the day taken at a time."""
+
+    day: str
+    moment: str
     taken_at: str
 
 
@@ -1487,7 +1517,20 @@ def health_history_view(days: int = Query(30, ge=7, le=365), activity: int | Non
     today = health_store.health_day(_health_now())
     first = today - timedelta(days=days - 1)
     return {'days': health_history.days(days, today), 'points': health_history.chart_points(first, today, activity),
-            'sleeps': health_sleep.sleeps(first.isoformat(), today.isoformat()), 'removed': health_measurements.removed()}
+            'sleeps': health_sleep.sleeps(first.isoformat(), today.isoformat()), 'removed': health_measurements.removed(),
+            'supplements': health_supplements.value_keys()}
+
+
+@app.get('/api/health/supplement-relations')
+def health_supplement_relations(key: str, days: int | None = Query(None, ge=7, le=20000),
+                                lag: int = Query(1, ge=0, le=health_analysis.MAX_LAG)) -> dict:
+    """Each supplement taken in the period against a value of the history, by day, the amount `lag` days earlier."""
+    if not health_analysis.known(key):
+        raise HTTPException(404, f'The Health history has no value named {key}.')
+    try:
+        return {'relations': health_analysis.supplement_relations(key, days, health_store.health_day(_health_now()), lag)}
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
 
 
 @app.get('/api/health/analysis')
@@ -1540,15 +1583,15 @@ def health_show(given: HealthGroups) -> dict:
 
 
 NO_SUPPLEMENT = 'This supplement is not in the list any more. Reload the page.'
-NO_UNIT = 'This unit is not there any more. Reload the page.'
+NO_ENTRY = 'This entry is not there any more. Reload the page.'
 
 
-@app.post('/api/health/units')
-def health_unit_add(given: HealthUnit) -> dict:
-    """Note one unit of a supplement taken at a time."""
+@app.post('/api/health/intakes')
+def health_intake_add(given: HealthIntake) -> dict:
+    """Log an amount of a supplement taken at a time (none: one dose)."""
     day = _health_day(given.day)
     try:
-        health_store.add_unit(day, given.supplement_id, given.taken_at)
+        health_supplements.add_intake(day, given.supplement_id, given.taken_at, given.amount)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
     except KeyError as error:
@@ -1556,59 +1599,84 @@ def health_unit_add(given: HealthUnit) -> dict:
     return _health_view(day)
 
 
-@app.put('/api/health/units/{unit_id}')
-def health_unit_time(unit_id: int, given: HealthTime) -> dict:
-    """Change the time of a unit."""
+@app.put('/api/health/intakes/{intake_id}')
+def health_intake_amount(intake_id: int, given: HealthAmount) -> dict:
+    """Change the amount of an entry."""
     try:
-        return _health_view(health_store.set_unit_time(unit_id, given.taken_at))
+        return _health_view(health_supplements.set_amount(intake_id, given.amount))
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
     except KeyError as error:
-        raise HTTPException(404, NO_UNIT) from error
+        raise HTTPException(404, NO_ENTRY) from error
 
 
-@app.delete('/api/health/units/{unit_id}')
-def health_unit_remove(unit_id: int) -> dict:
-    """Remove a unit at once."""
+@app.delete('/api/health/intakes/{intake_id}')
+def health_intake_remove(intake_id: int) -> dict:
+    """Remove an entry at once."""
     try:
-        return _health_view(health_store.remove_unit(unit_id))
+        return _health_view(health_supplements.remove_intake(intake_id))
     except KeyError as error:
-        raise HTTPException(404, NO_UNIT) from error
+        raise HTTPException(404, NO_ENTRY) from error
+
+
+@app.post('/api/health/moments')
+def health_moment_take(given: HealthMoment) -> dict:
+    """Log the planned amounts of a moment of the day."""
+    day = _health_day(given.day)
+    try:
+        health_supplements.take_moment(day, given.moment, given.taken_at)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    return _health_view(day)
+
+
+@app.delete('/api/health/moments')
+def health_moment_undo(day: str, moment: str) -> dict:
+    """Remove the entries of a moment of a day at once."""
+    chosen = _health_day(day)
+    health_supplements.undo_moment(chosen, moment)
+    return _health_view(chosen)
+
+
+@app.get('/api/health/regime')
+def health_regime(day: str | None = None) -> dict:
+    """The supplement regime of a day (today without one), also of a day that has not come yet, with every change."""
+    return {'regime': health_supplements.regime(_regime_day(day))}
 
 
 @app.post('/api/health/supplements')
 def health_supplement_add(given: HealthSupplement) -> dict:
-    """Add a supplement to the list, from the day of the page on."""
-    day = _health_day(given.day)
+    """Add a supplement to the list, from its day on; the regime of that day."""
+    day = _regime_day(given.day)
     try:
-        health_store.add_supplement(day, given.name, given.unit, given.per_day)
+        health_supplements.add_supplement(day, given.name, given.dose_unit, given.step)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
-    return _health_view(day)
+    return {'regime': health_supplements.regime(day)}
 
 
 @app.put('/api/health/supplements/{supplement_id}')
-def health_supplement_change(supplement_id: int, given: HealthSupplement) -> dict:
-    """Change the name, the unit or the units a day of a supplement."""
-    day = _health_day(given.day)
+def health_supplement_change(supplement_id: int, given: HealthSupplementChange) -> dict:
+    """Change a supplement of the list, and its plan from its day on; the regime of that day."""
+    day = _regime_day(given.day)
     try:
-        health_store.change_supplement(supplement_id, given.name, given.unit, given.per_day)
+        health_supplements.change_supplement(supplement_id, day, given.name, given.dose_unit, given.step, given.plan)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
     except KeyError as error:
         raise HTTPException(404, NO_SUPPLEMENT) from error
-    return _health_view(day)
+    return {'regime': health_supplements.regime(day)}
 
 
 @app.delete('/api/health/supplements/{supplement_id}')
 def health_supplement_remove(supplement_id: int, day: str) -> dict:
-    """Take a supplement out of the list from the day of the page on, at once; its units stay."""
-    chosen = _health_day(day)
+    """Take a supplement out of the list from a day on, at once; its entries stay. The regime of that day."""
+    chosen = _regime_day(day)
     try:
-        health_store.remove_supplement(supplement_id, chosen)
+        health_supplements.remove_supplement(supplement_id, chosen)
     except KeyError as error:
         raise HTTPException(404, NO_SUPPLEMENT) from error
-    return _health_view(chosen)
+    return {'regime': health_supplements.regime(chosen)}
 
 
 @app.put('/api/health/angina')
@@ -2021,6 +2089,6 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     research_store.fail_running()
     chat_store.fail_writing()
-    health_store.convert_ticks()
+    health_supplements.convert()
     threading.Thread(target=_task_stats_every_morning, daemon=True).start()
     uvicorn.run(app, host='127.0.0.1', port=config().port)

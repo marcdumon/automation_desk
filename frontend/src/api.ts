@@ -430,18 +430,26 @@ export async function followChat(id: number, onEvent: (event: ChatEvent) => void
   }
 }
 
-// the Health page: the supplement regime for reference, the supplements with each unit taken at its time, the angina
-// score, the Withings measurements
-export type RegimeRow = {
-  id: number; moment: string; moment_when: string; position: number; name: string; dose: string; how: string; why: string
-  effects: string
-}
-export type HealthMoment = { name: string; when: string; supplements: RegimeRow[] }
-// a supplement of the day: its unit, the units a day (null: no number a day), the units of the day in time order;
-// listed false: removed from the list, shown for the units it has that day
+// the Health page: the supplements of the day with their entries, the angina score, the
+// Withings measurements
+// a moment of the day: whether something is planned, and the time it was taken once all of it is
+export type SupplementMoment = { name: string; planned: boolean; taken_at: string | null }
+// an amount taken, in the dose unit of its supplement (1 for a yes or no); moment: the moment it counts for
+export type SupplementEntry = { id: number; taken_at: string; amount: number; moment: string | null }
+// a supplement of the day: its dose unit ('' for a yes or no), one dose, the plan by moment, the planned and the taken
+// totals, and each entry; listed false: removed from the list, shown for the entries it has that day
 export type HealthSupplement = {
-  id: number; name: string; unit: string; per_day: number | null; listed: boolean; units: { id: number; taken_at: string }[]
+  id: number; name: string; dose_unit: string; step: number | null; listed: boolean; plan: Record<string, number>
+  planned: number; total: number; entries: SupplementEntry[]
 }
+// a change of a supplement's planned amount a day (a start is 0 before, a stop 0 after)
+export type SupplementChange = { supplement_id: number; name: string; unit: string; day: string; before: number; after: number }
+// the list on the day of the page, to change it: the amount at each moment; used: it has entries, so its unit stays
+export type RegimeItem = {
+  id: number; name: string; dose_unit: string; step: number | null; plan: Record<string, number>
+  used: boolean
+}
+export type Regime = { moments: string[]; items: RegimeItem[]; changes: SupplementChange[] }
 export type WithingsValue = { value: number; measured_at: string }
 export type HealthPressure = { systolic: number | null; diastolic: number | null; pulse: number | null; measured_at: string }
 // segments: per kind (muscle_mass, fat_mass, fat_free_mass) the newest value of each body part
@@ -456,16 +464,18 @@ export type WithingsStatus = {
 export type KetoneReading = { id: number; taken_at: string; level: number }
 export type KetostixLevel = { level: number; label: string; mg_dl: number }
 export type HealthView = {
-  day: string; today: string; now: string; moments: HealthMoment[]; supplements: HealthSupplement[]
+  day: string; today: string; now: string
+  supplements: { moments: SupplementMoment[]; items: HealthSupplement[] }
   angina: { score: number | null; note: string; not_measured: boolean } | null
   ketones: KetoneReading[]; ketostix: KetostixLevel[]; latest: HealthLatest; withings: WithingsStatus; polar: PolarStatus
   sleep: SleepStatus
   // the tape measurements of the day by site, and the last day with any before it
   tape: { values: Record<string, number>; last: { day: string; values: Record<string, number> } | null }
 }
-// a day of the history: the fixed parts, and every scale value of that day by name ('weight', 'muscle_mass:left_arm')
+// a day of the history: the fixed parts, and every other value of that day by name ('weight', 'muscle_mass:left_arm', the
+// amount of a supplement taken 'supp:3')
 export type HealthDayRow = {
-  day: string; taken: number | null; planned: number; angina: number | null; angina_not_measured: boolean; ketones: number | null
+  day: string; angina: number | null; angina_not_measured: boolean; ketones: number | null
   ketone_readings: number
   systolic: number | null; diastolic: number | null; pulse: number | null; readings: number
 } & { [value: string]: string | number | null | undefined }
@@ -481,9 +491,13 @@ const activityParam = (activity: number | null) => (activity === null ? '' : `&a
 // the scale, a Ketostix reading, a Polar H10 session, an HRV or HR recovery test): its time (local, or UTC with its
 // offset), its day and its values under their history keys
 export type RecordingPoint = { at: string; day: string } & Record<string, number | string>
+// the history value of each supplement: its key (supp:<id>), name and dose unit
+export type SupplementKey = { key: string; name: string; unit: string }
 export const getHealthHistory = (days: number, activity: number | null = null) =>
-  call<{ days: HealthDayRow[]; points: RecordingPoint[]; sleeps: (SleepTime & { day: string })[]; removed: HealthMeasurement[] }>(
-    `/api/health/history?days=${days}${activityParam(activity)}`)
+  call<{
+    days: HealthDayRow[]; points: RecordingPoint[]; sleeps: (SleepTime & { day: string })[]; removed: HealthMeasurement[]
+    supplements: SupplementKey[]
+  }>(`/api/health/history?days=${days}${activityParam(activity)}`)
 export const getDayMeasurements = (day: string) => call<{ measurements: HealthMeasurement[] }>(`/api/health/days/${day}/measurements`)
 export const hideMeasurement = (grpids: number[]) => call<{ removed: HealthMeasurement[] }>('/api/health/measurements/hide', { grpids })
 export const showMeasurement = (grpids: number[]) => call<{ removed: HealthMeasurement[] }>('/api/health/measurements/show', { grpids })
@@ -501,7 +515,7 @@ export type HealthAnalysis = {
   steps: { count: number; median_size: number; p90_size: number; histogram: { edges: number[]; counts: number[] } } | null
   earlier: { ago: number; from: string; to: string; count: number; mean: number | null; diff: number | null }[]
   years: { year: number; months: (number | null)[] }[]
-  // each recording of the value at its time (none for a value of the day: angina, supplements, the tape)
+  // each recording of the value at its time (none for a value of the day: angina, a supplement, the tape)
   readings: { at: string; day: string; value: number }[]
   // what the numbers count: the values of the days, or each session (a value of the Polar H10 sessions has no value of a
   // day, so no change from day to day and no correlation by day)
@@ -515,18 +529,31 @@ export type HealthRelation = {
   key: string; other: string; lag: number; points: { day: string; x_day: string; x: number; y: number }[]; n: number
   r: number | null; slope: number | null; intercept: number | null; by_lag: { lag: number; r: number | null; n: number }[]
 }
+// each supplement taken in the period against a value, by day: the amount `lag` days earlier against the value
+export type SupplementRelation = Omit<HealthRelation, 'by_lag'> & { name: string; unit: string }
+export const getSupplementRelations = (key: string, days: number, lag: number) =>
+  call<{ relations: SupplementRelation[] }>(`/api/health/supplement-relations?key=${encodeURIComponent(key)}&days=${days}&lag=${lag}`)
 export const getHealthRelation = (key: string, other: string, days: number | null, lag = 0, activity: number | null = null) =>
   call<HealthRelation>(`/api/health/relation?key=${encodeURIComponent(key)}&other=${encodeURIComponent(other)}`
     + (days ? `&days=${days}` : '') + `&lag=${lag}` + activityParam(activity))
-export const addUnit = (day: string, supplementId: number, takenAt: string) =>
-  call<HealthView>('/api/health/units', { day, supplement_id: supplementId, taken_at: takenAt })
-export const setUnitTime = (id: number, takenAt: string) => send<HealthView>(`/api/health/units/${id}`, 'PUT', { taken_at: takenAt })
-export const removeUnit = (id: number) => send<HealthView>(`/api/health/units/${id}`, 'DELETE')
-export type SupplementFields = { name: string; unit: string; per_day: number | null }
-export const addSupplement = (day: string, fields: SupplementFields) => call<HealthView>('/api/health/supplements', { day, ...fields })
-export const changeSupplement = (id: number, day: string, fields: SupplementFields) =>
-  send<HealthView>(`/api/health/supplements/${id}`, 'PUT', { day, ...fields })
-export const removeSupplement = (id: number, day: string) => send<HealthView>(`/api/health/supplements/${id}?day=${day}`, 'DELETE')
+export const addIntake = (day: string, supplementId: number, takenAt: string, amount: number | null = null) =>
+  call<HealthView>('/api/health/intakes', { day, supplement_id: supplementId, taken_at: takenAt, amount })
+export const setIntakeAmount = (id: number, amount: number) => send<HealthView>(`/api/health/intakes/${id}`, 'PUT', { amount })
+export const removeIntake = (id: number) => send<HealthView>(`/api/health/intakes/${id}`, 'DELETE')
+export const takeMoment = (day: string, moment: string, takenAt: string) =>
+  call<HealthView>('/api/health/moments', { day, moment, taken_at: takenAt })
+export const undoMoment = (day: string, moment: string) =>
+  send<HealthView>(`/api/health/moments?day=${day}&moment=${encodeURIComponent(moment)}`, 'DELETE')
+export type SupplementFields = { name: string; dose_unit: string; step: number | null }
+export type SupplementChangeFields = SupplementFields & { plan: Record<string, number> }
+// the regime of any day, also one that has not come yet; a change of it gives the regime of its day
+export const getRegime = (day: string) => call<{ regime: Regime }>(`/api/health/regime?day=${day}`)
+export const addSupplement = (day: string, fields: SupplementFields) =>
+  call<{ regime: Regime }>('/api/health/supplements', { day, ...fields })
+export const changeSupplement = (id: number, day: string, fields: SupplementChangeFields) =>
+  send<{ regime: Regime }>(`/api/health/supplements/${id}`, 'PUT', { day, ...fields })
+export const removeSupplement = (id: number, day: string) =>
+  send<{ regime: Regime }>(`/api/health/supplements/${id}?day=${day}`, 'DELETE')
 export const setAngina = (day: string, score: number | null, note: string, notMeasured = false) =>
   send<HealthView>('/api/health/angina', 'PUT', { day, score, note, not_measured: notMeasured })
 export const setTape = (day: string, site: string, cm: number | null) =>

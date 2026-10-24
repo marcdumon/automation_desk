@@ -137,6 +137,10 @@ CREATE TABLE IF NOT EXISTS health_units (
     taken_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS health_units_by_day ON health_units (day, taken_at);
+CREATE TABLE IF NOT EXISTS health_plan (
+    supplement_id INTEGER NOT NULL REFERENCES health_supplement_list (id), moment TEXT NOT NULL, from_day TEXT NOT NULL,
+    amount REAL NOT NULL, PRIMARY KEY (supplement_id, moment, from_day)
+);
 CREATE TABLE IF NOT EXISTS health_angina (day TEXT PRIMARY KEY, score INTEGER, note TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS health_ketones (id INTEGER PRIMARY KEY, day TEXT NOT NULL, taken_at TEXT NOT NULL, level REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS health_ketones_by_day ON health_ketones (day, taken_at);
@@ -207,7 +211,12 @@ ADDED_COLUMNS = [('task_day_planned', 'completed_count', 'INTEGER'), ('habits', 
                  ('research', 'requirements', 'TEXT'), ('research', 'title', 'TEXT'), ('research', 'target', 'TEXT'),
                  ('health_angina', 'not_measured', 'INTEGER NOT NULL DEFAULT 0'),
                  ('polar_sessions', 'activity_id', 'INTEGER'), ('polar_sessions', 'note', 'TEXT'),
-                 ('polar_activities', 'test', 'TEXT'), ('polar_sessions', 'measure_s', 'INTEGER')]
+                 ('polar_activities', 'test', 'TEXT'), ('polar_sessions', 'measure_s', 'INTEGER'),
+                 ('health_supplement_list', 'dose_unit', 'TEXT'), ('health_supplement_list', 'step', 'REAL'),
+                 ('health_units', 'amount', 'REAL'),
+                 ('health_units', 'moment', 'TEXT')]
+# the supplements had a why and an effects column from 2026-10-24 to their removal the same day: an older database keeps
+# them, unused
 # the split of the Polar H10 sessions in movement and still (removed on 2026-10-21) had the columns moving_s, still_s,
 # moving_hr and still_hr of polar_sessions and no_split of polar_activities: an older database keeps them, unused
 # the first activities of the Polar H10 sessions, given once: when the sessions get their activity column (in a new
