@@ -1,12 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, Redirect, Route, Switch, useRoute } from 'wouter'
 
 import { getAuth, getGroups, getVersion, login, type Group } from './api'
 import ChatPage from './ChatPage'
 import GroupPage, { type LogEntry } from './GroupPage'
 import HabitsPage from './HabitsPage'
-import HealthPage from './HealthPage'
 import JobsPage from './JobsPage'
 import Reminders from './Reminders'
 import ResearchPage from './ResearchPage'
@@ -51,7 +50,7 @@ export default function App() {
             </Route>
           ))}
           <Route path="/habits"><HabitsPage /></Route>
-          <Route path="/health"><HealthPage /></Route>
+          <Route path="/health"><HealthMoved /></Route>
           <Route path="/research/:id"><ResearchPage /></Route>
           <Route path="/research"><ResearchPage /></Route>
           <Route path="/chat/:id"><ChatPage /></Route>
@@ -110,17 +109,24 @@ function HabitsLink() {
   )
 }
 
-// the user's health: for now the supplement regime; later what was taken, blood pressure and weight
+// the user's health is its own app, the health dashboard: the link opens it in a new tab
+const HEALTH_DASHBOARD = 'http://127.0.0.1:8766/'
+
 function HealthLink() {
-  const [active] = useRoute('/health')
   return (
     <li>
-      <Link href="/health" className={`group-link accent-health${active ? ' active' : ''}`} aria-current={active ? 'page' : undefined}>
+      <a href={HEALTH_DASHBOARD} target="_blank" rel="noreferrer" className="group-link accent-health">
         <span className="swatch" aria-hidden="true" />
         <span>Health</span>
-      </Link>
+      </a>
     </li>
   )
+}
+
+// an old address of the Health page goes to the health dashboard
+function HealthMoved() {
+  useEffect(() => { window.location.replace(HEALTH_DASHBOARD) }, [])
+  return null
 }
 
 // the shop research, listed with the task groups

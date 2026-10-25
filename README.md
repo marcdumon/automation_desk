@@ -6,6 +6,9 @@ It is organised in **task groups** (one page each: Calendar, Tasks, Gmail, more 
 Type a sentence in a group's command box, or pick one of its standard tasks first. The app shows exactly what will change,
 with a tick box per item, and changes nothing until you press Apply.
 
+The health part (supplements, Withings, Polar H10, sleep, Fitbit) is a separate app, health_dashboard, at
+http://127.0.0.1:8766. The Health link in the sidebar opens it.
+
 | Group | Standard task | Example |
 |---|---|---|
 | Calendar | Add events from a web page or PDF | `add all events from https://…/agenda to calendar Exhibitions except the ones on fridays` |
@@ -95,7 +98,6 @@ this one:
 git clone https://github.com/marcdumon/google_api ../google_api
 uv sync
 cp .env.example .env                                  # set OPENROUTER_API_KEY and TODOIST_API_TOKEN
-cp person.example.toml person.toml                    # your birth date and sex for the Health page (not in git)
 uv run python -m automation_desk.google_auth           # one-time Google login (Calendar, Gmail)
 cd frontend && npm install && npm run build && cd ..
 uv run automation-desk                                 # http://127.0.0.1:8765

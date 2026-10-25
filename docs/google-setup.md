@@ -1,6 +1,7 @@
 # Google setup
 
-The app reads and changes your Google Tasks, Calendar and Gmail, and reads Google Health (for example a Fitbit tracker).
+The app reads and changes your Google Tasks, Calendar and Gmail. (The Fitbit data through Google Health is in the
+health_dashboard app: see its docs/google-health-setup.md.)
 For this it needs one Google Cloud project with an OAuth client. You set it up once. Use the Google account whose data
 the app must read.
 
@@ -23,9 +24,6 @@ Open each link and click **Enable**:
 | Tasks | Google Tasks API | [Enable](https://console.cloud.google.com/apis/enableflow;apiid=tasks.googleapis.com) |
 | Calendar | Google Calendar API | [Enable](https://console.cloud.google.com/apis/enableflow;apiid=calendar-json.googleapis.com) |
 | Gmail | Gmail API | [Enable](https://console.cloud.google.com/apis/enableflow;apiid=gmail.googleapis.com) |
-| Health | Google Health API | [Enable](https://console.developers.google.com/apis/library/health.googleapis.com) |
-
-The search in the API Library may not find the Google Health API. Use the link.
 
 ## 3. Set up the Google Auth platform
 
@@ -43,9 +41,6 @@ The search in the API Library may not find the Google Health API. Use the link.
    | Tasks | `https://www.googleapis.com/auth/tasks` |
    | Calendar | `https://www.googleapis.com/auth/calendar` |
    | Gmail | `https://www.googleapis.com/auth/gmail.modify` |
-   | Health | `https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly` |
-   | Health | `https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly` |
-   | Health | `https://www.googleapis.com/auth/googlehealth.sleep.readonly` |
 
 The app is not verified by Google. That is no problem for your own use: an unverified app can have up to 100 users.
 
@@ -72,11 +67,6 @@ uv run python -m automation_desk.google_auth
 
 The token goes to `secrets/token.json`.
 
-Google Health: the app does not read Google Health yet. When it does, it gets its own login and its own token,
-`secrets/google_health_token.json`. Before that login:
-- Sign in to the Google Health app on your phone with the same Google account.
-- Wear the tracker at least one day and one night, so there is data to read.
-
 ## Problems
 
 | You see | Do this |
@@ -85,12 +75,9 @@ Google Health: the app does not read Google Health yet. When it does, it gets it
 | `Not granted: ...` or `Token lacks scope: ...` | Log in again and tick every box. |
 | `... API has not been used in project ... before or it is disabled` | Enable that API with the link in step 2. Wait a few minutes. |
 | `No OAuth client secret at ...` | Do step 4. |
-| `ACCOUNT_NOT_LINKED` (Google Health) | Sign in to the Google Health app on your phone with the same Google account. |
 | `Access blocked: ... has not completed the Google verification process` | The status is **Testing** and your account is not a test user. Click **Publish app** in [Audience](https://console.developers.google.com/auth/audience). |
 
 ## More
 
 - [Google Auth platform](https://support.google.com/cloud/answer/15544987)
 - [Enable Google Workspace APIs](https://developers.google.com/workspace/guides/enable-apis)
-- [Google Health API setup](https://developers.google.com/health/setup)
-- [Google Health API scopes](https://developers.google.com/health/scopes)
