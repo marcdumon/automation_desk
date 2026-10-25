@@ -16,12 +16,12 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from automation_desk.config import ROOT
+from automation_desk.config import DATA_DIR
 
 if TYPE_CHECKING:
     from automation_desk.jobs import Job
 
-DB = ROOT / 'data' / 'automation.db'
+DB = DATA_DIR / 'automation.db'
 
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS jobs (

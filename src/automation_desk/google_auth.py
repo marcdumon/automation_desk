@@ -8,9 +8,9 @@ from google.oauth2.credentials import Credentials
 from google_api import auth
 from googleapiclient.discovery import Resource
 
-from automation_desk.config import ROOT
+from automation_desk.config import APP_DIR
 
-SECRETS_DIR = ROOT / 'secrets'
+SECRETS_DIR = APP_DIR / 'secrets'
 CLIENT_FILE = SECRETS_DIR / 'client_secret.json'
 TOKEN_FILE = SECRETS_DIR / 'token.json'
 SCOPES = [

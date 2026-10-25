@@ -4,6 +4,10 @@
 set -euo pipefail
 
 cd "$(dirname "$(readlink -f "$0")")"
+if [[ ! -f automation_desk.toml ]]; then
+    cp automation_desk.example.toml automation_desk.toml
+    echo "Made automation_desk.toml from the example: set your own values in it."
+fi
 PORT=$(grep -E '^port *=' automation_desk.toml | grep -oE '[0-9]+')
 URL="http://127.0.0.1:${PORT}"
 LOG=data/server.log

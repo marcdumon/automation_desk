@@ -10,9 +10,9 @@ import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 
-from automation_desk.config import ROOT, config
+from automation_desk.config import DATA_DIR, config
 
-STORE = ROOT / 'data' / 'reminders.json'
+STORE = DATA_DIR / 'reminders.json'
 _lock = threading.Lock()
 
 

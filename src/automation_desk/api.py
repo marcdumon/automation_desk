@@ -35,7 +35,7 @@ from automation_desk.chat import models as chat_models
 from automation_desk.chat import note as chat_note
 from automation_desk.chat import store as chat_store
 from automation_desk.chat import talk as chat_talk
-from automation_desk.config import ROOT, config
+from automation_desk.config import DATA_DIR, config
 from automation_desk.dates import DateExprError
 from automation_desk.groups import GROUPS
 from automation_desk.groups.base import Context, Preview, TaskGroup, UserError
@@ -80,7 +80,7 @@ def context(sentence: str, files: list[tuple[str, bytes]] | None = None) -> Cont
     return Context(sentence=sentence, now=datetime.now(tz), tz=tz, service=google_auth.service, files=files or [])
 
 
-UPLOADS = ROOT / 'data' / 'uploads'
+UPLOADS = DATA_DIR / 'uploads'
 UPLOAD_ID = re.compile(r'^[0-9a-f]{16}-[\w.\- ]{1,120}$')
 MAX_UPLOAD_BYTES = 20_000_000
 

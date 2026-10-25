@@ -11,3 +11,4 @@ data/
 .ruff_cache/
 *.tsbuildinfo
 person.toml
+automation_desk.toml

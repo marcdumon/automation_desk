@@ -1,6 +1,11 @@
-"""Settings from `automation_desk.toml` and secrets from `.env`."""
+"""Settings from `automation_desk.toml` (not in git) and secrets from `.env`.
+
+These files are in the app folder: the folder of the Python environment (the repo in development, the install folder of an
+installed app). The database, the uploads, the captures and the logs are in the data folder: `data_dir` of
+`automation_desk.toml`."""
 
 import os
+import sys
 import tomllib
 from dataclasses import dataclass
 from functools import cache
@@ -8,8 +13,17 @@ from pathlib import Path
 
 from dotenv import dotenv_values, load_dotenv
 
-ROOT = Path(__file__).resolve().parents[2]
-CONFIG_FILE = ROOT / 'automation_desk.toml'
+APP_DIR = Path(sys.prefix).parent
+CONFIG_FILE = APP_DIR / 'automation_desk.toml'
+
+
+def data_dir() -> Path:
+    """The data folder: data_dir of automation_desk.toml, or the folder data in the app folder when it is not set."""
+    value = tomllib.loads(CONFIG_FILE.read_text()).get('data_dir', '') if CONFIG_FILE.is_file() else ''
+    return Path(value).expanduser() if value else APP_DIR / 'data'
+
+
+DATA_DIR = data_dir()
 
 
 @dataclass(frozen=True)
@@ -38,13 +52,16 @@ class Config:
     @property
     def openrouter_key(self) -> str:
         """The OpenRouter key, read from .env at every call so a new key works without restarting the app."""
-        return dotenv_values(ROOT / '.env').get('OPENROUTER_API_KEY') or os.environ.get('OPENROUTER_API_KEY', '')
+        return dotenv_values(APP_DIR / '.env').get('OPENROUTER_API_KEY') or os.environ.get('OPENROUTER_API_KEY', '')
 
 
 @cache
 def config() -> Config:
     """Load the config file once."""
-    load_dotenv(ROOT / '.env')
+    load_dotenv(APP_DIR / '.env')
+    if not CONFIG_FILE.is_file():
+        raise SystemExit(f'No {CONFIG_FILE.name} in {APP_DIR}: copy automation_desk.example.toml to {CONFIG_FILE.name}, '
+                         'then set your own values in it.')
     raw = tomllib.loads(CONFIG_FILE.read_text())
     return Config(
         llm_base_url=raw['llm']['base_url'],

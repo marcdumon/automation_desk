@@ -24,7 +24,7 @@ from icalendar import Calendar
 from pydantic import BaseModel, Field
 
 from automation_desk.capture import read_in_browser
-from automation_desk.config import ROOT
+from automation_desk.config import DATA_DIR
 from automation_desk.groups.calendar.pdf import is_pdf, pdf_text
 from automation_desk.jobs import record_fetch
 from automation_desk.llm import CutOff, ask
@@ -142,7 +142,7 @@ def fetch(url: str, http: httpx.Client, use_browser: bool = False) -> Page:
 # off while checking watched agenda sites: pages are read in background tabs that never come forward; a page
 # that wants a person raises NeedsPerson, and the check lists the site for Read via browser
 # the latest page each site's browser read handed over, to trace a wrong result to what was actually read
-CAPTURES = ROOT / 'data' / 'captures'
+CAPTURES = DATA_DIR / 'captures'
 BROWSER_MAY_ASK: contextvars.ContextVar[bool] = contextvars.ContextVar('browser_may_ask', default=True)
 
 

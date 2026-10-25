@@ -15,10 +15,10 @@ import httpx
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field
 
-from automation_desk.config import ROOT
+from automation_desk.config import DATA_DIR
 from automation_desk.llm import ask
 
-STORE = ROOT / 'data' / 'organisers.json'
+STORE = DATA_DIR / 'organisers.json'
 SIGNAL_CHARS = 3_000
 _lock = threading.Lock()
 

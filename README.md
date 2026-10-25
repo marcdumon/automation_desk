@@ -79,35 +79,52 @@ Blocked topics (e.g. Sports, Showbiz) are offered to the model like subjects; ar
 of the digest and only listed, folded away, under "left out", so a wrongly filed article can still be found.
 Subject and topic names are always English; the text under a title stays as the site wrote it.
 
-## Run it
+## Install
+
+The app runs from its own folder, apart from this repo. `install.sh` installs one version (a git tag) from GitHub in a
+Python environment in `~/.local/share/md_apps/automation_desk/` (or `$AUTOMATION_DESK_HOME`). It needs uv, npm and curl.
+
+```bash
+./install.sh v0.1.0                                          # also to update: an update replaces only env/
+~/.local/share/md_apps/automation_desk/env/bin/automation-desk  # http://127.0.0.1:8765
+```
+
+The app folder holds the settings: `automation_desk.toml` (the first install makes it from the example), `.env` (set
+OPENROUTER_API_KEY and TODOIST_API_TOKEN, see `.env.example`) and `secrets/`. `data_dir` in `automation_desk.toml` sets
+the data folder: the database, the uploads, the captures and the logs. Put it where your backups are made; empty, it is
+`data/` in the app folder.
+
+The Google login needs an OAuth client of type Desktop at `secrets/client_secret.json` in the app folder, and stores its
+token next to it in `secrets/token.json`. The steps for the Cloud project, the APIs, the scopes and the client are in
+[docs/google-setup.md](docs/google-setup.md).
+
+## Development
+
+This repo is the app folder of the development copy: its settings, `.env`, `secrets/` and `data/` are next to the code.
+Give it its own port in `automation_desk.toml`, so it can run next to the installed app.
 
 ```bash
 ./run_automation_desk.sh          # or add --no-browser
 ```
 
 It installs missing packages, rebuilds the GUI when its source changed, starts the app, waits until it answers and
-opens http://127.0.0.1:8765. If the app is already running it only opens the browser. Ctrl+C stops it; the app's
-output goes to `data/server.log`.
+opens the browser. If the app is already running it only opens the browser. Ctrl+C stops it; the app's output goes to
+`data/server.log`.
 
-## Setup
-
-The Google code is in the library [google_api](https://github.com/marcdumon/google_api), linked from the folder next to
-this one:
+The Google code is in the library [google_api](https://github.com/marcdumon/google_api). An install takes it from
+GitHub; development uses the folder next to this one:
 
 ```bash
 git clone https://github.com/marcdumon/google_api ../google_api
 uv sync
+cp automation_desk.example.toml automation_desk.toml   # your settings (not in git)
 cp .env.example .env                                  # set OPENROUTER_API_KEY and TODOIST_API_TOKEN
 uv run python -m automation_desk.google_auth           # one-time Google login (Calendar, Gmail)
 cd frontend && npm install && npm run build && cd ..
-uv run automation-desk                                 # http://127.0.0.1:8765
+uv run automation-desk
 ```
 
-The Google login needs an OAuth client of type Desktop at `secrets/client_secret.json` in this project, and stores
-its token next to it in `secrets/token.json`. The `secrets/` folder is gitignored. The steps for the Cloud project, the
-APIs, the scopes and the client are in [docs/google-setup.md](docs/google-setup.md).
-
-For frontend development, run `npm run dev` in `frontend/`. It proxies `/api` to port 8765.
+For frontend development, run `npm run dev` in `frontend/`. It proxies `/api` to port 18765, the development copy.
 
 ## Adding a standard task
 

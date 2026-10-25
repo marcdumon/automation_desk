@@ -1,4 +1,10 @@
-# Non-secret settings only. The OpenRouter key comes from .env.
+# Copy this file to automation_desk.toml (not in git) and set your own values. Non-secret settings only: the OpenRouter
+# key comes from .env.
+
+# the folder of the database, the uploads, the captures and the logs (put it where your backups are made); empty: the
+# folder data in the app folder
+# for example data_dir = '/path/to/backed_up/automation_desk'
+data_dir = ''
 
 [llm]
 base_url = 'https://openrouter.ai/api/v1'

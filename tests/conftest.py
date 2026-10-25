@@ -2,17 +2,28 @@
 
 from collections.abc import Callable
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
 
+from automation_desk import config as config_module
 from automation_desk import ledger as ledger_store
 from automation_desk.groups.base import Context
 
 TZ = ZoneInfo('Europe/Brussels')
 TODAY = date(2026, 9, 22)
 NOW = datetime(2026, 9, 22, 21, 0, tzinfo=TZ)
+
+
+@pytest.fixture(autouse=True)
+def example_settings(monkeypatch: pytest.MonkeyPatch):
+    """Every test reads automation_desk.example.toml, never the user's own automation_desk.toml (not in git)."""
+    monkeypatch.setattr(config_module, 'CONFIG_FILE', Path(__file__).parents[1] / 'automation_desk.example.toml')
+    config_module.config.cache_clear()
+    yield
+    config_module.config.cache_clear()
 
 
 class _Request:

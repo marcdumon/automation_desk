@@ -13,7 +13,7 @@ import httpx
 from dotenv import dotenv_values
 
 from automation_desk import jobs
-from automation_desk.config import ROOT
+from automation_desk.config import APP_DIR
 from automation_desk.jobs import GoogleCall
 
 BASE = 'https://api.todoist.com/api/v1'
@@ -29,7 +29,7 @@ class TodoistError(RuntimeError):
 
 def token() -> str:
     """The Todoist API token, read from .env at every call so a new token works without restarting the app."""
-    return dotenv_values(ROOT / '.env').get('TODOIST_API_TOKEN') or os.environ.get('TODOIST_API_TOKEN', '')
+    return dotenv_values(APP_DIR / '.env').get('TODOIST_API_TOKEN') or os.environ.get('TODOIST_API_TOKEN', '')
 
 
 class Todoist:
