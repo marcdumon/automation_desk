@@ -181,6 +181,14 @@ CREATE TABLE IF NOT EXISTS sleep_records (
     cycles INTEGER
 );
 CREATE INDEX IF NOT EXISTS sleep_records_by_day ON sleep_records (day, start_at);
+CREATE TABLE IF NOT EXISTS fitbit_days (
+    day TEXT PRIMARY KEY, stamp TEXT NOT NULL, vals TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS fitbit_exercises (
+    start_at TEXT PRIMARY KEY, end_at TEXT NOT NULL, day TEXT NOT NULL, name TEXT NOT NULL, active_min REAL, mean_hr REAL,
+    kcal REAL, azm REAL
+);
+CREATE INDEX IF NOT EXISTS fitbit_exercises_by_day ON fitbit_exercises (day);
 CREATE TABLE IF NOT EXISTS chats (
     id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, model TEXT NOT NULL, created TEXT NOT NULL,
     updated TEXT NOT NULL, target TEXT, note TEXT

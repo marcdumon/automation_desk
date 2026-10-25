@@ -45,6 +45,14 @@ class SleepSettings:
 
 
 @dataclass(frozen=True)
+class FitbitSettings:
+    """The Fitbit settings: the first day to download from Google Health (YYYY-MM-DD, the day the band was first worn);
+    '' when not set."""
+
+    first_day: str = ''
+
+
+@dataclass(frozen=True)
 class PersonSettings:
     """The user's own values, from the [person] part of person.toml: the birth date (YYYY-MM-DD, or a TOML date), the sex
     ('male' or 'female'), the HR from which a second adds to the net energy expenditure, the personal correction factor of
@@ -74,6 +82,7 @@ class Config:
     news: NewsSettings
     polar: PolarSettings = PolarSettings()
     sleep: SleepSettings = SleepSettings()
+    fitbit: FitbitSettings = FitbitSettings()
     person: PersonSettings = PersonSettings()
 
     @property
@@ -99,5 +108,6 @@ def config() -> Config:
         news=NewsSettings(**raw['news']),
         polar=PolarSettings(**raw.get('polar', {})),
         sleep=SleepSettings(**raw.get('sleep', {})),
+        fitbit=FitbitSettings(**raw.get('fitbit', {})),
         person=PersonSettings(**(tomllib.loads(PERSON_FILE.read_text()).get('person', {}) if PERSON_FILE.is_file() else {})),
     )

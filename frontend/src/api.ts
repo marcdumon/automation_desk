@@ -469,6 +469,7 @@ export type HealthView = {
   angina: { score: number | null; note: string; not_measured: boolean } | null
   ketones: KetoneReading[]; ketostix: KetostixLevel[]; latest: HealthLatest; withings: WithingsStatus; polar: PolarStatus
   sleep: SleepStatus
+  fitbit: FitbitStatus
   // the tape measurements of the day by site, and the last day with any before it
   tape: { values: Record<string, number>; last: { day: string; values: Record<string, number> } | null }
 }
@@ -597,6 +598,24 @@ export const getSleepSummary = (days: number) => call<SleepSummary | null>(`/api
 // each sleep of the last `days` days (null: from the first sleep on), for the large view of the sleep times
 export const getSleepTimes = (days: number | null) =>
   call<{ first: string; last: string; sleeps: (SleepTime & { day: string })[] }>(`/api/health/sleep/times${days ? `?days=${days}` : ''}`)
+// the Fitbit card: whether the first day is set and a token is there, the time of the last download, what to do, and the
+// values of the page's day by their history keys (fitbit:...); null without any
+export type FitbitStatus = {
+  configured: boolean; token: boolean; downloaded_at: string | null; message: string; day: Record<string, number> | null
+}
+export type FitbitExercise = {
+  start_at: string; end_at: string; name: string; active_min: number | null; mean_hr: number | null; kcal: number | null
+  azm: number | null
+}
+// the charts of a day: [time in ms, value] pairs (the HR as the mean of each minute, the steps of each period), the sleep
+// stages of the nights that touch the day, and the exercises that start on it
+export type FitbitDay = {
+  hr: [number, number][]; spo2: [number, number][]; hrv: [number, number][]; steps: [number, number][]
+  stages: { start: string; end: string; type: string }[]; exercises: FitbitExercise[]
+}
+export const downloadFitbit = (day: string) => call<HealthView>(`/api/health/fitbit/download?day=${day}`, {})
+export const loginFitbit = (day: string) => call<HealthView>(`/api/health/fitbit/login?day=${day}`, {})
+export const getFitbitDay = (day: string) => call<FitbitDay>(`/api/health/fitbit/day?day=${day}`)
 // the Polar H10 import: set up (the two folders in automation_desk.toml), running with its progress in files (first the
 // copy from the phone, then the reading), the last import, a failure, the number of sessions
 // button: the name of the import button, where it imports from; phase: moving the files from the phone, or reading the

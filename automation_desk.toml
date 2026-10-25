@@ -45,3 +45,7 @@ phone_ftp = 'ftp://user@192.168.1.20:2221/Documents/Polar_hr_data/'
 # the Sleep as Android backup: the phone's SleepCloud add-on writes it to Dropbox, the Dropbox app syncs it here; read only
 # on Import sleep
 backup_file = '/path/to/Dropbox/Apps/Sleep Cloud Backup/Sleep as Android Data.zip'
+
+[fitbit]
+# the first day Download Fitbit gets from Google Health: the day the Fitbit Air was first worn
+first_day = '2026-10-23'

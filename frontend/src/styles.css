@@ -1140,6 +1140,10 @@ dialog.health-guide::backdrop { background: rgb(0 0 0 / 0.5); }
 .health-parts-table th.num, .health-parts-table td.num { text-align: right; }
 .health-tabs { margin-top: 2px; }
 .health-part-row { display: grid; gap: 6px; }
+.health-charts > h3.health-chart-group { margin: 10px 0 0; font-size: 15px; }
+.fitbit-day { display: grid; gap: 16px; }
+.chart .exercise-shade { fill: color-mix(in srgb, var(--series-2) 16%, transparent); }
+.key.exercise { background: color-mix(in srgb, var(--series-2) 40%, transparent); }
 .health-part-row h3 { margin: 6px 0 0; font-size: 15px; }
 .health-part-row h3 .muted { margin-left: 6px; font-weight: 400; font-size: 13px; }
 .health-part-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 12px 18px; }

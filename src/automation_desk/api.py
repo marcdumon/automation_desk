@@ -46,6 +46,7 @@ from automation_desk.groups.news import store as news
 from automation_desk.groups.news.sites import save_site_list
 from automation_desk.groups.tasks import stats as task_stats_store
 from automation_desk.health import analysis as health_analysis
+from automation_desk.health import fitbit as health_fitbit
 from automation_desk.health import history as health_history
 from automation_desk.health import measurements as health_measurements
 from automation_desk.health import (
@@ -1409,7 +1410,7 @@ def _health_view(day: date) -> dict:
     """The Health page for a day: the supplements of the day with their entries and moments (the regime has its own
     route), the angina score, the Ketostix readings, the tape measurements with the last ones before the day, the latest
     Withings values up to the end of the day, the link, the Polar H10 import with the last sessions up to the day, and the
-    sleep of the day with a look at the Sleep as Android backup."""
+    sleep of the day with a look at the Sleep as Android backup, and the Fitbit values of the day with a look at the token."""
     now = _health_now()
     return {'day': day.isoformat(), 'today': health_store.health_day(now).isoformat(), 'now': now.strftime('%H:%M'),
             'supplements': health_supplements.day_view(day),
@@ -1420,7 +1421,8 @@ def _health_view(day: date) -> dict:
             'polar': polar.status() | _polar_latest(day.isoformat()) | {
                 'last_hrv': polar_hrv.last_test(day.isoformat()), 'last_recovery': polar_recovery.last_test(day.isoformat()),
                 'last_stairs': polar_stairs.last_test(day.isoformat())},
-            'sleep': health_sleep.status(now) | {'day': health_sleep.day_card(day.isoformat())}}
+            'sleep': health_sleep.status(now) | {'day': health_sleep.day_card(day.isoformat())},
+            'fitbit': health_fitbit.status() | {'day': health_fitbit.day_card(day.isoformat())}}
 
 
 def _polar_latest(day: str) -> dict:
@@ -1804,6 +1806,30 @@ def sleep_import(day: str | None = None) -> dict:
     except health_sleep.SleepError as error:
         raise HTTPException(409, str(error)) from error
     return _health_view(_health_day(day))
+
+
+@app.post('/api/health/fitbit/download')
+def fitbit_download(day: str | None = None) -> dict:
+    """Get the Fitbit data from Google Health up to today and compute the days that changed. A first day that is not set
+    gives 409 with what to do; a missing or refused token gives 401 (the card offers the login)."""
+    try:
+        health_fitbit.download(health_store.health_day(_health_now()), user_timezone())
+    except health_fitbit.FitbitError as error:
+        raise HTTPException(409, str(error)) from error
+    return _health_view(_health_day(day))
+
+
+@app.post('/api/health/fitbit/login')
+def fitbit_login(day: str | None = None) -> dict:
+    """Open the Google Health consent page in the local browser and wait for it; the token goes to the project's secrets."""
+    health_fitbit.login()
+    return _health_view(_health_day(day))
+
+
+@app.get('/api/health/fitbit/day')
+def fitbit_day(day: str | None = None) -> dict:
+    """The Fitbit charts of a day: HR per minute, SpO2, HRV, steps, the sleep stages and the exercises."""
+    return health_fitbit.day_detail(_health_day(day).isoformat())
 
 
 @app.get('/api/health/overview')
