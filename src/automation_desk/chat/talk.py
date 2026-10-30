@@ -53,7 +53,7 @@ def _today() -> date:
 def system_text() -> str:
     """What the model is told before the conversation."""
     today = _today()
-    return f'You are a helpful assistant. Today is {today.day} {today:%B %Y}.'
+    return f'You are a helpful assistant. Today is {today.day} {today:%B %Y}. {llm.METRIC}'
 
 
 def start(chat_id: int, model: str | None = None, replace: int | None = None, background: bool = True) -> Live:

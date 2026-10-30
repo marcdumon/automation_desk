@@ -26,6 +26,9 @@ RETRYABLE_STATUS = frozenset({408, 409, 429, 500, 502, 503, 504})
 MAX_ATTEMPTS = 3
 RATE_LIMIT_WAITS = 5
 RATE_LIMIT_MAX_WAIT_S = 65.0
+# the user reads only metric units: added to every system text, the chat's too
+METRIC = ('Use only metric units (mm, cm, m, km, m², l, g, kg, °C, km/h) in questions, choices and answers. Never use inches, '
+          'feet, yards, miles, ounces, pounds, gallons or °F: convert such a value to metric units.')
 # when the recent requests went out, shared by the threads that call the model at once
 _SENT: deque[float] = deque()
 _PACE = threading.Lock()
@@ -341,7 +344,7 @@ def ask[T: BaseModel](system: str, user: str, schema: type[T], http: httpx.Clien
         'temperature': 0,
         'max_tokens': 8000,
         'usage': {'include': True},
-        'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}],
+        'messages': [{'role': 'system', 'content': f'{system}\n{METRIC}'}, {'role': 'user', 'content': user}],
         'response_format': {
             'type': 'json_schema',
             'json_schema': {'name': schema.__name__, 'strict': True, 'schema': strict_schema(schema)},

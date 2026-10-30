@@ -44,6 +44,7 @@ def test_ask_retries_once_with_the_validation_error(monkeypatch: pytest.MonkeyPa
     second = json.loads(route.calls[1].request.content)
     assert 'invalid' in second['messages'][-1]['content']
     assert second['response_format']['json_schema']['strict'] is True
+    assert second['messages'][0]['content'] == f'sys\n{llm.METRIC}', 'every system text asks for metric units'
 
 
 @respx.mock
@@ -69,7 +70,7 @@ def test_every_call_is_recorded_with_model_provider_tokens_and_cost(monkeypatch:
     assert failed.error.startswith('unparseable') and failed.purpose == 'test purpose'
     assert (ok.model_used, ok.provider, ok.prompt_tokens, ok.completion_tokens, ok.cost_usd, ok.generation_id) == (
         'google/gemini-3.1-flash-lite', 'Google', 120, 30, 0.000075, 'gen-1')
-    assert (ok.system, ok.reply) == ('system text', '{"a": 5}') and 'user text' in ok.user
+    assert (ok.system, ok.reply) == (f'system text\n{llm.METRIC}', '{"a": 5}') and 'user text' in ok.user
     assert jobs.load()[0]['llm_calls'][1]['cost_usd'] == 0.000075
     sent = json.loads(route.calls[1].request.content)
     assert ok.request == sent, 'the exact body that went to OpenRouter, retry messages included'

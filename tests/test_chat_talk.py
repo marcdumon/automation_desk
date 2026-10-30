@@ -66,7 +66,7 @@ def test_an_answer_is_written_piece_by_piece_and_booked() -> None:
         'Take vitamin D.', 'done', 0.0001, True, 'openai/gpt-6-luna')
     body = sent(route)
     assert body['stream'] is True and body['usage'] == {'include': True} and 'plugins' not in body
-    assert body['messages'] == [{'role': 'system', 'content': 'You are a helpful assistant. Today is 5 October 2026.'},
+    assert body['messages'] == [{'role': 'system', 'content': f'You are a helpful assistant. Today is 5 October 2026. {llm.METRIC}'},
                                 {'role': 'user', 'content': 'Supplements for a 65 year old man?'}]
     [job] = booked()
     assert (job['group'], job['task_name'], job['sentence'], job['cost_usd'], job['status']) == (
