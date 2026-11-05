@@ -7,8 +7,10 @@ execute:   plan id + ticked rows -> exactly the previewed changes are applied.
 import hashlib
 import json
 import logging
+import os
 import re
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import AsyncIterator, Callable
@@ -182,6 +184,19 @@ def code_stamp() -> float:
 
 # the running server's own code; newer code on disk only takes effect after a restart
 STARTED_STAMP = code_stamp()
+
+
+def _restart_soon() -> None:
+    """Replace this process by a fresh start of the same command, half a second after the answer went out."""
+    time.sleep(0.5)
+    os.execv(sys.executable, sys.orig_argv)
+
+
+@app.post('/api/restart')
+def restart() -> dict:
+    """Start the server again with the same command: this process is replaced once the answer has gone out."""
+    threading.Thread(target=_restart_soon, daemon=True).start()
+    return {'restarting': True}
 
 
 @app.get('/api/version')

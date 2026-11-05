@@ -9,6 +9,7 @@ import HabitsPage from './HabitsPage'
 import JobsPage from './JobsPage'
 import Reminders from './Reminders'
 import ResearchPage from './ResearchPage'
+import RestartButton from './RestartButton'
 import ToolsPage from './ToolsPage'
 
 export default function App() {
@@ -33,8 +34,8 @@ export default function App() {
       <main className="main">
         {version.data?.restart_needed && (
           <div className="message outdated" role="alert">
-            <p>The app was updated while it was running, and the running app still has the old code. Restart it: press Ctrl+C in
-              the terminal where it runs, then type <code>run_automation_desk</code>.</p>
+            <p>The app was updated while it was running, and the running app still has the old code. Restart it.</p>
+            <RestartButton className="primary" />
           </div>
         )}
         {outdated && (
@@ -79,6 +80,7 @@ function Sidebar({ groups }: { groups: Group[] }) {
       <JobsLink />
       <Reminders />
       <GoogleStatus />
+      <RestartButton className="restart-server" />
     </nav>
   )
 }

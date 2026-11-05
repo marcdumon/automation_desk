@@ -985,3 +985,5 @@ details.habit-card > summary { cursor: pointer; font-weight: 600; }
 
 .chart .bar.few { fill: var(--muted); opacity: .45; }
 
+.restart-server { margin-top: 8px; font-size: 0.8rem; opacity: 0.75; }
+.restart-server:hover { opacity: 1; }
