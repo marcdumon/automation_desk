@@ -1,6 +1,6 @@
 [project]
 name = 'automation_desk'
-version = '0.1.0'
+version = '0.2.0'
 description = 'Automate Google Calendar, Tasks and Gmail with plain sentences, organised as task groups of standard tasks'
 requires-python = '>=3.13'
 dependencies = [

@@ -1,6 +1,6 @@
 """The app's Google login (Calendar, Gmail) through the google_api library.
 
-The OAuth client secret and the token both live in the project's secrets/ folder (gitignored).
+The OAuth client secret and the token both live in the secrets folder in ~/.config/md_apps/automation_desk.
 Run `uv run python -m automation_desk.google_auth` once to log in.
 """
 
@@ -8,9 +8,9 @@ from google.oauth2.credentials import Credentials
 from google_api import auth
 from googleapiclient.discovery import Resource
 
-from automation_desk.config import APP_DIR
+from automation_desk.config import CONFIG_DIR
 
-SECRETS_DIR = APP_DIR / 'secrets'
+SECRETS_DIR = CONFIG_DIR / 'secrets'
 CLIENT_FILE = SECRETS_DIR / 'client_secret.json'
 TOKEN_FILE = SECRETS_DIR / 'token.json'
 SCOPES = [

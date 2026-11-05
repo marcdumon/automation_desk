@@ -192,7 +192,7 @@ def _post(body: dict, http: httpx.Client) -> dict:
         attempt += 1
 
 
-NO_KEY = 'OpenRouter does not accept the key. Put a valid OPENROUTER_API_KEY in the .env file in the app folder, then try again.'
+NO_KEY = 'OpenRouter does not accept the key. Put a valid OPENROUTER_API_KEY in the .env file in ~/.config/md_apps/automation_desk, then try again.'
 NO_CREDIT = 'Your OpenRouter credit is used up. Buy credit at https://openrouter.ai/settings/credits, then try again.'
 
 
@@ -210,7 +210,7 @@ def open_stream(body: dict, http: httpx.Client, on_wait: Callable[[int], None] |
     is waited for (and told to `on_wait` in seconds); network errors, 408 and 5xx tried again; a refusal as a plain LLMError."""
     cfg = config()
     if not cfg.openrouter_key:
-        raise LLMError('OPENROUTER_API_KEY is not set. Put it in the .env file in the app folder, then try again.')
+        raise LLMError('OPENROUTER_API_KEY is not set. Put it in the .env file in ~/.config/md_apps/automation_desk, then try again.')
     headers = {'Authorization': f'Bearer {cfg.openrouter_key}'}
     attempt = limited = 0
     while True:

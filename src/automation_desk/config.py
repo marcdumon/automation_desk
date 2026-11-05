@@ -1,7 +1,6 @@
 """Settings from `automation_desk.toml` (not in git) and secrets from `.env`.
 
-These files are in the app folder: the folder of the Python environment (the repo in development, the install folder of an
-installed app). The database, the uploads, the captures and the logs are in the data folder: `data_dir` of
+These files are in ~/.config/md_apps/automation_desk in an installed app, and in the repo in development. The database, the uploads, the captures and the logs are in the data folder: `data_dir` of
 `automation_desk.toml`."""
 
 import os
@@ -14,7 +13,9 @@ from pathlib import Path
 from dotenv import dotenv_values, load_dotenv
 
 APP_DIR = Path(sys.prefix).parent
-CONFIG_FILE = APP_DIR / 'automation_desk.toml'
+# an installed app keeps its settings in ~/.config; a development copy (a repo) keeps its own, next to the code
+CONFIG_DIR = APP_DIR if (APP_DIR / 'pyproject.toml').is_file() else Path.home() / '.config' / 'md_apps' / 'automation_desk'
+CONFIG_FILE = CONFIG_DIR / 'automation_desk.toml'
 
 
 def data_dir() -> Path:
@@ -52,15 +53,15 @@ class Config:
     @property
     def openrouter_key(self) -> str:
         """The OpenRouter key, read from .env at every call so a new key works without restarting the app."""
-        return dotenv_values(APP_DIR / '.env').get('OPENROUTER_API_KEY') or os.environ.get('OPENROUTER_API_KEY', '')
+        return dotenv_values(CONFIG_DIR / '.env').get('OPENROUTER_API_KEY') or os.environ.get('OPENROUTER_API_KEY', '')
 
 
 @cache
 def config() -> Config:
     """Load the config file once."""
-    load_dotenv(APP_DIR / '.env')
+    load_dotenv(CONFIG_DIR / '.env')
     if not CONFIG_FILE.is_file():
-        raise SystemExit(f'No {CONFIG_FILE.name} in {APP_DIR}: copy automation_desk.example.toml to {CONFIG_FILE.name}, '
+        raise SystemExit(f'No {CONFIG_FILE.name} in {CONFIG_DIR}: copy automation_desk.example.toml to {CONFIG_FILE.name}, '
                          'then set your own values in it.')
     raw = tomllib.loads(CONFIG_FILE.read_text())
     return Config(

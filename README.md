@@ -89,12 +89,12 @@ Python environment in `~/.local/share/md_apps/automation_desk/` (or `$AUTOMATION
 ~/.local/share/md_apps/automation_desk/env/bin/automation-desk  # http://127.0.0.1:8765
 ```
 
-The app folder holds the settings: `automation_desk.toml` (the first install makes it from the example), `.env` (set
+`~/.config/md_apps/automation_desk/` holds the settings: `automation_desk.toml` (the first install makes it from the example), `.env` (set
 OPENROUTER_API_KEY and TODOIST_API_TOKEN, see `.env.example`) and `secrets/`. `data_dir` in `automation_desk.toml` sets
 the data folder: the database, the uploads, the captures and the logs. Put it where your backups are made; empty, it is
 `data/` in the app folder.
 
-The Google login needs an OAuth client of type Desktop at `secrets/client_secret.json` in the app folder, and stores its
+The Google login needs an OAuth client of type Desktop at `secrets/client_secret.json` in that config folder, and stores its
 token next to it in `secrets/token.json`. The steps for the Cloud project, the APIs, the scopes and the client are in
 [docs/google-setup.md](docs/google-setup.md).
 

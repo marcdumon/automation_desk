@@ -7,6 +7,7 @@ set -euo pipefail
 
 VERSION=${1:?Give the version to install, for example: ./install.sh v0.1.0}
 APP=${AUTOMATION_DESK_HOME:-$HOME/.local/share/md_apps/automation_desk}
+CONFIG=$HOME/.config/md_apps/automation_desk
 REPO=marcdumon/automation_desk
 
 for tool in uv npm curl; do
@@ -14,12 +15,14 @@ for tool in uv npm curl; do
 done
 
 mkdir -p "$APP"
+mkdir -p "$CONFIG"
+chmod 700 "$CONFIG"
 [[ -d $APP/env ]] || uv venv --quiet --python 3.13 "$APP/env"
 echo "Installing automation_desk $VERSION in $APP/env ..."
 uv pip install --quiet --no-sources --python "$APP/env/bin/python" --reinstall-package automation-desk "git+https://github.com/$REPO@$VERSION"
 
-if [[ ! -f $APP/automation_desk.toml ]]; then
-    curl -sfL "https://raw.githubusercontent.com/$REPO/$VERSION/automation_desk.example.toml" -o "$APP/automation_desk.toml"
-    echo "Made $APP/automation_desk.toml from the example: set your own values in it."
+if [[ ! -f $CONFIG/automation_desk.toml ]]; then
+    curl -sfL "https://raw.githubusercontent.com/$REPO/$VERSION/automation_desk.example.toml" -o "$CONFIG/automation_desk.toml"
+    echo "Made $CONFIG/automation_desk.toml from the example: set your own values in it."
 fi
 echo "Installed. Start the app with: $APP/env/bin/automation-desk"
